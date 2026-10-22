@@ -5,6 +5,7 @@ import { ProviderDetailContent } from "@/components/provider-detail"
 import { ProvidersContent } from "@/components/providers"
 import { ModelGroupDetailContent } from "@/components/model-group-detail"
 import { ModelGroupsContent } from "@/components/model-groups"
+import { UsersContent } from "@/components/users"
 import { AuthGate } from "@/components/auth-gate"
 import { DashboardShell } from "@/components/dashboard-shell"
 import { SectionCards } from "@/components/section-cards"
@@ -72,6 +73,8 @@ export function Dashboard({
                   <ModelGroupsContent />
                 ) : currentPath.startsWith("/dashboard/model-groups/") ? (
                   <ModelGroupDetailContent />
+                ) : currentPath === "/dashboard/users" ? (
+                  <UsersContent user={user} />
                 ) : (
                   <DashboardOverview />
                 )}

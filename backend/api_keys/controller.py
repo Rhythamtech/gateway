@@ -16,8 +16,13 @@ router = APIRouter(prefix="/api-keys", tags=["API Keys"])
 
 @router.post("", response_model=APIKeyCreated, status_code=status.HTTP_201_CREATED)
 def create_api_key(data: APIKeyCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    secret = "gw_" + secrets.token_urlsafe(32)
-    key = APIKey(name=data.name, key_hash=hashlib.sha256(secret.encode()).hexdigest(), key_prefix=secret[:12], owner_id=user.id)
+    # Provider-style secret, modeled on the Anthropic/OpenAI shape ("sk-…"):
+    # an Anthropic-like versioned namespace followed by 43 random URL-safe
+    # characters (256-bit entropy, same as the previous format). The format has
+    # no functional role — authentication stores and matches the SHA-256 hash —
+    # so existing keys keep working unchanged.
+    secret = "sk-gw-api01-" + secrets.token_urlsafe(32)
+    key = APIKey(name=data.name, key_hash=hashlib.sha256(secret.encode()).hexdigest(), key_prefix=secret[:16], owner_id=user.id)
     db.add(key)
     db.commit()
     db.refresh(key)

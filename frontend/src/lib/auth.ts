@@ -495,3 +495,23 @@ export async function deleteModelGroupMember(
     }
   )
 }
+
+// --- User management (superuser-only) ---
+
+// GET /users and PATCH /users/{user_id} return the same shape as /users/me;
+// the only supported update field is is_active (role changes are not mounted).
+// Deactivating a superuser is rejected by the backend with a 400.
+export function listUsers(): Promise<CurrentUser[]> {
+  return authenticatedRequest<CurrentUser[]>("/users")
+}
+
+export function updateUserActive(
+  userId: string,
+  isActive: boolean
+): Promise<CurrentUser> {
+  return authenticatedRequest<CurrentUser>(`/users/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ is_active: isActive }),
+  })
+}

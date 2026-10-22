@@ -2,6 +2,7 @@ import * as React from "react"
 import {
   IconBan,
   IconCircleCheckFilled,
+  IconCopy,
   IconDotsVertical,
   IconPlus,
 } from "@tabler/icons-react"
@@ -433,23 +434,37 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
               <DrawerHeader className="gap-1">
                 <DrawerTitle>API key created</DrawerTitle>
                 <DrawerDescription>
-                  Copy the secret for “{drawerState.keyName}” now. It is shown
-                  once and cannot be retrieved again.
+                  The secret for “{drawerState.keyName}” is shown only once.
                 </DrawerDescription>
               </DrawerHeader>
-              <div className="flex flex-col gap-4 px-4 text-sm">
-                <code className="rounded-md bg-muted px-3 py-2 font-mono text-xs break-all select-all">
-                  {drawerState.secret}
-                </code>
+              <div className="flex flex-col gap-3 px-4 text-sm">
+                <div className="flex items-center gap-2 rounded-lg border bg-muted p-2 pl-3">
+                  <code className="min-w-0 flex-1 overflow-x-auto font-mono text-xs leading-6 whitespace-nowrap select-all">
+                    {drawerState.secret}
+                  </code>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={copied ? "secondary" : "outline"}
+                    className="shrink-0"
+                    onClick={handleCopy}
+                  >
+                    {copied ? (
+                      <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+                    ) : (
+                      <IconCopy />
+                    )}
+                    {copied ? "Copied" : "Copy"}
+                  </Button>
+                </div>
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  It cannot be retrieved again once this drawer is closed — save
+                  it in a secure place now.
+                </p>
               </div>
               <DrawerFooter>
-                <Button type="button" onClick={handleCopy}>
-                  {copied ? "Copied" : "Copy secret"}
-                </Button>
                 <DrawerClose asChild>
-                  <Button type="button" variant="outline">
-                    Done — I saved it
-                  </Button>
+                  <Button type="button">Done — I saved it</Button>
                 </DrawerClose>
               </DrawerFooter>
             </>
