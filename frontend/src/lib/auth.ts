@@ -200,3 +200,117 @@ export async function deleteApiKey(keyId: string): Promise<void> {
     method: "DELETE",
   })
 }
+
+export type ProviderProtocol = "openai" | "anthropic"
+
+export type Provider = {
+  id: string
+  name: string
+  aliases: string
+  base_url: string
+  protocol: ProviderProtocol
+  is_enabled: boolean
+  has_api_key: boolean
+  has_custom_header: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type ProviderModel = {
+  id: string
+  provider_id: string
+  model_name: string
+  model_id: string
+  is_available: boolean
+  last_seen_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ProviderSyncResult = {
+  provider_id: string
+  provider_alias: string
+  synced: number
+  created: number
+  updated: number
+  unavailable: number
+  models: {
+    model_name: string
+    model_id: string
+  }[]
+}
+
+export type ProviderInput = {
+  name: string
+  aliases: string
+  base_url: string
+  protocol: ProviderProtocol
+  api_key?: string
+  custom_header?: Record<string, string>
+}
+
+export type ProviderUpdate = {
+  name?: string
+  aliases?: string
+  base_url?: string
+  protocol?: ProviderProtocol
+  api_key?: string
+  custom_header?: Record<string, string> | null
+  is_enabled?: boolean
+}
+
+export function listProviders(): Promise<Provider[]> {
+  return authenticatedRequest<Provider[]>("/provider")
+}
+
+export function getProvider(providerId: string): Promise<Provider> {
+  return authenticatedRequest<Provider>(`/provider/${providerId}`)
+}
+
+export function createProvider(input: ProviderInput): Promise<Provider> {
+  return authenticatedRequest<Provider>("/provider/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateProvider(
+  providerId: string,
+  changes: ProviderUpdate
+): Promise<Provider> {
+  return authenticatedRequest<Provider>(`/provider/update/${providerId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  })
+}
+
+export function disableProvider(providerId: string): Promise<Provider> {
+  return authenticatedRequest<Provider>(`/provider/disable/${providerId}`, {
+    method: "POST",
+  })
+}
+
+export async function deleteProvider(providerId: string): Promise<void> {
+  await authenticatedRequest<void>(`/provider/delete/${providerId}`, {
+    method: "DELETE",
+  })
+}
+
+export function listProviderModels(
+  providerId: string
+): Promise<ProviderModel[]> {
+  return authenticatedRequest<ProviderModel[]>(`/provider/models/${providerId}`)
+}
+
+export function syncProviderModels(
+  providerId: string
+): Promise<ProviderSyncResult> {
+  return authenticatedRequest<ProviderSyncResult>(
+    `/provider/models/${providerId}`,
+    {
+      method: "POST",
+    }
+  )
+}
