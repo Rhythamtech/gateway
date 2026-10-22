@@ -3,6 +3,8 @@ import { ChartAreaInteractive } from "@/components/chart-area-interactive"
 import { DataTable } from "@/components/data-table"
 import { ProviderDetailContent } from "@/components/provider-detail"
 import { ProvidersContent } from "@/components/providers"
+import { ModelGroupDetailContent } from "@/components/model-group-detail"
+import { ModelGroupsContent } from "@/components/model-groups"
 import { AuthGate } from "@/components/auth-gate"
 import { DashboardShell } from "@/components/dashboard-shell"
 import { SectionCards } from "@/components/section-cards"
@@ -32,13 +34,15 @@ export function Dashboard({
         ? "Provider details"
         : currentPath === "/dashboard/providers"
           ? "Providers"
-          : currentPath.startsWith("/dashboard/api-keys")
-            ? "API Keys"
-            : currentPath.startsWith("/dashboard/model-groups")
+          : currentPath.startsWith("/dashboard/model-groups/")
+            ? "Model group details"
+            : currentPath === "/dashboard/model-groups"
               ? "Model Groups"
-              : currentPath.startsWith("/dashboard/users")
-                ? "Users"
-                : "Dashboard"
+              : currentPath.startsWith("/dashboard/api-keys")
+                ? "API Keys"
+                : currentPath.startsWith("/dashboard/users")
+                  ? "Users"
+                  : "Dashboard"
 
   const requiresSuperuser = [
     "/dashboard/providers",
@@ -64,6 +68,10 @@ export function Dashboard({
                   <ProviderDetailContent />
                 ) : currentPath.startsWith("/dashboard/api-keys") ? (
                   <ApiKeysContent user={user} />
+                ) : currentPath === "/dashboard/model-groups" ? (
+                  <ModelGroupsContent />
+                ) : currentPath.startsWith("/dashboard/model-groups/") ? (
+                  <ModelGroupDetailContent />
                 ) : (
                   <DashboardOverview />
                 )}

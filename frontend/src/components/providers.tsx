@@ -9,9 +9,11 @@ import {
 import {
   ApiError,
   listProviders,
+  syncProviderModels,
   updateProvider,
   type Provider,
 } from "@/lib/auth"
+import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -98,6 +100,7 @@ export function ProvidersContent() {
 
     try {
       await updateProvider(provider.id, { is_enabled: true })
+      toast.success(`Provider “${provider.name}” enabled.`)
       refreshProviders()
     } catch (error) {
       setActionError(
@@ -107,6 +110,32 @@ export function ProvidersContent() {
       )
     } finally {
       setPendingProviderId(null)
+    }
+  }
+
+  // Auto-sync runs right after creation so the new provider's models are
+  // imported without a manual step; the Sync button stays available for
+  // refreshes afterwards. Progress is reported as side toast notifications.
+  async function handleCreated(provider: Provider) {
+    const toastId = toast.loading(
+      `Provider “${provider.name}” created — syncing models…`
+    )
+
+    try {
+      const result = await syncProviderModels(provider.id)
+      toast.success(
+        result.synced === 0
+          ? `“${provider.name}”: no models were found to sync.`
+          : `“${provider.name}”: ${result.synced} models synced.`,
+        { id: toastId }
+      )
+    } catch (error) {
+      toast.error(
+        error instanceof ApiError
+          ? `“${provider.name}” was created, but the model sync failed: ${error.message}`
+          : `“${provider.name}” was created, but the model sync failed.`,
+        { id: toastId, duration: 8000 }
+      )
     }
   }
 
@@ -128,7 +157,7 @@ export function ProvidersContent() {
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between px-4 lg:px-6">
+          <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
             <p className="text-sm text-muted-foreground">
               Providers registered for the gateway. Stored credentials are never
               returned.
@@ -340,9 +369,15 @@ export function ProvidersContent() {
           open={true}
           provider={drawerState.provider}
           onClose={() => setDrawerState(null)}
-          onSaved={() => {
+          onSaved={(provider) => {
+            const wasCreate = drawerState.provider === null
             setDrawerState(null)
             refreshProviders()
+            if (wasCreate) {
+              void handleCreated(provider)
+            } else {
+              toast.success(`Provider “${provider.name}” updated.`)
+            }
           }}
         />
       ) : null}
@@ -353,8 +388,10 @@ export function ProvidersContent() {
           provider={drawerState.provider}
           onClose={() => setDrawerState(null)}
           onDone={() => {
+            const name = drawerState.provider.name
             setDrawerState(null)
             refreshProviders()
+            toast.success(`Provider “${name}” disabled.`)
           }}
         />
       ) : null}
@@ -365,8 +402,10 @@ export function ProvidersContent() {
           provider={drawerState.provider}
           onClose={() => setDrawerState(null)}
           onDone={() => {
+            const name = drawerState.provider.name
             setDrawerState(null)
             refreshProviders()
+            toast.success(`Provider “${name}” deleted.`)
           }}
         />
       ) : null}

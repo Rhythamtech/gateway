@@ -338,7 +338,7 @@ export function ProviderDetailContent() {
           </p>
         ) : null}
       </div>
-      <div className="flex items-center justify-between px-4 lg:px-6">
+      <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
         <div className="flex flex-col gap-1">
           <p className="text-sm text-muted-foreground">
             Synced from the provider&apos;s model endpoint. Public model IDs use

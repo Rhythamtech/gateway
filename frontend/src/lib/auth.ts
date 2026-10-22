@@ -41,6 +41,38 @@ export function clearAuthTokens() {
   if (typeof window === "undefined") return
   window.sessionStorage.removeItem(ACCESS_TOKEN_KEY)
   window.sessionStorage.removeItem(REFRESH_TOKEN_KEY)
+  // The cached user belongs to the token session.
+  clearCachedUser()
+}
+
+// Last validated /users/me response, keyed to the token session. AuthGate
+// seeds its initial state from it so client-side navigation paints the page
+// instantly instead of flashing the session-check placeholder; the check is
+// still revalidated by every AuthGate mount.
+const USER_CACHE_KEY = "gateway.current_user"
+
+export function getCachedUser(): CurrentUser | null {
+  if (typeof window === "undefined") return null
+  try {
+    const cached = window.sessionStorage.getItem(USER_CACHE_KEY)
+    return cached ? (JSON.parse(cached) as CurrentUser) : null
+  } catch {
+    return null
+  }
+}
+
+export function cacheUser(user: CurrentUser) {
+  if (typeof window === "undefined") return
+  try {
+    window.sessionStorage.setItem(USER_CACHE_KEY, JSON.stringify(user))
+  } catch {
+    // Storage unavailable: only the instant paint is lost, not correctness.
+  }
+}
+
+function clearCachedUser() {
+  if (typeof window === "undefined") return
+  window.sessionStorage.removeItem(USER_CACHE_KEY)
 }
 
 function getTokens() {
@@ -110,6 +142,11 @@ async function authenticatedRequest<T>(
 
   const headers = new Headers(init.headers)
   headers.set("Authorization", `Bearer ${tokens?.accessToken}`)
+  // A string fetch body defaults to text/plain, which the API rejects with
+  // MALFORMED_INPUT; make application/json the implied content type.
+  if (typeof init.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json")
+  }
 
   let response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
   if (response.status === 401) {
@@ -311,6 +348,150 @@ export function syncProviderModels(
     `/provider/models/${providerId}`,
     {
       method: "POST",
+    }
+  )
+}
+
+export type RoutingStrategy = "round_robin" | "weighted_round_robin"
+
+export type ModelGroupMember = {
+  id: string
+  provider_model_id: string
+  provider_id: string
+  provider_name: string
+  provider_alias: string
+  model_name: string
+  provider_model_id_public: string
+  weight: number
+  priority: number
+  is_available: boolean
+}
+
+export type ModelGroup = {
+  id: string
+  name: string
+  model_id: string
+  routing_strategy: RoutingStrategy
+  is_enabled: boolean
+  members: ModelGroupMember[]
+  member_count: number
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export type ModelGroupList = {
+  items: ModelGroup[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export type ModelGroupMemberInput = {
+  provider_model_id: string
+  weight: number
+  priority: number
+}
+
+export type ModelGroupInput = {
+  name: string
+  model_id: string
+  routing_strategy: RoutingStrategy
+  is_enabled: boolean
+  members?: ModelGroupMemberInput[]
+}
+
+export type ModelGroupUpdate = {
+  name?: string
+  model_id?: string
+  routing_strategy?: RoutingStrategy
+  is_enabled?: boolean
+  members?: ModelGroupMemberInput[]
+}
+
+export type ModelGroupMemberUpdate = {
+  weight?: number
+  priority?: number
+}
+
+export function listModelGroups(
+  options: {
+    page?: number
+    pageSize?: number
+    isEnabled?: boolean
+    routingStrategy?: RoutingStrategy
+  } = {}
+): Promise<ModelGroupList> {
+  const params = new URLSearchParams()
+  const { page, pageSize, isEnabled, routingStrategy } = options
+  if (page !== undefined) params.set("page", String(page))
+  if (pageSize !== undefined) params.set("page_size", String(pageSize))
+  if (isEnabled !== undefined) params.set("is_enabled", String(isEnabled))
+  if (routingStrategy !== undefined)
+    params.set("routing_strategy", routingStrategy)
+  const query = params.toString()
+  return authenticatedRequest<ModelGroupList>(
+    `/model-groups${query ? `?${query}` : ""}`
+  )
+}
+
+export function getModelGroup(groupId: string): Promise<ModelGroup> {
+  return authenticatedRequest<ModelGroup>(`/model-groups/${groupId}`)
+}
+
+export function createModelGroup(input: ModelGroupInput): Promise<ModelGroup> {
+  return authenticatedRequest<ModelGroup>("/model-groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateModelGroup(
+  groupId: string,
+  changes: ModelGroupUpdate
+): Promise<ModelGroup> {
+  return authenticatedRequest<ModelGroup>(`/model-groups/${groupId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  })
+}
+
+export function addModelGroupMember(
+  groupId: string,
+  input: ModelGroupMemberInput
+): Promise<ModelGroup> {
+  return authenticatedRequest<ModelGroup>(`/model-groups/${groupId}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateModelGroupMember(
+  groupId: string,
+  memberId: string,
+  changes: ModelGroupMemberUpdate
+): Promise<ModelGroup> {
+  return authenticatedRequest<ModelGroup>(
+    `/model-groups/${groupId}/members/${memberId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    }
+  )
+}
+
+export async function deleteModelGroupMember(
+  groupId: string,
+  memberId: string
+): Promise<void> {
+  await authenticatedRequest<void>(
+    `/model-groups/${groupId}/members/${memberId}`,
+    {
+      method: "DELETE",
     }
   )
 }

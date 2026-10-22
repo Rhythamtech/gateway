@@ -2,7 +2,9 @@ import * as React from "react"
 
 import {
   ApiError,
+  cacheUser,
   clearAuthTokens,
+  getCachedUser,
   getCurrentUser,
   type CurrentUser,
 } from "@/lib/auth"
@@ -24,7 +26,10 @@ export function AuthGate({
   children,
   requiresSuperuser = false,
 }: AuthGateProps) {
-  const [user, setUser] = React.useState<CurrentUser | null>(null)
+  // Seeded from the previous successful session check (see the cache helpers
+  // in lib/auth.ts) so route changes that remount this gate paint the page
+  // immediately. The revalidation below still runs on every mount.
+  const [user, setUser] = React.useState<CurrentUser | null>(getCachedUser)
   const [error, setError] = React.useState<string | null>(null)
   const [retryCount, setRetryCount] = React.useState(0)
 
@@ -33,7 +38,9 @@ export function AuthGate({
 
     getCurrentUser()
       .then((currentUser) => {
-        if (!cancelled) setUser(currentUser)
+        if (cancelled) return
+        setUser(currentUser)
+        cacheUser(currentUser)
       })
       .catch((requestError: unknown) => {
         if (cancelled) return
@@ -44,6 +51,12 @@ export function AuthGate({
           window.location.replace(`/login?next=${encodeURIComponent(next)}`)
           return
         }
+
+        // When a previously validated session is already on screen, transient
+        // refetch failures shouldn't blank the page; the next mount retries.
+        // Fresh visits still show the blocking error card, and the 401 expiry
+        // case above always redirects.
+        if (getCachedUser()) return
 
         setError(
           requestError instanceof Error

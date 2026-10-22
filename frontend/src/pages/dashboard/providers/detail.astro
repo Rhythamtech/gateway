@@ -4,5 +4,5 @@ import { Dashboard } from "@/components/dashboard"
 ---
 
 <Layout>
-  <Dashboard client:load currentPath="/dashboard/providers/detail" />
+  <Dashboard client:only="react" currentPath="/dashboard/providers/detail" />
 </Layout>

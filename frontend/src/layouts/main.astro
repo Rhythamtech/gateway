@@ -1,9 +1,11 @@
 ---
 import "@/styles/global.css"
 import { APP_DESCRIPTION, APP_NAME, APP_TAGLINE } from "@/lib/site"
+import { ClientRouter } from "astro:transitions"
+import { Toaster } from "@/components/ui/sonner"
 ---
 
-<html lang="en">
+<html lang="en" transition:animate="none">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
@@ -11,26 +13,36 @@ import { APP_DESCRIPTION, APP_NAME, APP_TAGLINE } from "@/lib/site"
     <meta name="theme-color" content="#ffffff" />
     <script is:inline>
       ;(() => {
-        try {
-          const stored = localStorage.getItem("gateway-theme")
-          const theme =
-            stored === "light" || stored === "dark" || stored === "system"
-              ? stored
-              : "system"
-          const isDark =
-            theme === "dark" ||
-            (theme === "system" &&
-              window.matchMedia("(prefers-color-scheme: dark)").matches)
-          const root = document.documentElement
-          root.classList.toggle("dark", isDark)
-          root.style.colorScheme = isDark ? "dark" : "light"
-          root.dataset.theme = theme
-          document
-            .querySelector('meta[name="theme-color"]')
-            ?.setAttribute("content", isDark ? "#0a0a0a" : "#ffffff")
-        } catch {
-          // Ignore unavailable storage; the default light theme still applies.
+        const apply = () => {
+          try {
+            const stored = localStorage.getItem("gateway-theme")
+            const theme =
+              stored === "light" || stored === "dark" || stored === "system"
+                ? stored
+                : "system"
+            const isDark =
+              theme === "dark" ||
+              (theme === "system" &&
+                window.matchMedia("(prefers-color-scheme: dark)").matches)
+            const root = document.documentElement
+            root.classList.toggle("dark", isDark)
+            root.style.colorScheme = isDark ? "dark" : "light"
+            root.dataset.theme = theme
+            document
+              .querySelectorAll('meta[name="theme-color"]')
+              ?.forEach((meta) =>
+                meta.setAttribute("content", isDark ? "#0a0a0a" : "#ffffff")
+              )
+          } catch {
+            // Ignore unavailable storage; the default light theme still applies.
+          }
         }
+        apply()
+        // Astro's client router swaps in the server-rendered <html>, which
+        // has no dark class; re-apply the stored theme right after every
+        // swap so client-side navigation keeps the saved light/dark/system
+        // choice (this runs before the next paint, so there is no flash).
+        document.addEventListener("astro:after-swap", apply)
       })()
     </script>
     <meta name="description" content={APP_DESCRIPTION} />
@@ -52,8 +64,14 @@ import { APP_DESCRIPTION, APP_NAME, APP_TAGLINE } from "@/lib/site"
       href="/brand/apple-touch-icon.png"
     />
     <title>{APP_NAME} — {APP_TAGLINE}</title>
+    <!-- Swap pages client-side instead of full document reloads. The swap is
+         instant: the root crossfade is disabled via transition:animate="none". -->
+    <ClientRouter />
   </head>
   <body>
     <slot />
+    <!-- Side pop notifications (sonner) mounted once globally; persisted
+         across client-side page swaps so stacked toasts survive navigation. -->
+    <Toaster client:only="react" transition:persist="gateway-toaster" />
   </body>
 </html>
