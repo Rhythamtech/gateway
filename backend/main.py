@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -18,11 +18,14 @@ from backend.core.database import Base, engine
 from backend.core.errors import (
     GatewayError,
     handle_gateway_error,
+    handle_http_error,
     handle_unexpected_error,
     handle_validation_error,
 )
 from backend.gateway.chat.controller import router as chat_router
 from backend.gateway.messages.controller import router as messages_router
+from backend.gateway.model_groups import models as model_group_models  # noqa: F401
+from backend.gateway.model_groups.controller import router as model_groups_router
 from backend.gateway.provider_models.controller import (
     gateway_router as models_gateway_router,
 )
@@ -60,6 +63,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(api_keys_router)
 app.include_router(users_router)
+app.include_router(model_groups_router)
 app.include_router(chat_router)
 app.include_router(messages_router)
 app.include_router(responses_router)
@@ -70,6 +74,7 @@ app.include_router(provider_models_router)
 app.add_exception_handler(GatewayError, handle_gateway_error)
 app.add_exception_handler(RequestValidationError, handle_validation_error)
 app.add_exception_handler(Exception, handle_unexpected_error)
+app.add_exception_handler(HTTPException, handle_http_error)
 
 
 @app.get("/health")

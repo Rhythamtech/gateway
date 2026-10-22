@@ -7,6 +7,7 @@ from backend.auth.models import User
 from backend.core.database import get_db
 from backend.dependencies import require_superuser
 from backend.gateway.provider_models import service
+from backend.gateway.model_groups.service import list_enabled_groups
 from backend.gateway.provider_models.dtos import (
     ModelSyncResponse,
     ProviderModelResponse,
@@ -45,13 +46,13 @@ async def sync_provider_models(
 def list_models(db: Session = Depends(get_db)) -> dict:
     data = []
 
-    for model, provider in service.list_available_models(db):
+    for group in list_enabled_groups(db):
         data.append(
             {
-                "id": model.model_id,
+                "id": group.model_id,
                 "object": "model",
-                "created": _epoch_seconds(model.created_at),
-                "owned_by": provider.aliases,
+                "created": _epoch_seconds(group.created_at),
+                "owned_by": "gateway",
             }
         )
 
