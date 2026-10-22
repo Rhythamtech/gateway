@@ -8,6 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.auth.controller import router as auth_router
 from backend.auth.models import User
@@ -50,8 +53,17 @@ async def lifespan(_: FastAPI):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="FastAPI LLM Gateway", lifespan=lifespan)
+app = FastAPI(
+    title="Gateway API",
+    description="LLM gateway for managing providers, models, and API keys.",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+)
 app.add_middleware(APIKeyAuthMiddleware)
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,6 +92,29 @@ app.add_exception_handler(HTTPException, handle_http_error)
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    return FileResponse(STATIC_DIR / "logo.png", media_type="image/png")
+
+
+@app.get("/docs", include_in_schema=False)
+async def swagger_ui() -> HTMLResponse:
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=f"{app.title} — Documentation",
+        swagger_favicon_url="/static/logo.png",
+    )
+
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc() -> HTMLResponse:
+    return get_redoc_html(
+        openapi_url=app.openapi_url,
+        title=f"{app.title} — Documentation",
+        redoc_favicon_url="/static/logo.png",
+    )
 
 
 if __name__ == "__main__":
