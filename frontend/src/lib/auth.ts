@@ -148,3 +148,55 @@ export function signOut() {
   clearAuthTokens()
   window.location.assign("/login")
 }
+
+export type ApiKeyItem = {
+  id: string
+  name: string
+  key_prefix: string
+  owner_id: string
+  created_at: string
+  last_used_at: string | null
+  revoked: boolean
+  revoked_at: string | null
+}
+
+export type ApiKeyList = {
+  items: ApiKeyItem[]
+  total: number
+}
+
+export type ApiKeyCreated = ApiKeyItem & {
+  api_key: string
+}
+
+export type ApiKeyRevoked = {
+  id: string
+  name: string
+  key_prefix: string
+  revoked: boolean
+  revoked_at: string | null
+}
+
+export function listApiKeys(): Promise<ApiKeyList> {
+  return authenticatedRequest<ApiKeyList>("/api-keys")
+}
+
+export function createApiKey(name: string): Promise<ApiKeyCreated> {
+  return authenticatedRequest<ApiKeyCreated>("/api-keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function revokeApiKey(keyId: string): Promise<ApiKeyRevoked> {
+  return authenticatedRequest<ApiKeyRevoked>(`/api-keys/${keyId}/revoke`, {
+    method: "POST",
+  })
+}
+
+export async function deleteApiKey(keyId: string): Promise<void> {
+  await authenticatedRequest<void>(`/api-keys/${keyId}`, {
+    method: "DELETE",
+  })
+}
