@@ -41,9 +41,6 @@ async def sync_provider_models(
     return await service.sync_provider_models(db, provider_id)
 
 
-# NOTE: /v1/* is currently unauthenticated. Planned: users generate per-user API
-# keys and present them as `Authorization: Bearer <key>`; validate against the
-# users table before these routes go public.
 @gateway_router.get("/models")
 def list_models(db: Session = Depends(get_db)) -> dict:
     data = []

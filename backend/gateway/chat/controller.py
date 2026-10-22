@@ -21,9 +21,6 @@ from backend.gateway.streaming import sse
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
 
-# NOTE: /v1/* is currently unauthenticated. Planned: users generate per-user API
-# keys and present them as `Authorization: Bearer <key>`; validate against the
-# users table before these routes go public.
 async def forward_chat(payload: dict[str, Any]) -> Any:
     provider_name, upstream_model = resolve_model(payload["model"])
     provider = get_provider(provider_name)

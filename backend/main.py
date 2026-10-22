@@ -11,6 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth.controller import router as auth_router
 from backend.auth.models import User
+from backend.api_keys import models as api_key_models  # noqa: F401
+from backend.api_keys.controller import router as api_keys_router
+from backend.api_keys.middleware import APIKeyAuthMiddleware
 from backend.core.database import Base, engine
 from backend.core.errors import (
     GatewayError,
@@ -45,6 +48,7 @@ async def lifespan(_: FastAPI):
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="FastAPI LLM Gateway", lifespan=lifespan)
+app.add_middleware(APIKeyAuthMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,6 +58,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(api_keys_router)
 app.include_router(users_router)
 app.include_router(chat_router)
 app.include_router(messages_router)
