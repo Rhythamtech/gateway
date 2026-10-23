@@ -10,14 +10,14 @@ from backend.gateway.chat.models import (
     anthropic_to_openai_response,
     openai_to_anthropic,
 )
-from backend.gateway.providers.service import (
-    call_provider,
-    get_provider,
-    read_sse_data,
-    resolve_model,
-)
+from backend.gateway.providers.service import call_provider, read_sse_data
+from backend.gateway.routing import plan
 from backend.gateway.streaming import sse
 from backend.traces.capture import monitor_stream, start_capture
+from backend.wallet.service import (
+    NoAvailableMemberError,
+    ProviderBudgetInsufficientError,
+)
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
@@ -28,28 +28,44 @@ async def forward_chat(request: Request, payload: dict[str, Any]) -> Any:
     capture = start_capture(request, payload)
 
     try:
-        provider_name, upstream_model = resolve_model(payload["model"])
-        provider = get_provider(provider_name)
+        candidates = plan(payload["model"])
     except GatewayError as exc:
         capture.failure(exc)
         raise
 
-    capture.attempt(
-        provider_name,
-        upstream_model,
-        payload.get("model"),
-        protocol=provider.protocol,
-        stream=stream,
-    )
+    provider = None
+    for candidate in candidates:
+        try:
+            # Resolves the runtime provider, validates wallet/availability
+            # and reserves credits plus provider budget before dispatch.
+            # Budget-hold failures skip to the next member per the routing
+            # strategy; other errors are recorded and abort the request.
+            provider = capture.begin_attempt(candidate, payload, stream=stream)
+            break
+        except ProviderBudgetInsufficientError:
+            continue  # skip to the next member per the routing strategy
+        except GatewayError as exc:
+            capture.failure(exc)
+            raise
+    else:
+        capture.failure(
+            GatewayError(
+                429,
+                "no_available_member",
+                "No available member can serve this request within "
+                "wallet and provider budget limits",
+            )
+        )
+        raise NoAvailableMemberError()
 
     upstream_payload = dict(payload)
-    upstream_payload["model"] = upstream_model
+    upstream_payload["model"] = candidate.upstream_model
 
     if provider.protocol == "anthropic":
         upstream_payload = openai_to_anthropic(upstream_payload)
 
     try:
-        upstream_response = await call_provider(provider_name, upstream_payload, stream)
+        upstream_response = await call_provider(candidate.provider_alias, upstream_payload, stream)
     except GatewayError as exc:
         capture.failure(exc)
         raise
@@ -85,7 +101,7 @@ async def forward_chat(request: Request, payload: dict[str, Any]) -> Any:
         return StreamingResponse(stream_openai(), media_type="text/event-stream")
 
     pieces = monitor_stream(
-        anthropic_stream_to_openai(upstream_response, upstream_model),
+        anthropic_stream_to_openai(upstream_response, candidate.upstream_model),
         capture,
     )
 

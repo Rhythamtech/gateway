@@ -80,6 +80,8 @@ def to_group_response(db: Session, group: ModelGroup) -> dict:
         "model_id": group.model_id,
         "routing_strategy": group.routing_strategy,
         "is_enabled": group.is_enabled,
+        "credit_multiplier_ppm": group.credit_multiplier_ppm,
+        "pricing_version": group.pricing_version,
         "members": members,
         "member_count": len(members),
         "created_by": group.created_by,
@@ -170,6 +172,8 @@ def create_model_group(db: Session, data: ModelGroupCreate, created_by: str) -> 
         model_id=data.model_id,
         routing_strategy=data.routing_strategy,
         is_enabled=data.is_enabled,
+        credit_multiplier_ppm=data.credit_multiplier_ppm,
+        pricing_version=data.pricing_version,
         created_by=created_by,
         created_at=_now(),
         updated_at=_now(),
@@ -218,7 +222,7 @@ def update_model_group(db: Session, group_id: UUID, data: ModelGroupPatch) -> di
     is_enabled = supplied.get("is_enabled", group.is_enabled)
     _validate_enabled(is_enabled, proposed_members)
 
-    for field in ("name", "model_id", "routing_strategy", "is_enabled"):
+    for field in ("name", "model_id", "routing_strategy", "is_enabled", "credit_multiplier_ppm", "pricing_version"):
         if field in supplied:
             setattr(group, field, supplied[field])
     group.updated_at = _now()

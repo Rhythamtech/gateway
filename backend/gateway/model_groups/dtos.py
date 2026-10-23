@@ -43,6 +43,9 @@ class ModelGroupCreate(BaseModel):
     model_id: str = Field(min_length=1, max_length=320)
     routing_strategy: RoutingStrategy
     is_enabled: bool = True
+    # Integer credit multiplier in parts per million (1x = 1_000_000).
+    credit_multiplier_ppm: int = Field(default=1_000_000, gt=0, strict=True)
+    pricing_version: str = Field(default="1", min_length=1, max_length=32)
     members: list[ModelGroupMemberCreate] = Field(default_factory=list)
 
     @field_validator("name")
@@ -65,6 +68,8 @@ class ModelGroupPatch(BaseModel):
     model_id: str | None = Field(default=None, min_length=1, max_length=320)
     routing_strategy: RoutingStrategy | None = None
     is_enabled: bool | None = None
+    credit_multiplier_ppm: int | None = Field(default=None, gt=0, strict=True)
+    pricing_version: str | None = Field(default=None, min_length=1, max_length=32)
     members: list[ModelGroupMemberCreate] | None = None
 
     @field_validator("name")
@@ -110,6 +115,8 @@ class ModelGroupResponse(BaseModel):
     model_id: str
     routing_strategy: RoutingStrategy
     is_enabled: bool
+    credit_multiplier_ppm: int
+    pricing_version: str
     members: list[ModelGroupMemberResponse]
     member_count: int
     created_by: UUID

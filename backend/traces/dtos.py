@@ -12,7 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 SubjectType = Literal["api_key", "gateway_model", "user"]
-TraceStatus = Literal["success", "failed", "timeout"]
+TraceStatus = Literal["pending", "success", "failed", "timeout"]
 
 
 class MessageTraceItem(BaseModel):
@@ -69,6 +69,17 @@ class CallTraceItem(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     cache_tokens: int | None
+    # Normalized token components and accounting charges (superuser view).
+    uncached_input_tokens: int | None
+    cache_read_tokens: int | None
+    cache_write_tokens: int | None
+    billable_token_units: int | None
+    token_usage_source: str | None
+    user_credits_charged: int
+    credit_multiplier_ppm: int | None
+    provider_budget_credits_consumed: int
+    provider_cost_nanos: int
+    currency_code: str | None
     latency_ms: int | None
     status: TraceStatus
     error_code: str | None

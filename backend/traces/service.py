@@ -33,10 +33,11 @@ from backend.traces.models import (
 )
 from backend.traces.redaction import serialize_request_payload
 
+STATUS_PENDING = "pending"
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
 STATUS_TIMEOUT = "timeout"
-_STATUSES = (STATUS_SUCCESS, STATUS_FAILED, STATUS_TIMEOUT)
+_STATUSES = (STATUS_PENDING, STATUS_SUCCESS, STATUS_FAILED, STATUS_TIMEOUT)
 
 _INCREMENT_COLUMNS = (
     "call_count",
@@ -95,7 +96,7 @@ def normalize_status(status: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _daily_upsert(
+def bump_daily_usage(
     db: Session,
     table: type,
     pk_columns: dict[str, str],
@@ -217,25 +218,12 @@ def record_attempt(
 
         # One row per daily aggregate that applies to this attempt: API key,
         # gateway model, the per-user model slice, and the user's own totals.
-        aggregate_targets: list[tuple[type, dict[str, str]]] = []
-        if api_key_id:
-            aggregate_targets.append((LLMAPIKeyUsageDaily, {"api_key_id": api_key_id}))
-        if gateway_model_id:
-            aggregate_targets.append(
-                (LLMGatewayModelUsageDaily, {"gateway_model_id": gateway_model_id})
-            )
-            # Per-user model slice so regular users can see model analytics
-            # scoped to their own attempts.
-            aggregate_targets.append(
-                (
-                    LLMUserModelUsageDaily,
-                    {"user_id": user_id, "gateway_model_id": gateway_model_id},
-                )
-            )
-        aggregate_targets.append((LLMUserUsageDaily, {"user_id": user_id}))
-
-        for table, pk_columns in aggregate_targets:
-            _daily_upsert(
+        for table, pk_columns in aggregate_targets(
+            user_id=user_id,
+            api_key_id=api_key_id,
+            gateway_model_id=gateway_model_id,
+        ):
+            bump_daily_usage(
                 db,
                 table,
                 pk_columns,
@@ -254,6 +242,87 @@ def record_attempt(
         raise
     finally:
         db.close()
+
+
+def aggregate_targets(
+    *,
+    user_id: str,
+    api_key_id: str | None = None,
+    gateway_model_id: str | None = None,
+) -> list[tuple[type, dict[str, str]]]:
+    """Daily aggregate rows that one attempt updates, keyed by subject."""
+
+    targets: list[tuple[type, dict[str, str]]] = []
+    if api_key_id:
+        targets.append((LLMAPIKeyUsageDaily, {"api_key_id": api_key_id}))
+    if gateway_model_id:
+        targets.append((LLMGatewayModelUsageDaily, {"gateway_model_id": gateway_model_id}))
+        # Per-user model slice so regular users can see model analytics
+        # scoped to their own attempts.
+        targets.append(
+            (
+                LLMUserModelUsageDaily,
+                {"user_id": user_id, "gateway_model_id": gateway_model_id},
+            )
+        )
+    targets.append((LLMUserUsageDaily, {"user_id": user_id}))
+    return targets
+
+
+def start_pending_attempt(
+    db: Session,
+    *,
+    user_id: str,
+    api_key_id: str | None = None,
+    request_json: str | None = None,
+    message_id: str | None = None,
+    message_trace_id: str | None = None,
+    gateway_model_id: str | None = None,
+    provider_model_id: str | None = None,
+    credit_multiplier_ppm: int | None = None,
+    created_at: datetime | None = None,
+) -> tuple[LLMMessageTrace, LLMCallTrace]:
+    """Insert the message context and a ``pending`` call row pre-dispatch.
+
+    The wallet reservation references the call row, so both are created in
+    the same transaction as the reservation itself. ``request_json`` is the
+    caller's already-sanitized payload and is only populated for users that
+    opted into persistence (billing metadata is always recorded). A call
+    trace row is appended for every attempt; retries share one message trace.
+    """
+
+    started_at = created_at or datetime.now(timezone.utc)
+
+    if message_trace_id is None:
+        message = LLMMessageTrace(
+            user_id=user_id,
+            message_id=message_id,
+            request_json=request_json,
+            created_at=started_at,
+        )
+        db.add(message)
+        db.flush()
+    else:
+        message = db.get(LLMMessageTrace, message_trace_id)
+        if message is None:
+            raise ValueError(f"Unknown message trace id: {message_trace_id}")
+        if message.request_json is None and request_json:
+            message.request_json = request_json
+
+    call = LLMCallTrace(
+        message_trace_id=message.id,
+        user_id=user_id,
+        api_key_id=api_key_id,
+        gateway_model_id=gateway_model_id,
+        provider_model_id=provider_model_id,
+        status=STATUS_PENDING,
+        user_credits_charged=0,
+        credit_multiplier_ppm=credit_multiplier_ppm,
+        created_at=started_at,
+    )
+    db.add(call)
+    db.flush()
+    return message, call
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +370,10 @@ def message_status_from_counts(
         return STATUS_FAILED
     if successful > 0:
         return STATUS_SUCCESS
+    # ``failed`` already includes timeouts; attempts that are reserved but
+    # not yet settled remain pending, so the message is still in flight.
+    if successful + failed < call_count:
+        return STATUS_PENDING
     if timeout > 0:
         return STATUS_TIMEOUT
     return STATUS_FAILED
@@ -407,6 +480,16 @@ def _call_row_data(row: Any) -> dict[str, Any]:
         "input_tokens": call.input_tokens,
         "output_tokens": call.output_tokens,
         "cache_tokens": call.cache_tokens,
+        "uncached_input_tokens": call.uncached_input_tokens,
+        "cache_read_tokens": call.cache_read_tokens,
+        "cache_write_tokens": call.cache_write_tokens,
+        "billable_token_units": call.billable_token_units,
+        "token_usage_source": call.token_usage_source,
+        "user_credits_charged": call.user_credits_charged,
+        "credit_multiplier_ppm": call.credit_multiplier_ppm,
+        "provider_budget_credits_consumed": call.provider_budget_credits_consumed,
+        "provider_cost_nanos": call.provider_cost_nanos,
+        "currency_code": call.currency_code,
         "latency_ms": call.latency_ms,
         "status": call.status,
         "error_code": call.error_code,

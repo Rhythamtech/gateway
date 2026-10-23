@@ -113,7 +113,7 @@ def _ensure_status(status_filter: str | None) -> str | None:
         raise _error(
             status.HTTP_400_BAD_REQUEST,
             "INVALID_STATUS",
-            "status must be success, failed or timeout",
+            "status must be pending, success, failed or timeout",
         ) from None
 
 
@@ -173,6 +173,16 @@ def _call_item(call: dict[str, Any]) -> CallTraceItem:
         input_tokens=call["input_tokens"],
         output_tokens=call["output_tokens"],
         cache_tokens=call["cache_tokens"],
+        uncached_input_tokens=call.get("uncached_input_tokens"),
+        cache_read_tokens=call.get("cache_read_tokens"),
+        cache_write_tokens=call.get("cache_write_tokens"),
+        billable_token_units=call.get("billable_token_units"),
+        token_usage_source=call.get("token_usage_source"),
+        user_credits_charged=call.get("user_credits_charged") or 0,
+        credit_multiplier_ppm=call.get("credit_multiplier_ppm"),
+        provider_budget_credits_consumed=call.get("provider_budget_credits_consumed") or 0,
+        provider_cost_nanos=call.get("provider_cost_nanos") or 0,
+        currency_code=call.get("currency_code"),
         latency_ms=call["latency_ms"],
         status=call["status"],
         error_code=call["error_code"],

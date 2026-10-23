@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class APIKeyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
 
 
@@ -40,5 +41,6 @@ class APIKeyRevoked(BaseModel):
     id: str
     name: str
     key_prefix: str
+    owner_id: str
     revoked: bool
     revoked_at: datetime

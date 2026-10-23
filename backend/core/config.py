@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ProviderProtocol = Literal["openai", "anthropic"]
+BalancePolicy = Literal["estimate", "unbillable"]
 
 
 class ProviderSettings(BaseModel):
@@ -53,6 +54,26 @@ class Settings(BaseSettings):
     OTEL_SERVICE_NAME: str = "llm-gateway"
     # "always_on" or "always_off" sampler name from opentelemetry.sdk.trace.sampling.
     OTEL_SAMPLER: str = "always_on"
+
+    # Billing / accounting. integer-based credits and rates only.
+    # One normalized token unit == one base user credit; the model-group
+    # multiplier scales it (credit_multiplier_ppm; 1x = 1_000_000).
+    # Reservations cover an estimated maximum charge: request-derived token
+    # estimate inflated by RESERVATION_MARGIN_PPM, and the requested
+    # output-token limit (DEFAULT_OUTPUT_TOKENS when the request omits it).
+    BILLING_RESERVATION_MARGIN_PPM: int = 100_000  # +10% estimation margin
+    BILLING_DEFAULT_OUTPUT_TOKENS: int = 1000
+    # Policy when an upstream attempt consumed tokens but the provider never
+    # reported usage: "estimate" bills the reservation estimate,
+    # "unbillable" charges nothing. The decision is recorded on the trace.
+    BILLING_MISSING_USAGE_POLICY: BalancePolicy = "estimate"
+    # Active reservations older than this (created before dispatch and never
+    # settled, e.g. after a crash) are released without billing when the next
+    # attempt for the same user arrives. Defaults past ROUTER_TIMEOUT.
+    BILLING_RESERVATION_TTL_SECONDS: int = 330
+    # Default pricing version for calls resolved without a model group
+    # (multiplier 1x). Versioned snapshots never change historical charges.
+    BILLING_PRICING_VERSION: str = "1"
 
     model_config = SettingsConfigDict(
         env_file=".env",           # Looks for '.env' in the current working directory

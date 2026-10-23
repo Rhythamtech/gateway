@@ -33,6 +33,7 @@ from backend.gateway.providers.models import (
     ProviderAuditLog,
     ProviderProtocol,
 )
+from backend.wallet import service as wallet_service
 
 logger = logging.getLogger(__name__)
 
@@ -412,6 +413,17 @@ def create_provider(
     db.add(provider)
     db.flush()
 
+    if data.initial_budget_credits is not None:
+        # Optional initial allocation inside the same creation transaction;
+        # uses the standalone allocation checks/ledger, and fails the whole
+        # creation when the system budget cannot fund it.
+        wallet_service.allocate_initial_provider_budget(
+            db,
+            provider_id=provider.id,
+            amount_credits=data.initial_budget_credits,
+            actor_user_id=actor_id,
+        )
+
     _audit(
         db,
         provider_id=provider.id,
@@ -684,6 +696,12 @@ async def call_provider(
             json=payload,
         )
         response = await get_client().send(request, stream=stream)
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.WriteError) as error:
+        # Connection-stage failure: nothing reached the provider, so billing
+        # releases the reservation instead of settling estimated usage.
+        raise GatewayError(
+            502, "dispatch_failed", "Provider request could not be dispatched"
+        ) from error
     except httpx.TimeoutException:
         raise GatewayError(504, "upstream_timeout", "Provider request timed out")
     except httpx.HTTPError:

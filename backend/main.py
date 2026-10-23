@@ -19,7 +19,7 @@ from backend.auth.models import User
 from backend.api_keys import models as api_key_models  # noqa: F401
 from backend.api_keys.controller import router as api_keys_router
 from backend.api_keys.middleware import APIKeyAuthMiddleware
-from backend.core.database import Base, engine
+from backend.core.database import Base, write_engine
 from backend.core.errors import GatewayError
 from backend.core.migrations import run_pending_migrations
 from backend.gateway.chat.controller import router as chat_router
@@ -38,6 +38,8 @@ from backend.telemetry import setup as setup_telemetry, shutdown as shutdown_tel
 from backend.traces import models as trace_models  # noqa: F401
 from backend.traces.controller import router as traces_router
 from backend.users.controller import router as users_router
+from backend.wallet import models as wallet_models  # noqa: F401
+from backend.wallet.controller import router as wallet_router
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +48,6 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI):
     # OpenTelemetry span recording (see docs/tracing.md).
     setup_telemetry(app)
-
-    applied = run_pending_migrations(engine)
-
-    if applied:
-        logger.info("Applied schema migrations: %s", ", ".join(applied))
 
     seeded = seed_providers_from_settings()
 
@@ -62,7 +59,12 @@ async def lifespan(_: FastAPI):
     shutdown_telemetry()
 
 
-Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=write_engine)
+
+# Schema migrations run at import time (not only under the server lifespan)
+# so scripts, tests and short-lived processes always observe the current
+# schema; every migration is idempotent against freshly created tables.
+run_pending_migrations(write_engine)
 
 app = FastAPI(
     title="Gateway API",
@@ -98,6 +100,7 @@ app.include_router(models_gateway_router)
 app.include_router(providers_router)
 app.include_router(provider_models_router)
 app.include_router(traces_router)
+app.include_router(wallet_router)
 
 
 # ---------------------------------------------------------------------------

@@ -3,18 +3,17 @@
 One ``CallCapture`` per inbound message/request:
 
 * the sanitized request payload is stored once (``llm_message_traces``),
-* the actual upstream attempt is recorded (``llm_call_traces``) — including
-  routing decisions, failures and timeouts — and daily aggregates are updated
-  in the same transaction as the call trace,
+* every actual upstream attempt gets its own ``pending`` call trace and
+  wallet reservation before dispatch, and is settled (usage, charges,
+  reservation release) or released right after — in the recording
+  transaction of that attempt,
 * the same attempt also emits one OpenTelemetry ``gateway.llm.call`` span
   (config-driven, independent of the per-user opt-in below).
 
-Per-user persistence is opt-in: middleware stamps ``request.state
-.tracing_enabled`` from the API key owner's ``users.tracing_enabled`` flag.
-OpenTelemetry spans are also opt-in per user (``users.telemetry_enabled``,
-toggled by the user themselves); source traffic with the flag off emits no
-request span and no LLM span. Capture must never break inference — every
-recording path swallows its own errors.
+Request payloads are persisted only for users that opted into tracing
+(``users.tracing_enabled``); usage and billing metadata is always recorded
+because it is required for accounting. Capture must never break inference —
+every recording path swallows its own errors at ``ERROR`` level.
 """
 
 import logging
@@ -24,18 +23,29 @@ from typing import Any, AsyncIterator
 
 from opentelemetry.trace import Span
 
-from backend.core.database import SessionLocal
 from backend.core.errors import GatewayError
-from backend.gateway.model_groups.models import ModelGroup
-from backend.gateway.provider_models.models import ProviderModel
+from backend.gateway.providers.service import get_provider
 from backend.telemetry import finish_attempt_span, start_attempt_span
 from backend.traces import service
 from backend.traces.redaction import serialize_request_payload
+from backend.wallet import service as wallet_service
+from backend.wallet.service import (
+    TokenUsage,
+    approximate_input_tokens,
+    canonical_input_tokens,
+    normalize_provider_usage,
+    requested_output_tokens,
+    sanitize_usage_json,
+    total_cache_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
 # Provider timeout errors recorded as the timeout attempt status.
 _TIMEOUT_ERROR_CODES = ("upstream_timeout", "request_timeout")
+# Connection-stage failures: nothing was dispatched and no tokens were
+# consumed, so the reservation is released instead of billed.
+_NO_DISPATCH_CODES = ("dispatch_failed",)
 
 
 def _utcnow() -> datetime:
@@ -48,33 +58,8 @@ def _int_or_none(value: Any) -> int | None:
     return value if value >= 0 else None
 
 
-def extract_usage(response: dict[str, Any], protocol: str) -> dict[str, Any]:
-    """Provider-reported token usage; absent values stay unavailable (None)."""
-
-    usage = response.get("usage") or {}
-
-    if protocol == "anthropic":
-        return {
-            "input_tokens": _int_or_none(usage.get("input_tokens")),
-            "output_tokens": _int_or_none(usage.get("output_tokens")),
-            "cache_tokens": _int_or_none(usage.get("cache_read_input_tokens")),
-        }
-
-    prompt_details = usage.get("prompt_tokens_details") or {}
-    return {
-        "input_tokens": _int_or_none(usage.get("prompt_tokens")),
-        "output_tokens": _int_or_none(usage.get("completion_tokens")),
-        "cache_tokens": _int_or_none(prompt_details.get("cached_tokens")),
-    }
-
-
-def message_id_from_response(response: dict[str, Any]) -> str | None:
-    message_id = response.get("id")
-    return message_id if isinstance(message_id, str) and message_id else None
-
-
 def _elapsed_ms(started: float) -> int:
-    return max(0, int(round((time.monotonic() - started) * 1000)))
+    return max(0, round((time.monotonic() - started) * 1000))
 
 
 def _failure_status(error: Exception, default_error_code: str) -> tuple[str, str]:
@@ -91,13 +76,8 @@ def _failure_status(error: Exception, default_error_code: str) -> tuple[str, str
     return status, error_code
 
 
-def _start_of(moment: datetime, latency_ms: int) -> datetime:
-    seconds = latency_ms / 1000
-    return datetime.fromtimestamp(moment.timestamp() - seconds, tz=timezone.utc)
-
-
 class CallCapture:
-    """Records the request context, the provider attempt and daily aggregates."""
+    """Records the request context, the provider attempt and its charges."""
 
     def __init__(
         self,
@@ -113,89 +93,121 @@ class CallCapture:
         self._spans_on = spans_on
         self._span: Span | None = None
         self._started = time.monotonic()
+        self._charge: wallet_service.AttemptCharge | None = None
+        self._stream_protocol: str | None = None
+        # Attempt references set by begin_attempt; failures that happen
+        # before any candidate is reserved (planning/resolution errors)
+        # still record without them.
         self._gateway_model_id: str | None = None
         self._provider_model_id: str | None = None
+        self._provider_id: str | None = None
+        self._upstream_model: str | None = None
         self.message_trace_id: str | None = None
 
     @classmethod
     def start(cls, request: Any, payload: Any) -> "CallCapture":
         user_id = getattr(request.state, "api_key_owner_id", None)
         api_key_id = getattr(request.state, "api_key_id", None)
-        enabled = getattr(request.state, "tracing_enabled", False)
-        persist = bool(enabled and user_id and api_key_id)
+        # Billing is always recorded; the sanitized request payload is only
+        # persisted when the user opted into trace persistence.
+        persist = bool(getattr(request.state, "tracing_enabled", False))
+        request_json = serialize_request_payload(payload) if persist else None
         # Spans carry the key owner's own opt-out (see docs/tracing.md).
         spans_on = bool(getattr(request.state, "telemetry_enabled", False))
 
         return cls(
-            user_id=user_id if persist else None,
-            api_key_id=api_key_id if persist else None,
-            request_json=serialize_request_payload(payload) if persist else None,
+            user_id=user_id,
+            api_key_id=api_key_id,
+            request_json=request_json,
             spans_on=spans_on,
         )
 
-    # -- attempt -----------------------------------------------------------
+    # -- attempt lifecycle --------------------------------------------------
 
-    def attempt(
+    def begin_attempt(
         self,
-        provider_name: str,
-        upstream_model: str,
-        requested_model: str | None,
+        candidate: Any,
+        payload: dict[str, Any],
         *,
-        protocol: str,
         stream: bool,
-    ) -> None:
-        """Resolve gateway/provider model entities and open the attempt span."""
+    ) -> Any:
+        """Resolves the runtime provider and reserves credits pre-dispatch.
 
-        # The resolved ids back persisted trace rows only; a non-opted-in user
-        # skips the lookups entirely.
-        self._gateway_model_id = None
-        self._provider_model_id = None
+        ``candidate`` is a ``routing.RouteCandidate``. Raises GatewayError
+        for an unusable provider (before any reservation) so the caller can
+        surface it, and returns the runtime provider on success.
+        """
 
-        if self._user_id:
-            db = SessionLocal()
-            try:
-                provider_model = (
-                    db.query(ProviderModel)
-                    .filter(ProviderModel.model_id == f"{provider_name}/{upstream_model}")
-                    .first()
-                )
-                self._provider_model_id = provider_model.id if provider_model else None
+        self._gateway_model_id = candidate.gateway_model_id
+        self._provider_model_id = candidate.provider_model_id
+        self._provider_id = candidate.provider_id
+        self._upstream_model = candidate.upstream_model
 
-                group = None
-                if requested_model:
-                    group = (
-                        db.query(ModelGroup)
-                        .filter(ModelGroup.model_id == requested_model)
-                        .first()
-                    )
-                self._gateway_model_id = group.id if group else None
-            finally:
-                db.close()
+        # Raises GatewayError when the provider cannot be used at all
+        # (unknown/disabled/configuration); the controller records it and
+        # surfaces the wire error. No reservation exists yet.
+        provider = get_provider(candidate.provider_alias)
+
+        if not self._user_id:
+            return provider  # untraceable context: legacy record path only
+
+        try:
+            self._charge = wallet_service.reserve_attempt(
+                user_id=self._user_id,
+                api_key_id=self._api_key_id,
+                provider_id=candidate.provider_id,
+                provider_model_id=candidate.provider_model_id,
+                gateway_model_id=candidate.gateway_model_id,
+                multiplier_ppm=candidate.multiplier_ppm,
+                pricing_version=candidate.pricing_version,
+                estimate_input_tokens=approximate_input_tokens(payload),
+                estimate_output_tokens=requested_output_tokens(payload),
+                request_json=self._request_json,
+                message_trace_id=self.message_trace_id,
+            )
+            self.message_trace_id = self._charge.message_trace_id
+        except GatewayError:
+            # A failed pre-dispatch reservation leaves no charge to settle;
+            # user-level errors (insufficient credits, inactive wallet) are
+            # surfaced by the controller, budget errors skip the member.
+            self._charge = None
+            raise
 
         self._span = (
             start_attempt_span(
-                provider_name=provider_name,
-                protocol=protocol,
-                model=upstream_model,
-                requested_model=requested_model,
+                provider_name=candidate.provider_alias,
+                protocol=provider.protocol,
+                model=candidate.upstream_model,
+                requested_model=getattr(candidate, "requested_model", None),
                 stream=stream,
             )
             if self._spans_on
             else None
         )
 
-    # -- recording ---------------------------------------------------------
+        return provider
 
-    def _record(
+    def _telemetry_usage(
+        self, usage: TokenUsage | None
+    ) -> dict[str, int | None]:
+        usage = usage or TokenUsage()
+        return {
+            "input_tokens": canonical_input_tokens(usage),
+            "output_tokens": usage.output,
+            "cache_tokens": total_cache_tokens(usage),
+        }
+
+    def _finish(
         self,
         *,
         status: str,
         error_code: str | None,
         latency_ms: int,
-        input_tokens: int | None,
-        output_tokens: int | None,
-        cache_tokens: int | None,
-        message_id: str | None,
+        message_id: str | None = None,
+        usage: TokenUsage | None = None,
+        sanitized_usage_json: str | None = None,
+        release_without_billing: bool = False,
+        allow_estimate: bool = True,
     ) -> None:
         try:
             finish_attempt_span(
@@ -203,20 +215,50 @@ class CallCapture:
                 status_name=status,
                 error_code=error_code,
                 latency_ms=latency_ms,
-                usage={
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "cache_tokens": cache_tokens,
-                },
+                usage=self._telemetry_usage(usage),
                 message_id=message_id,
             )
         except Exception:  # telemetry must never break inference
             logger.exception("Failed to finalize LLM attempt span")
         self._span = None
 
-        if not self._user_id:
-            return  # persistence is opt-in; OTel span still closed above
+        charge = self._charge
+        self._charge = None
 
+        if charge is not None and release_without_billing:
+            try:
+                wallet_service.release_attempt(
+                    call_trace_id=charge.call_trace_id,
+                    status_name=status,
+                    error_code=error_code or "released",
+                    latency_ms=latency_ms,
+                )
+            except Exception:  # billing must never break a served response
+                logger.exception("Failed to release attempt %s", charge.call_trace_id)
+            return
+
+        if charge is not None:
+            try:
+                wallet_service.settle_attempt(
+                    call_trace_id=charge.call_trace_id,
+                    status_name=status,
+                    error_code=error_code,
+                    latency_ms=latency_ms,
+                    message_id=message_id,
+                    token_usage=usage,
+                    sanitized_usage_json=sanitized_usage_json,
+                    allow_estimate=allow_estimate,
+                )
+            except Exception:  # billing must never break a served response
+                logger.exception("Failed to settle attempt %s", charge.call_trace_id)
+            return
+
+        if not self._user_id:
+            return  # nothing recordable — attempts stayed unrouted
+
+        # Fallback for failures before any member was reserved (routing or
+        # resolution errors): record the failed attempt without billing.
+        telemetry_usage = self._telemetry_usage(usage)
         try:
             self.message_trace_id = service.record_attempt(
                 user_id=self._user_id,
@@ -226,17 +268,19 @@ class CallCapture:
                 request_json=self._request_json,
                 gateway_model_id=self._gateway_model_id,
                 provider_model_id=self._provider_model_id,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cache_tokens=cache_tokens,
+                input_tokens=telemetry_usage["input_tokens"],
+                output_tokens=telemetry_usage["output_tokens"],
+                cache_tokens=telemetry_usage["cache_tokens"],
                 latency_ms=latency_ms,
                 status=status,
                 error_code=error_code,
-                created_at=_start_of(_utcnow(), latency_ms),
+                created_at=_utcnow(),
                 finished_at=_utcnow(),
             )
         except Exception:  # tracing must never break inference
             logger.exception("Failed to persist LLM usage trace")
+
+    # -- recording ----------------------------------------------------------
 
     def success(
         self,
@@ -244,57 +288,83 @@ class CallCapture:
         *,
         protocol: str = "openai",
     ) -> None:
-        usage = extract_usage(response_json, protocol)
-        latency_ms = _elapsed_ms(self._started)
-
-        self._record(
+        raw_usage = response_json.get("usage")
+        raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
+        usage = normalize_provider_usage(raw_usage, protocol)
+        self._finish(
             status=service.STATUS_SUCCESS,
             error_code=None,
-            latency_ms=latency_ms,
-            input_tokens=usage["input_tokens"],
-            output_tokens=usage["output_tokens"],
-            cache_tokens=usage["cache_tokens"],
-            message_id=message_id_from_response(response_json),
+            latency_ms=_elapsed_ms(self._started),
+            message_id=_message_id_from_response(response_json),
+            usage=usage,
+            sanitized_usage_json=sanitize_usage_json(raw_usage, protocol),
         )
 
     def failure(self, error: Exception) -> None:
         status, error_code = _failure_status(error, "internal_error")
         latency_ms = _elapsed_ms(self._started)
 
-        self._record(
+        charge = self._charge
+        if charge is not None and error_code in _NO_DISPATCH_CODES:
+            # Dispatch never happened (connection-stage failure): no provider
+            # tokens were consumed, so release the reservation without billing.
+            self._finish(
+                status=status,
+                error_code=error_code,
+                latency_ms=latency_ms,
+                release_without_billing=True,
+            )
+            return
+
+        # Dispatched attempt that failed with unknown usage: settle through
+        # the configured estimation / unbillable policy. Any reported usage
+        # would be reconciled; errors carry none.
+        self._finish(
             status=status,
             error_code=error_code,
             latency_ms=latency_ms,
-            input_tokens=None,
-            output_tokens=None,
-            cache_tokens=None,
-            message_id=None,
         )
 
     def stream_done(
         self,
         *,
-        usage: dict[str, Any] | None = None,
+        raw_usage: dict[str, Any] | None = None,
         error: BaseException | None = None,
         message_id: str | None = None,
     ) -> None:
         latency_ms = _elapsed_ms(self._started)
-        tokens = usage or {}
+        raw_usage = raw_usage or {}
+        protocol = self._stream_protocol
+        # Converted stream shapes hide raw provider usage from the gateway;
+        # they are recorded latency-only and never billed from estimates.
+        allow_estimate = protocol is not None
+        usage = (
+            normalize_provider_usage(raw_usage, protocol)
+            if protocol and raw_usage
+            else None
+        )
 
         if error is None:
             status, error_code = service.STATUS_SUCCESS, None
         else:
             status, error_code = _failure_status(error, "stream_error")
 
-        self._record(
+        self._finish(
             status=status,
             error_code=error_code,
             latency_ms=latency_ms,
-            input_tokens=tokens.get("input_tokens"),
-            output_tokens=tokens.get("output_tokens"),
-            cache_tokens=tokens.get("cache_tokens"),
             message_id=message_id,
+            usage=usage,
+            sanitized_usage_json=(
+                sanitize_usage_json(raw_usage, protocol) if raw_usage else None
+            ),
+            allow_estimate=allow_estimate,
         )
+
+
+def _message_id_from_response(response: dict[str, Any]) -> str | None:
+    message_id = response.get("id")
+    return message_id if isinstance(message_id, str) and message_id else None
 
 
 def start_capture(request: Any, payload: Any) -> CallCapture:
@@ -323,11 +393,13 @@ def monitor_stream(
     provider usage).
     """
 
-    usage: dict[str, Any] = {}
-    message_id: str | None = None
+    capture._stream_protocol = protocol
 
     async def wrapped() -> AsyncIterator[Any]:
+        raw_usage: dict[str, Any] = {}
+        message_id: str | None = None
         error: BaseException | None = None
+
         try:
             async for piece in events:
                 if isinstance(piece, dict):
@@ -338,26 +410,23 @@ def monitor_stream(
                             message = piece.get("message") or {}
                             if isinstance(message.get("id"), str) and message.get("id"):
                                 message_id = message["id"]
-                            observed = _int_or_none((message.get("usage") or {}).get("input_tokens"))
-                            if observed is not None:
-                                usage["input_tokens"] = observed
+                            start_usage = message.get("usage")
+                            if isinstance(start_usage, dict):
+                                raw_usage.update(start_usage)
 
                         elif event_type == "message_delta":
-                            observed = _int_or_none((piece.get("usage") or {}).get("output_tokens"))
-                            if observed is not None:
-                                usage["output_tokens"] = observed
+                            delta_usage = piece.get("usage")
+                            if isinstance(delta_usage, dict):
+                                raw_usage.update(delta_usage)
 
                     elif protocol == "openai" and isinstance(piece.get("usage"), dict):
-                        observed = extract_usage(piece, "openai")
-                        for key, value in observed.items():
-                            if value is not None:
-                                usage[key] = value
+                        raw_usage.update(piece["usage"])
 
                 yield piece
         except BaseException as exc:  # noqa: BLE001 - re-raised below
             error = exc
             raise
         finally:
-            capture.stream_done(usage=usage, error=error, message_id=message_id)
+            capture.stream_done(raw_usage=raw_usage, error=error, message_id=message_id)
 
     return wrapped()

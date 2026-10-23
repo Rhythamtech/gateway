@@ -47,7 +47,14 @@ def revoke_api_key(key_id: str, db: Session = Depends(get_db), user: User = Depe
         key.revoked_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(key)
-    return {"id": key.id, "name": key.name, "key_prefix": key.key_prefix, "revoked": True, "revoked_at": key.revoked_at}
+    return {
+        "id": key.id,
+        "name": key.name,
+        "key_prefix": key.key_prefix,
+        "owner_id": key.owner_id,
+        "revoked": True,
+        "revoked_at": key.revoked_at,
+    }
 
 
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
