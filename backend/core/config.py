@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     # Maximum accepted upstream response size for model synchronization.
     PROVIDER_MAX_RESPONSE_BYTES: int = 5 * 1024 * 1024
 
+    # OpenTelemetry (operational observability). Disabled by default so local
+    # development runs with zero overhead. When enabled, request and LLM-call
+    # spans are emitted; with ``OTLP_EXPORTER_ENDPOINT`` left empty spans are
+    # created locally only — point it at a collector (e.g. Jaeger/Tempo) to
+    # export them. This is separate from the persisted user /traces data.
+    TELEMETRY_ENABLED: bool = False
+    OTLP_EXPORTER_ENDPOINT: str = ""
+    OTEL_SERVICE_NAME: str = "llm-gateway"
+    # "always_on" or "always_off" sampler name from opentelemetry.sdk.trace.sampling.
+    OTEL_SAMPLER: str = "always_on"
+
     model_config = SettingsConfigDict(
         env_file=".env",           # Looks for '.env' in the current working directory
         env_file_encoding="utf-8",

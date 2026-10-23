@@ -1,11 +1,11 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.core.errors import GatewayError
-from backend.gateway.chat.models import anthropic_to_openai, anthropic_to_openai_response, openai_to_anthropic
+from backend.gateway.chat.models import anthropic_to_openai_response, openai_to_anthropic
 from backend.gateway.providers.service import (
     call_provider,
     get_provider,
@@ -15,12 +15,13 @@ from backend.gateway.providers.service import (
 from backend.gateway.responses.dtos import ResponsesRequest
 from backend.gateway.responses.models import chat_to_responses, responses_to_chat
 from backend.gateway.streaming import sse
+from backend.traces.capture import monitor_stream, start_capture
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
 
 @router.post("/responses")
-async def create_response(data: ResponsesRequest) -> Any:
+async def create_response(request: Request, data: ResponsesRequest) -> Any:
     payload = data.model_dump()
 
     for key in ("previous_response_id", "background", "conversation"):
@@ -28,9 +29,25 @@ async def create_response(data: ResponsesRequest) -> Any:
             raise GatewayError(400, "unsupported_parameter", f"{key} is not supported")
 
     chat_payload = responses_to_chat(payload)
+    stream = chat_payload.get("stream", False)
 
-    provider_name, upstream_model = resolve_model(chat_payload["model"])
-    provider = get_provider(provider_name)
+    capture = start_capture(request, payload)
+
+    try:
+        provider_name, upstream_model = resolve_model(chat_payload["model"])
+        provider = get_provider(provider_name)
+    except GatewayError as exc:
+        capture.failure(exc)
+        raise
+
+    capture.attempt(
+        provider_name,
+        upstream_model,
+        chat_payload.get("model"),
+        protocol=provider.protocol,
+        stream=stream,
+    )
+
     chat_payload["model"] = upstream_model
 
     if provider.protocol == "anthropic":
@@ -38,16 +55,29 @@ async def create_response(data: ResponsesRequest) -> Any:
     else:
         upstream_payload = chat_payload
 
-    stream = chat_payload.get("stream", False)
-    upstream_response = await call_provider(provider_name, upstream_payload, stream)
+    try:
+        upstream_response = await call_provider(provider_name, upstream_payload, stream)
+    except GatewayError as exc:
+        capture.failure(exc)
+        raise
 
     if not stream:
-        data = upstream_response.json()
+        try:
+            data = upstream_response.json()
+        except Exception as exc:  # noqa: BLE001 - malformed upstream bodies
+            capture.failure(
+                GatewayError(502, "upstream_error", "Provider returned an invalid response")
+            )
+            raise
+
+        capture.success(data, protocol=provider.protocol)
 
         if provider.protocol == "anthropic":
             data = anthropic_to_openai_response(data)
 
         return JSONResponse(content=chat_to_responses(data, payload))
+
+    events = monitor_stream(read_sse_data(upstream_response), capture, protocol=provider.protocol)
 
     async def stream_response():
         response_id = f"resp_{uuid.uuid4().hex[:24]}"
@@ -66,7 +96,7 @@ async def create_response(data: ResponsesRequest) -> Any:
             },
         }, "response.created")
 
-        async for chunk in read_sse_data(upstream_response):
+        async for chunk in events:
             if chunk.get("done"):
                 break
 

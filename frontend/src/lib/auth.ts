@@ -9,6 +9,8 @@ export type CurrentUser = {
   email: string
   role: "user" | "superuser"
   is_active: boolean
+  // Persisted /traces recording opt-in (superuser-managed).
+  tracing_enabled: boolean
 }
 
 type ErrorPayload = {

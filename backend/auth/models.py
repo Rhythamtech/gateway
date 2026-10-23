@@ -51,6 +51,23 @@ class User(Base):
         nullable=False,
     )
 
+    # Usage tracing is opt-in per user. Disabled by default; a superuser
+    # may enable it so the user's inference traffic is recorded.
+    tracing_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    # OpenTelemetry (operational spans) is opt-in per user as well, and
+    # toggled by the user themselves. Controllers to provider calls produce
+    # spans only when this flag and the global TELEMETRY_ENABLED are both on.
+    telemetry_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

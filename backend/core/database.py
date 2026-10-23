@@ -5,7 +5,6 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from backend.core.config import settings
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -40,6 +39,9 @@ if _database_url.startswith("sqlite"):
     def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # Trace/aggregate writes happen on every inference call; a busy
+        # timeout lets concurrent requests serialize instead of failing fast.
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
 

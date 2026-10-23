@@ -4,8 +4,13 @@ from sqlalchemy.orm import Session
 from backend.core.database import get_db
 from backend.dependencies import get_current_user, require_superuser
 from backend.auth.models import User
-from backend.users.dtos import CurrentUserResponse, UserUpdateRequest
-from backend.users.service import list_users, to_user_response, update_user_active
+from backend.users.dtos import (
+    CurrentUserResponse,
+    UserPreferencesUpdate,
+    UserUpdateRequest,
+)
+from backend.users.service import list_users, to_user_response
+from backend.users import service as users_service
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -13,6 +18,18 @@ router = APIRouter(prefix="/users", tags=["Users"])
 @router.get("/me", response_model=CurrentUserResponse)
 def get_me(current_user: User = Depends(get_current_user)):
     return to_user_response(current_user)
+
+
+@router.patch("/me/preferences", response_model=CurrentUserResponse)
+def update_my_preferences(
+    data: UserPreferencesUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Any authenticated user may toggle their own telemetry preference."""
+    return to_user_response(
+        users_service.update_own_preferences(db, current_user, data)
+    )
 
 
 @router.get("", response_model=list[CurrentUserResponse])
@@ -24,10 +41,10 @@ def get_users(
 
 
 @router.patch("/{user_id}", response_model=CurrentUserResponse)
-def update_user(
+def update_user_endpoint(
     user_id: str,
     data: UserUpdateRequest,
     db: Session = Depends(get_db),
     _: User = Depends(require_superuser),
 ):
-    return to_user_response(update_user_active(db, user_id, data.is_active))
+    return to_user_response(users_service.update_user(db, user_id, data))

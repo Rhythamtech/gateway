@@ -1,12 +1,11 @@
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from backend.core.errors import GatewayError
 from backend.gateway.chat.models import (
     anthropic_to_openai,
-    anthropic_stream_to_openai,
-    openai_to_anthropic,
     openai_to_anthropic_response,
     openai_stream_to_anthropic,
 )
@@ -18,17 +17,32 @@ from backend.gateway.providers.service import (
     resolve_model,
 )
 from backend.gateway.streaming import sse
+from backend.traces.capture import monitor_stream, start_capture
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
 
 @router.post("/messages")
-async def create_message(data: AnthropicMessageRequest) -> Any:
+async def create_message(request: Request, data: AnthropicMessageRequest) -> Any:
     payload = data.model_dump()
-
-    provider_name, upstream_model = resolve_model(payload["model"])
-    provider = get_provider(provider_name)
     stream = payload.get("stream", False)
+
+    capture = start_capture(request, payload)
+
+    try:
+        provider_name, upstream_model = resolve_model(payload["model"])
+        provider = get_provider(provider_name)
+    except GatewayError as exc:
+        capture.failure(exc)
+        raise
+
+    capture.attempt(
+        provider_name,
+        upstream_model,
+        payload.get("model"),
+        protocol=provider.protocol,
+        stream=stream,
+    )
 
     if provider.protocol == "anthropic":
         upstream_payload = dict(payload)
@@ -37,10 +51,22 @@ async def create_message(data: AnthropicMessageRequest) -> Any:
         upstream_payload = anthropic_to_openai(payload)
         upstream_payload["model"] = upstream_model
 
-    upstream_response = await call_provider(provider_name, upstream_payload, stream)
+    try:
+        upstream_response = await call_provider(provider_name, upstream_payload, stream)
+    except GatewayError as exc:
+        capture.failure(exc)
+        raise
 
     if not stream:
-        data = upstream_response.json()
+        try:
+            data = upstream_response.json()
+        except Exception as exc:  # noqa: BLE001 - malformed upstream bodies
+            capture.failure(
+                GatewayError(502, "upstream_error", "Provider returned an invalid response")
+            )
+            raise
+
+        capture.success(data, protocol=provider.protocol)
 
         if provider.protocol == "anthropic":
             return JSONResponse(content=data)
@@ -49,9 +75,12 @@ async def create_message(data: AnthropicMessageRequest) -> Any:
             content=openai_to_anthropic_response(data, payload["model"]),
         )
 
+    # Usage comes from raw upstream events; converted streams are latency-only.
     if provider.protocol == "anthropic":
+        events = monitor_stream(read_sse_data(upstream_response), capture, protocol="anthropic")
+
         async def stream_anthropic():
-            async for event in read_sse_data(upstream_response):
+            async for event in events:
                 if event.get("done"):
                     break
                 event_type = event.get("type") or event.get("event")
@@ -60,8 +89,9 @@ async def create_message(data: AnthropicMessageRequest) -> Any:
 
         return StreamingResponse(stream_anthropic(), media_type="text/event-stream")
 
-    async def stream_openai_as_anthropic():
-        async for piece in openai_stream_to_anthropic(upstream_response, upstream_model):
-            yield piece
+    pieces = monitor_stream(
+        openai_stream_to_anthropic(upstream_response, upstream_model),
+        capture,
+    )
 
-    return StreamingResponse(stream_openai_as_anthropic(), media_type="text/event-stream")
+    return StreamingResponse(pieces, media_type="text/event-stream")
