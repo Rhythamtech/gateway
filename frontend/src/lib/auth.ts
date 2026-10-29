@@ -18,11 +18,12 @@ type ErrorPayload = {
   message?: string
 }
 
-const API_BASE_URL = (
+export const API_BASE_URL = (
   import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "")
 const ACCESS_TOKEN_KEY = "gateway.access_token"
 const REFRESH_TOKEN_KEY = "gateway.refresh_token"
+const PLAYGROUND_API_KEY = "gateway.playground_api_key"
 
 export class ApiError extends Error {
   constructor(
@@ -45,6 +46,22 @@ export function clearAuthTokens() {
   window.sessionStorage.removeItem(REFRESH_TOKEN_KEY)
   // The cached user belongs to the token session.
   clearCachedUser()
+  clearPlaygroundApiKey()
+}
+
+export function getPlaygroundApiKey(): string | null {
+  if (typeof window === "undefined") return null
+  return window.sessionStorage.getItem(PLAYGROUND_API_KEY)
+}
+
+export function setPlaygroundApiKey(key: string) {
+  if (typeof window === "undefined") return
+  window.sessionStorage.setItem(PLAYGROUND_API_KEY, key.trim())
+}
+
+export function clearPlaygroundApiKey() {
+  if (typeof window === "undefined") return
+  window.sessionStorage.removeItem(PLAYGROUND_API_KEY)
 }
 
 // Last validated /users/me response, keyed to the token session. AuthGate
@@ -517,3 +534,38 @@ export function updateUserActive(
     body: JSON.stringify({ is_active: isActive }),
   })
 }
+
+// --- Inference & Models (V1 Gateway API) ---
+
+export type GatewayModelItem = {
+  id: string
+  object: "model"
+  created: number
+  owned_by: string
+}
+
+export type GatewayModelList = {
+  object: "list"
+  data: GatewayModelItem[]
+}
+
+export async function listV1Models(apiKey: string): Promise<GatewayModelList> {
+  const response = await fetch(`${API_BASE_URL}/v1/models`, {
+    headers: {
+      "x-api-key": apiKey.trim(),
+    },
+  })
+  if (!response.ok) {
+    let message = `Failed to load models (${response.status})`
+    try {
+      const err = await response.json()
+      if (err?.error?.message) message = err.error.message
+      else if (err?.detail) message = typeof err.detail === "string" ? err.detail : message
+    } catch {
+      // fallback
+    }
+    throw new ApiError(message, response.status)
+  }
+  return response.json() as Promise<GatewayModelList>
+}
+

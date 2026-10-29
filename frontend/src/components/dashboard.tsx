@@ -1,6 +1,7 @@
 import { ApiKeysContent } from "@/components/api-keys"
 import { ChartAreaInteractive } from "@/components/chart-area-interactive"
 import { DataTable } from "@/components/data-table"
+import { PlaygroundContent } from "@/components/playground"
 import { ProviderDetailContent } from "@/components/provider-detail"
 import { ProvidersContent } from "@/components/providers"
 import { ModelGroupDetailContent } from "@/components/model-group-detail"
@@ -31,19 +32,21 @@ export function Dashboard({
   const pageTitle =
     currentPath === "/dashboard"
       ? "Dashboard"
-      : currentPath.startsWith("/dashboard/providers/")
-        ? "Provider details"
-        : currentPath === "/dashboard/providers"
-          ? "Providers"
-          : currentPath.startsWith("/dashboard/model-groups/")
-            ? "Model group details"
-            : currentPath === "/dashboard/model-groups"
-              ? "Model Groups"
-              : currentPath.startsWith("/dashboard/api-keys")
-                ? "API Keys"
-                : currentPath.startsWith("/dashboard/users")
-                  ? "Users"
-                  : "Dashboard"
+      : currentPath.startsWith("/dashboard/playground")
+        ? "Playground"
+        : currentPath.startsWith("/dashboard/providers/")
+          ? "Provider details"
+          : currentPath === "/dashboard/providers"
+            ? "Providers"
+            : currentPath.startsWith("/dashboard/model-groups/")
+              ? "Model group details"
+              : currentPath === "/dashboard/model-groups"
+                ? "Model Groups"
+                : currentPath.startsWith("/dashboard/api-keys")
+                  ? "API Keys"
+                  : currentPath.startsWith("/dashboard/users")
+                    ? "Users"
+                    : "Dashboard"
 
   const requiresSuperuser = [
     "/dashboard/providers",
@@ -63,7 +66,9 @@ export function Dashboard({
           <div className="flex flex-1 flex-col">
             <div className="@container/main flex flex-1 flex-col gap-2">
               <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
-                {currentPath === "/dashboard/providers" ? (
+                {currentPath.startsWith("/dashboard/playground") ? (
+                  <PlaygroundContent user={user} />
+                ) : currentPath === "/dashboard/providers" ? (
                   <ProvidersContent />
                 ) : currentPath.startsWith("/dashboard/providers/") ? (
                   <ProviderDetailContent />
