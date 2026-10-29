@@ -8,6 +8,7 @@ import {
 
 import {
   ApiError,
+  createProviderBudgetTopUp,
   getProvider,
   listProviderModels,
   syncProviderModels,
@@ -16,6 +17,7 @@ import {
   type ProviderModel,
   type ProviderSyncResult,
 } from "@/lib/auth"
+import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -44,11 +46,13 @@ import {
   ProviderActionDrawer,
   ProviderFormDrawer,
 } from "@/components/provider-drawers"
+import { ProviderBudgetCard, TopUpFormDrawer } from "@/components/budget"
 
 type DrawerState =
   | { mode: "form"; provider: Provider }
   | { mode: "disable"; provider: Provider }
   | { mode: "delete"; provider: Provider }
+  | { mode: "budget"; provider: Provider }
   | null
 
 function formatDateTime(value: string | null | undefined) {
@@ -74,6 +78,7 @@ export function ProviderDetailContent() {
   const [syncError, setSyncError] = React.useState<string | null>(null)
   const [drawerState, setDrawerState] = React.useState<DrawerState>(null)
   const [actionError, setActionError] = React.useState<string | null>(null)
+  const [budgetTick, setBudgetTick] = React.useState(0)
 
   React.useEffect(() => {
     if (!providerId) return
@@ -332,6 +337,14 @@ export function ProviderDetailContent() {
             </div>
           </CardContent>
         </Card>
+        <ProviderBudgetCard
+          providerId={providerId}
+          reloadTick={budgetTick}
+          onTopUp={() => {
+            setActionError(null)
+            setDrawerState({ mode: "budget", provider })
+          }}
+        />
         {actionError !== null ? (
           <p className="text-sm text-destructive" role="alert">
             {actionError}
@@ -489,6 +502,58 @@ export function ProviderDetailContent() {
             setDrawerState(null)
             window.location.assign("/dashboard/providers")
           }}
+        />
+      ) : null}
+      {drawerState?.mode === "budget" ? (
+        <TopUpFormDrawer
+          key={drawerState.provider.id}
+          title={`Top up “${drawerState.provider.name}” budget`}
+          description="Allocating moves credits from the system's unallocated balance into this provider's budget. Insufficient system funds are rejected."
+          submitLabel="Top up budget"
+          pendingLabel="Allocating…"
+          onSubmit={async (input) => {
+            const created = await createProviderBudgetTopUp(
+              drawerState.provider.id,
+              input
+            )
+            setBudgetTick((tick) => tick + 1)
+
+            return {
+              headline: `${created.amount_credits.toLocaleString("en-US")} credits allocated.`,
+              lines: [
+                {
+                  label: "Transaction ID",
+                  value: created.transaction_id,
+                  mono: true,
+                },
+                {
+                  label: "Provider available after",
+                  value:
+                    created.provider_available_credits.toLocaleString("en-US"),
+                },
+                {
+                  label: "System unallocated after",
+                  value:
+                    created.system_unallocated_credits.toLocaleString("en-US"),
+                },
+                {
+                  label: "Reason",
+                  value: created.reason,
+                  mono: true,
+                },
+                {
+                  label: "Recorded at",
+                  value: formatDateTime(created.created_at),
+                },
+              ],
+            }
+          }}
+          onSubmitted={() =>
+            toast.success(
+              `Budget topped up for “${drawerState.provider.name}”.`
+            )
+          }
+          onClose={() => setDrawerState(null)}
         />
       ) : null}
     </>

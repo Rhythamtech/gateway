@@ -63,6 +63,8 @@ function formatDateTime(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
+// null ("not reported by the provider") renders as an em dash and stays
+// visually distinct from a real 0, which renders as "0".
 function formatInt(value: number | null | undefined) {
   return value === null || value === undefined
     ? "—"
@@ -82,6 +84,8 @@ function formatMs(value: number | null) {
   return `${hours}h ${minutes % 60}m`
 }
 
+// Short display for long identifiers; the full value stays available via the
+// native title tooltip.
 function shortId(value: string | null | undefined) {
   if (!value) return "—"
   return `${value.slice(0, 8)}…`
@@ -138,7 +142,7 @@ function RequestBlock({
   }
   return (
     <div className="overflow-hidden rounded-lg border bg-muted">
-      <pre className="max-h-72 overflow-auto p-3 font-mono text-xs leading-5 select-all">
+      <pre className="max-h-72 overflow-auto p-3 font-mono text-xs leading-5 break-all select-all">
         {JSON.stringify(request, null, 2)}
       </pre>
     </div>
@@ -148,15 +152,38 @@ function RequestBlock({
 function TracesChip({
   label,
   value,
+  wrap,
 }: {
   label: string
   value: React.ReactNode
+  wrap?: boolean
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-lg border bg-muted p-2">
+    <div className="flex min-w-0 flex-col gap-1 rounded-lg border bg-muted p-2">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm">{value}</span>
+      <span className={`text-sm${wrap ? "font-mono break-words" : ""}`}>
+        {value}
+      </span>
     </div>
+  )
+}
+
+function AttemptCountsCell({
+  total,
+  ok,
+  failed,
+}: {
+  total: number
+  ok: number
+  failed: number
+}) {
+  return (
+    <span className="whitespace-nowrap">
+      <span className="font-mono text-xs tabular-nums">{formatInt(total)}</span>
+      <span className="ml-2 text-xs text-muted-foreground tabular-nums">
+        {formatInt(ok)} ok · {formatInt(failed)} failed
+      </span>
+    </span>
   )
 }
 
@@ -234,6 +261,8 @@ export function TracesContent() {
     setReloadTick((tick) => tick + 1)
   }
 
+  // The calls endpoint is the only trace list with documented filters; the
+  // messages endpoint accepts pagination only, so its tab shows no filter UI.
   function applyFilters() {
     const next: CallTraceFilters = {}
     for (const [key, value] of Object.entries(draftFilters)) {
@@ -256,10 +285,11 @@ export function TracesContent() {
     <>
       <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
         <p className="text-sm text-muted-foreground">
-          One row per message, one row per provider attempt (retries included).
-          Requests are sanitized (“[REDACTED]”) before storage; tokens are
-          provider-reported and null when unavailable. Operational data — not
-          billing.
+          Messages are inbound requests; calls are the actual provider attempts
+          behind them — retries and failover included. Tokens are
+          provider-reported and null when not reported; payloads are sanitized
+          before storage. Viewing traces does not enable collection. Operational
+          data — not billing.
         </p>
         <Button
           type="button"
@@ -285,97 +315,112 @@ export function TracesContent() {
         </Tabs>
 
         {tab === "calls" ? (
-          <div className="mt-3 flex flex-col gap-2 rounded-lg border bg-card p-3">
+          <div className="mt-3 flex flex-col gap-3 rounded-lg border bg-card p-3">
             <p className="text-xs font-medium text-muted-foreground">
               Filters{appliedCount > 0 ? ` (${appliedCount} applied)` : ""}
             </p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <FilterInput
-                label="Message ID"
-                placeholder="message_id"
-                value={draftFilters.message_id ?? ""}
-                onChange={(value) =>
-                  setDraftFilters((draft) => ({ ...draft, message_id: value }))
-                }
-              />
-              <FilterInput
-                label="User ID"
-                placeholder="user_id (UUID)"
-                value={draftFilters.user_id ?? ""}
-                onChange={(value) =>
-                  setDraftFilters((draft) => ({ ...draft, user_id: value }))
-                }
-              />
-              <FilterInput
-                label="API key ID"
-                placeholder="api_key_id (UUID)"
-                value={draftFilters.api_key_id ?? ""}
-                onChange={(value) =>
-                  setDraftFilters((draft) => ({ ...draft, api_key_id: value }))
-                }
-              />
-              <FilterInput
-                label="Gateway model ID"
-                placeholder="model group UUID"
-                value={draftFilters.gateway_model_id ?? ""}
-                onChange={(value) =>
-                  setDraftFilters((draft) => ({
-                    ...draft,
-                    gateway_model_id: value,
-                  }))
-                }
-              />
-              <FilterInput
-                label="Provider model ID"
-                placeholder="provider model UUID"
-                value={draftFilters.provider_model_id ?? ""}
-                onChange={(value) =>
-                  setDraftFilters((draft) => ({
-                    ...draft,
-                    provider_model_id: value,
-                  }))
-                }
-              />
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Status</span>
-                <Select
-                  value={draftFilters.status ?? "any"}
-                  onValueChange={(value) =>
+            <div className="flex flex-col gap-2">
+              <span className="text-xs text-muted-foreground">
+                Identifiers and status
+              </span>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <FilterInput
+                  label="Message ID"
+                  value={draftFilters.message_id ?? ""}
+                  onChange={(value) =>
                     setDraftFilters((draft) => ({
                       ...draft,
-                      status: value === "any" ? undefined : value,
+                      message_id: value,
                     }))
                   }
-                >
-                  <SelectTrigger size="sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="any">Any status</SelectItem>
-                    <SelectItem value="success">Success</SelectItem>
-                    <SelectItem value="failed">Failed</SelectItem>
-                    <SelectItem value="timeout">Timeout</SelectItem>
-                  </SelectContent>
-                </Select>
+                />
+                <FilterInput
+                  label="User ID (UUID)"
+                  value={draftFilters.user_id ?? ""}
+                  onChange={(value) =>
+                    setDraftFilters((draft) => ({ ...draft, user_id: value }))
+                  }
+                />
+                <FilterInput
+                  label="API key ID (UUID)"
+                  value={draftFilters.api_key_id ?? ""}
+                  onChange={(value) =>
+                    setDraftFilters((draft) => ({
+                      ...draft,
+                      api_key_id: value,
+                    }))
+                  }
+                />
+                <FilterInput
+                  label="Gateway model ID (model group UUID)"
+                  value={draftFilters.gateway_model_id ?? ""}
+                  onChange={(value) =>
+                    setDraftFilters((draft) => ({
+                      ...draft,
+                      gateway_model_id: value,
+                    }))
+                  }
+                />
+                <FilterInput
+                  label="Provider model ID (UUID)"
+                  value={draftFilters.provider_model_id ?? ""}
+                  onChange={(value) =>
+                    setDraftFilters((draft) => ({
+                      ...draft,
+                      provider_model_id: value,
+                    }))
+                  }
+                />
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Status</span>
+                  <Select
+                    value={draftFilters.status ?? "any"}
+                    onValueChange={(value) =>
+                      setDraftFilters((draft) => ({
+                        ...draft,
+                        status: value === "any" ? undefined : value,
+                      }))
+                    }
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      className="w-full"
+                      aria-label="Filter by status"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Any status</SelectItem>
+                      <SelectItem value="success">Success</SelectItem>
+                      <SelectItem value="failed">Failed</SelectItem>
+                      <SelectItem value="timeout">Timeout</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <FilterInput
-                label="From (inclusive)"
-                placeholder=""
-                type="date"
-                value={draftFilters.from ?? ""}
-                onChange={(value) =>
-                  setDraftFilters((draft) => ({ ...draft, from: value }))
-                }
-              />
-              <FilterInput
-                label="To (inclusive)"
-                placeholder=""
-                type="date"
-                value={draftFilters.to ?? ""}
-                onChange={(value) =>
-                  setDraftFilters((draft) => ({ ...draft, to: value }))
-                }
-              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <span className="text-xs text-muted-foreground">
+                Recorded date (both bounds inclusive)
+              </span>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <FilterInput
+                  label="From date"
+                  type="date"
+                  value={draftFilters.from ?? ""}
+                  onChange={(value) =>
+                    setDraftFilters((draft) => ({ ...draft, from: value }))
+                  }
+                />
+                <FilterInput
+                  label="To date"
+                  type="date"
+                  value={draftFilters.to ?? ""}
+                  onChange={(value) =>
+                    setDraftFilters((draft) => ({ ...draft, to: value }))
+                  }
+                />
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Button type="button" size="sm" onClick={applyFilters}>
@@ -418,7 +463,7 @@ export function TracesContent() {
                     <TableHead>User</TableHead>
                     <TableHead>API key</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Calls</TableHead>
+                    <TableHead>Attempts</TableHead>
                     <TableHead>Tokens (in / out)</TableHead>
                     <TableHead className="text-right">Latency</TableHead>
                     <TableHead>
@@ -457,7 +502,7 @@ export function TracesContent() {
                       >
                         No message traces recorded. Tracing is opt-in per user
                         and requests from users with tracing disabled are not
-                        persisted.
+                        persisted; viewing this page never enables collection.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -536,9 +581,21 @@ export function TracesContent() {
                         colSpan={8}
                         className="h-24 text-center text-muted-foreground"
                       >
-                        {appliedCount > 0
-                          ? "No call traces match these filters."
-                          : "No call traces recorded. Tracing is opt-in per user and requests from users with tracing disabled are not persisted."}
+                        {appliedCount > 0 ? (
+                          <span>
+                            No call traces match these filters.{" "}
+                            <button
+                              type="button"
+                              className="underline underline-offset-2"
+                              onClick={resetFilters}
+                            >
+                              Reset filters
+                            </button>{" "}
+                            to see all recorded attempts.
+                          </span>
+                        ) : (
+                          "No call traces recorded. Tracing is opt-in per user and requests from users with tracing disabled are not persisted; viewing this page never enables collection."
+                        )}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -577,9 +634,16 @@ function MessageRow({ item }: { item: MessageTraceItem }) {
         {formatDateTime(item.created_at)}
       </TableCell>
       <TableCell>
-        <span className="font-mono text-xs" title={item.message_id ?? ""}>
-          {item.message_id ? shortId(item.message_id) : "—"}
-        </span>
+        {item.message_id ? (
+          <span
+            className="block max-w-40 truncate font-mono text-xs"
+            title={item.message_id}
+          >
+            {item.message_id}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
       </TableCell>
       <TableCell>
         <span
@@ -600,14 +664,12 @@ function MessageRow({ item }: { item: MessageTraceItem }) {
       <TableCell>
         <TraceStatusBadge status={item.status} />
       </TableCell>
-      <TableCell className="whitespace-nowrap">
-        <span className="font-mono text-xs tabular-nums">
-          {formatInt(item.call_count)}
-        </span>
-        <span className="ml-2 text-xs text-muted-foreground tabular-nums">
-          {formatInt(item.successful_call_count)} ok ·{" "}
-          {formatInt(item.failed_call_count)} failed
-        </span>
+      <TableCell>
+        <AttemptCountsCell
+          total={item.call_count}
+          ok={item.successful_call_count}
+          failed={item.failed_call_count}
+        />
       </TableCell>
       <TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums">
         {formatInt(item.input_tokens)} / {formatInt(item.output_tokens)}
@@ -617,7 +679,7 @@ function MessageRow({ item }: { item: MessageTraceItem }) {
       </TableCell>
       <TableCell className="text-right">
         <Button variant="outline" size="sm" asChild>
-          <a href={`/dashboard/traces/detail?id=${item.id}`}>Details</a>
+          <a href={`/dashboard/traces/detail?id=${item.id}`}>Open trace</a>
         </Button>
       </TableCell>
     </TableRow>
@@ -637,21 +699,28 @@ function CallRow({
         {formatDateTime(call.created_at)}
       </TableCell>
       <TableCell>
-        <span className="font-mono text-xs" title={call.message_id ?? ""}>
-          {call.message_id ? shortId(call.message_id) : "—"}
-        </span>
+        {call.message_id ? (
+          <span
+            className="block max-w-40 truncate font-mono text-xs"
+            title={call.message_id}
+          >
+            {call.message_id}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
       </TableCell>
       <TableCell>
         <TraceStatusBadge status={call.status} />
       </TableCell>
       <TableCell>
-        <span className="font-mono text-xs text-muted-foreground">
+        <span className="font-mono text-xs break-all text-muted-foreground">
           {call.gateway_model ? call.gateway_model.model_id : "—"}
         </span>
       </TableCell>
       <TableCell>
         {call.provider_model ? (
-          <span className="font-mono text-xs whitespace-nowrap">
+          <span className="font-mono text-xs break-words whitespace-nowrap">
             {call.provider_model.provider_alias}/{call.provider_model.model_id}
           </span>
         ) : (
@@ -666,7 +735,7 @@ function CallRow({
       </TableCell>
       <TableCell className="text-right">
         <Button variant="outline" size="sm" onClick={onOpen}>
-          Attempt
+          Attempt detail
         </Button>
       </TableCell>
     </TableRow>
@@ -694,8 +763,8 @@ export function CallTraceDrawer({
         <DrawerHeader className="shrink-0 gap-1 border-b">
           <DrawerTitle>Provider attempt</DrawerTitle>
           <DrawerDescription>
-            One actual gateway/provider attempt, including failed and timed-out
-            runs. Operational data — not billing.
+            One actual gateway/provider attempt for a recorded message — failed
+            and timed-out attempts included. Operational data — not billing.
           </DrawerDescription>
         </DrawerHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-2 text-sm">
@@ -715,10 +784,7 @@ export function CallTraceDrawer({
                   label="Error code"
                   value={
                     call.error_code ? (
-                      <span
-                        className="font-mono text-xs"
-                        title={call.error_code}
-                      >
+                      <span className="font-mono text-xs break-all">
                         {call.error_code}
                       </span>
                     ) : (
@@ -727,107 +793,112 @@ export function CallTraceDrawer({
                   }
                 />
                 <TracesChip
-                  label="Gateway model"
-                  value={
-                    call.gateway_model ? (
-                      <span
-                        className="font-mono text-xs"
-                        title={call.gateway_model.model_id}
-                      >
-                        {call.gateway_model.model_id}
-                      </span>
-                    ) : (
-                      "—"
-                    )
-                  }
-                />
-                <TracesChip
-                  label="Provider attempt"
-                  value={
-                    call.provider_model ? (
-                      <span
-                        className="font-mono text-xs"
-                        title={`${call.provider_model.provider_alias}/${call.provider_model.model_id}`}
-                      >
-                        {call.provider_model.provider_alias}/
-                        {call.provider_model.model_id}
-                      </span>
-                    ) : (
-                      "—"
-                    )
-                  }
-                />
-                <TracesChip
-                  label="Message ID"
-                  value={
-                    call.message_id ? (
-                      <span
-                        className="font-mono text-xs"
-                        title={call.message_id}
-                      >
-                        {shortId(call.message_id)}
-                      </span>
-                    ) : (
-                      "—"
-                    )
-                  }
-                />
-                <TracesChip
-                  label="Message trace"
-                  value={
-                    <span
-                      className="font-mono text-xs"
-                      title={call.message_trace_id}
-                    >
-                      {shortId(call.message_trace_id)}
-                    </span>
-                  }
-                />
-                <TracesChip
-                  label="User"
-                  value={
-                    <span className="font-mono text-xs" title={call.user_id}>
-                      {shortId(call.user_id)}
-                    </span>
-                  }
-                />
-                <TracesChip
-                  label="API key"
-                  value={
-                    call.api_key_id ? (
-                      <span
-                        className="font-mono text-xs"
-                        title={call.api_key_id}
-                      >
-                        {shortId(call.api_key_id)}
-                      </span>
-                    ) : (
-                      "—"
-                    )
-                  }
-                />
-                <TracesChip
                   label="Created"
-                  value={
-                    <span className="text-xs text-muted-foreground">
-                      {formatDateTime(call.created_at)}
-                    </span>
-                  }
+                  value={formatDateTime(call.created_at)}
                 />
                 <TracesChip
                   label="Finished"
-                  value={
-                    <span className="text-xs text-muted-foreground">
-                      {formatDateTime(call.finished_at)}
-                    </span>
-                  }
+                  value={formatDateTime(call.finished_at)}
                 />
               </div>
 
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Token usage — provider-reported, null when the provider did
-                  not report a figure
+                  Request, model, and actor identity — full identifiers on hover
+                </p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <TracesChip
+                    label="Gateway model"
+                    wrap
+                    value={
+                      call.gateway_model ? (
+                        <span
+                          className="font-mono text-xs break-all"
+                          title={call.gateway_model.model_id}
+                        >
+                          {call.gateway_model.model_id}
+                        </span>
+                      ) : (
+                        "—"
+                      )
+                    }
+                  />
+                  <TracesChip
+                    label="Provider attempt"
+                    wrap
+                    value={
+                      call.provider_model ? (
+                        <span
+                          className="font-mono text-xs break-words"
+                          title={`${call.provider_model.provider_alias}/${call.provider_model.model_id}`}
+                        >
+                          {call.provider_model.provider_alias}/
+                          {call.provider_model.model_id}
+                        </span>
+                      ) : (
+                        "—"
+                      )
+                    }
+                  />
+                  <TracesChip
+                    label="Message ID"
+                    value={
+                      call.message_id ? (
+                        <span
+                          className="font-mono text-xs break-all"
+                          title={call.message_id}
+                        >
+                          {shortId(call.message_id)}
+                        </span>
+                      ) : (
+                        "—"
+                      )
+                    }
+                  />
+                  <TracesChip
+                    label="Message trace"
+                    value={
+                      <span
+                        className="font-mono text-xs break-all"
+                        title={call.message_trace_id}
+                      >
+                        {shortId(call.message_trace_id)}
+                      </span>
+                    }
+                  />
+                  <TracesChip
+                    label="User"
+                    value={
+                      <span
+                        className="font-mono text-xs break-all"
+                        title={call.user_id}
+                      >
+                        {shortId(call.user_id)}
+                      </span>
+                    }
+                  />
+                  <TracesChip
+                    label="API key"
+                    value={
+                      call.api_key_id ? (
+                        <span
+                          className="font-mono text-xs break-all"
+                          title={call.api_key_id}
+                        >
+                          {shortId(call.api_key_id)}
+                        </span>
+                      ) : (
+                        "—"
+                      )
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Provider-reported token usage — null when the provider did not
+                  report a figure, never imputed
                 </p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <TracesChip
@@ -859,7 +930,9 @@ export function CallTraceDrawer({
 
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Charging — as recorded by the gateway wallet
+                  Recorded accounting — wallet fields exactly as returned;
+                  credits are operational, not currency, and no rates are
+                  derived
                 </p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <TracesChip
@@ -873,7 +946,7 @@ export function CallTraceDrawer({
                   <TracesChip
                     label="Usage source"
                     value={
-                      <span className="font-mono text-xs">
+                      <span className="font-mono text-xs break-words">
                         {call.token_usage_source ?? "—"}
                       </span>
                     }
@@ -883,13 +956,13 @@ export function CallTraceDrawer({
                     value={formatInt(call.credit_multiplier_ppm)}
                   />
                   <TracesChip
-                    label="Provider budget consumed"
+                    label="Provider budget credits consumed"
                     value={formatInt(call.provider_budget_credits_consumed)}
                   />
                   <TracesChip
                     label="Provider cost (nanos)"
                     value={
-                      <span className="font-mono text-xs tabular-nums">
+                      <span className="font-mono text-xs break-words tabular-nums">
                         {call.provider_cost_nanos.toLocaleString("en-US")}
                         {call.currency_code ? ` ${call.currency_code}` : ""}
                       </span>
@@ -901,7 +974,7 @@ export function CallTraceDrawer({
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground">
                   Sanitized request — inherited from the message trace; secrets
-                  were redacted before storage
+                  were redacted before storage and large payloads are truncated
                 </p>
                 <RequestBlock request={call.request} />
               </div>
@@ -939,24 +1012,26 @@ export function CallTraceDrawer({
 
 function FilterInput({
   label,
-  placeholder,
   value,
   onChange,
   type = "text",
 }: {
   label: string
-  placeholder: string
   value: string
   onChange: (value: string) => void
   type?: "text" | "date"
 }) {
+  const id = React.useId()
+
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-xs text-muted-foreground">{label}</label>
+      <label htmlFor={id} className="text-xs text-muted-foreground">
+        {label}
+      </label>
       <input
+        id={id}
         type={type}
         value={value}
-        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         className="h-9 rounded-md border bg-transparent px-3 py-1 text-sm shadow-2xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
       />
@@ -1095,8 +1170,9 @@ export function TraceDetailContent() {
     <>
       <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
         <p className="text-sm text-muted-foreground">
-          Message trace and every provider attempt for it — retries included.
-          Requests are sanitized before storage; operational data, not billing.
+          One inbound request and its recorded provider attempts — retries and
+          failover included. Payloads are sanitized before storage. Operational
+          data — not billing.
         </p>
         <Button asChild size="sm" variant="outline">
           <a href="/dashboard/traces">All traces</a>
@@ -1112,17 +1188,29 @@ export function TraceDetailContent() {
             </CardTitle>
             <CardDescription>
               Created {formatDateTime(trace.created_at)} · finished{" "}
-              {formatDateTime(trace.finished_at)}
+              {formatDateTime(trace.finished_at)} · message status is success
+              when any attempt succeeded, else timeout, else failed
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          <CardContent>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <TracesChip
+                label="Trace ID"
+                value={
+                  <span
+                    className="font-mono text-xs break-all"
+                    title={trace.id}
+                  >
+                    {trace.id}
+                  </span>
+                }
+              />
               <TracesChip
                 label="Message ID"
                 value={
                   trace.message_id ? (
                     <span
-                      className="font-mono text-xs"
+                      className="font-mono text-xs break-all"
                       title={trace.message_id}
                     >
                       {trace.message_id}
@@ -1133,17 +1221,12 @@ export function TraceDetailContent() {
                 }
               />
               <TracesChip
-                label="Trace ID"
-                value={
-                  <span className="font-mono text-xs" title={trace.id}>
-                    {trace.id}
-                  </span>
-                }
-              />
-              <TracesChip
                 label="User"
                 value={
-                  <span className="font-mono text-xs" title={trace.user_id}>
+                  <span
+                    className="font-mono text-xs break-all"
+                    title={trace.user_id}
+                  >
                     {trace.user_id}
                   </span>
                 }
@@ -1153,7 +1236,7 @@ export function TraceDetailContent() {
                 value={
                   trace.api_key_id ? (
                     <span
-                      className="font-mono text-xs"
+                      className="font-mono text-xs break-all"
                       title={trace.api_key_id}
                     >
                       {trace.api_key_id}
@@ -1164,7 +1247,7 @@ export function TraceDetailContent() {
                 }
               />
               <TracesChip
-                label="Calls"
+                label="Attempts"
                 value={
                   <span className="font-mono text-xs tabular-nums">
                     {formatInt(trace.call_count)} total ·{" "}
@@ -1174,12 +1257,13 @@ export function TraceDetailContent() {
                 }
               />
               <TracesChip
-                label="Input tokens"
-                value={formatInt(trace.input_tokens)}
-              />
-              <TracesChip
-                label="Output tokens"
-                value={formatInt(trace.output_tokens)}
+                label="Tokens (in / out)"
+                value={
+                  <span className="font-mono text-xs tabular-nums">
+                    {formatInt(trace.input_tokens)} /{" "}
+                    {formatInt(trace.output_tokens)}
+                  </span>
+                }
               />
               <TracesChip
                 label="Cache tokens"
@@ -1190,13 +1274,6 @@ export function TraceDetailContent() {
                 value={formatMs(trace.total_latency_ms)}
               />
             </div>
-            <div className="flex flex-col gap-2">
-              <p className="text-xs font-medium text-muted-foreground">
-                Sanitized request — stored once per message; secrets were
-                redacted before storage and large payloads are truncated
-              </p>
-              <RequestBlock request={trace.request} />
-            </div>
           </CardContent>
         </Card>
       </div>
@@ -1204,16 +1281,20 @@ export function TraceDetailContent() {
       <div className="px-4 lg:px-6">
         <Card>
           <CardHeader>
-            <CardTitle>Provider attempts ({trace.calls.length})</CardTitle>
+            <CardTitle>
+              Recorded provider attempts ({trace.calls.length})
+            </CardTitle>
             <CardDescription>
-              Every actual upstream attempt for this message, in the order the
-              gateway recorded it.
+              In the order the gateway recorded them — retries and failover
+              included. Open one for usage, accounting, and the inherited
+              request payload.
             </CardDescription>
           </CardHeader>
           <CardContent>
             {trace.calls.length === 0 ? (
               <p className="py-4 text-center text-sm text-muted-foreground">
-                No provider attempts recorded for this message.
+                No provider attempts recorded for this message — the request may
+                have failed before resolving to a provider.
               </p>
             ) : (
               <div className="overflow-hidden rounded-lg border">
@@ -1242,7 +1323,7 @@ export function TraceDetailContent() {
                           <TraceStatusBadge status={call.status} />
                         </TableCell>
                         <TableCell>
-                          <span className="font-mono text-xs text-muted-foreground">
+                          <span className="font-mono text-xs break-all text-muted-foreground">
                             {call.gateway_model
                               ? call.gateway_model.model_id
                               : "—"}
@@ -1250,7 +1331,7 @@ export function TraceDetailContent() {
                         </TableCell>
                         <TableCell>
                           {call.provider_model ? (
-                            <span className="font-mono text-xs whitespace-nowrap">
+                            <span className="font-mono text-xs break-words whitespace-nowrap">
                               {call.provider_model.provider_alias}/
                               {call.provider_model.model_id}
                             </span>
@@ -1270,7 +1351,7 @@ export function TraceDetailContent() {
                         <TableCell>
                           {call.error_code ? (
                             <span
-                              className="font-mono text-xs text-destructive"
+                              className="font-mono text-xs break-all text-destructive"
                               title={call.error_code}
                             >
                               {call.error_code}
@@ -1287,7 +1368,7 @@ export function TraceDetailContent() {
                             size="sm"
                             onClick={() => setDrawerCall(call)}
                           >
-                            Attempt
+                            Attempt detail
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -1296,6 +1377,21 @@ export function TraceDetailContent() {
                 </Table>
               </div>
             )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="px-4 lg:px-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Sanitized request</CardTitle>
+            <CardDescription>
+              Stored once per message; secrets were redacted before storage and
+              large payloads are truncated.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RequestBlock request={trace.request} />
           </CardContent>
         </Card>
       </div>

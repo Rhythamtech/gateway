@@ -8,6 +8,7 @@ import {
 
 import {
   ApiError,
+  createSystemBudgetTopUp,
   listProviders,
   syncProviderModels,
   updateProvider,
@@ -42,11 +43,13 @@ import {
   ProviderActionDrawer,
   ProviderFormDrawer,
 } from "@/components/provider-drawers"
+import { SystemBudgetCard, TopUpFormDrawer } from "@/components/budget"
 
 type DrawerState =
   | { mode: "form"; provider: Provider | null }
   | { mode: "disable"; provider: Provider }
   | { mode: "delete"; provider: Provider }
+  | { mode: "fund" }
   | null
 
 function detailHref(providerId: string) {
@@ -68,6 +71,7 @@ export function ProvidersContent() {
     string | null
   >(null)
   const [actionError, setActionError] = React.useState<string | null>(null)
+  const [budgetTick, setBudgetTick] = React.useState(0)
 
   React.useEffect(() => {
     let cancelled = false
@@ -173,6 +177,15 @@ export function ProvidersContent() {
               <span className="hidden lg:inline">Create provider</span>
               <span className="lg:hidden">Create</span>
             </Button>
+          </div>
+          <div className="px-4 lg:px-6">
+            <SystemBudgetCard
+              reloadTick={budgetTick}
+              onFund={() => {
+                setActionError(null)
+                setDrawerState({ mode: "fund" })
+              }}
+            />
           </div>
           <div className="px-4 lg:px-6">
             {loadError !== null ? (
@@ -407,6 +420,52 @@ export function ProvidersContent() {
             refreshProviders()
             toast.success(`Provider “${name}” deleted.`)
           }}
+        />
+      ) : null}
+      {drawerState?.mode === "fund" ? (
+        <TopUpFormDrawer
+          title="Fund system credits"
+          description="Funding records new credits in the system's unallocated balance. Provider budgets are topped up separately from each provider's detail page."
+          submitLabel="Fund system credits"
+          pendingLabel="Funding…"
+          onSubmit={async (input) => {
+            const created = await createSystemBudgetTopUp(input)
+            setBudgetTick((tick) => tick + 1)
+
+            return {
+              headline: `${created.amount_credits.toLocaleString("en-US")} credits funded.`,
+              lines: [
+                {
+                  label: "Transaction ID",
+                  value: created.transaction_id,
+                  mono: true,
+                },
+                {
+                  label: "Unallocated after",
+                  value: created.unallocated_credits.toLocaleString("en-US"),
+                },
+                {
+                  label: "Allocated after",
+                  value: created.allocated_credits.toLocaleString("en-US"),
+                },
+                {
+                  label: "Consumed after",
+                  value: created.consumed_credits.toLocaleString("en-US"),
+                },
+                {
+                  label: "Reason",
+                  value: created.reason,
+                  mono: true,
+                },
+                {
+                  label: "Recorded at",
+                  value: formatDateTime(created.created_at),
+                },
+              ],
+            }
+          }}
+          onSubmitted={() => toast.success("System credits funded.")}
+          onClose={() => setDrawerState(null)}
         />
       ) : null}
     </>

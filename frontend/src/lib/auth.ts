@@ -16,6 +16,10 @@ export type CurrentUser = {
 type ErrorPayload = {
   detail?: string | { msg?: string }[]
   message?: string
+  // Versioned envelope used by the /model-groups and /traces error contracts:
+  // {"error": {"code", "message", "details", "request_id"}} (backend/main.py
+  // _versioned_error). Read here so backend messages surface verbatim.
+  error?: { message?: string }
 }
 
 export const API_BASE_URL = (
@@ -114,7 +118,8 @@ async function parseResponse<T>(response: Response): Promise<T> {
             .map((item) => item.msg)
             .filter(Boolean)
             .join("; ") || message
-      } else if (payload.message) message = payload.message
+      } else if (payload.error?.message) message = payload.error.message
+      else if (payload.message) message = payload.message
     } catch {
       // Keep the status-based message when the response has no JSON body.
     }
@@ -593,6 +598,124 @@ export function listMyWalletTransactions(
   const query = params.toString()
   return authenticatedRequest<WalletTransactionPage>(
     `/wallet/transactions${query ? `?${query}` : ""}`
+  )
+}
+
+// --- Superuser wallet administration (budgets and top-ups) ---
+
+// GET /system-budget — the system pool: funding creates credits here
+// (unallocated), provider allocation moves them out of it, settled calls
+// consume them. Available for allocation is reported by the backend
+// alongside unallocated; both are shown as returned.
+export type SystemBudget = {
+  unallocated_credits: number
+  allocated_credits: number
+  consumed_credits: number
+  lifetime_funded_credits: number
+  available_for_allocation_credits: number
+  updated_at: string
+}
+
+export type SystemBudgetTopUpCreated = {
+  transaction_id: string
+  amount_credits: number
+  unallocated_credits: number
+  allocated_credits: number
+  consumed_credits: number
+  actor_user_id: string | null
+  reason: string
+  created_at: string
+}
+
+// GET /providers/{provider_id}/budget — a provider's allocation. Note the
+// plural base path; provider management itself lives under /provider.
+export type ProviderBudget = {
+  provider_id: string
+  provider_name: string
+  available_credits: number
+  reserved_credits: number
+  consumed_credits: number
+  lifetime_allocated_credits: number
+  updated_at: string
+}
+
+export type ProviderBudgetTopUpCreated = {
+  transaction_id: string
+  provider_id: string
+  amount_credits: number
+  provider_available_credits: number
+  system_unallocated_credits: number
+  actor_user_id: string | null
+  reason: string
+  created_at: string
+}
+
+export type WalletTopUpCreated = {
+  transaction_id: string
+  user_id: string
+  amount_credits: number
+  available_credits: number
+  reserved_credits: number
+  reason: string
+  actor_user_id: string | null
+  created_at: string
+}
+
+// Shared request body of all three top-up operations: positive integer
+// credits, nonblank reason (≤255), unique idempotency key (8–128). Duplicate
+// keys and insufficient system funds return 409; missing subjects 404.
+export type CreditTopUpInput = {
+  amount_credits: number
+  reason: string
+  idempotency_key: string
+}
+
+export function getSystemBudget(): Promise<SystemBudget> {
+  return authenticatedRequest<SystemBudget>("/system-budget")
+}
+
+export function createSystemBudgetTopUp(
+  input: CreditTopUpInput
+): Promise<SystemBudgetTopUpCreated> {
+  return authenticatedRequest<SystemBudgetTopUpCreated>(
+    "/system-budget/top-ups",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
+  )
+}
+
+export function getProviderBudget(providerId: string): Promise<ProviderBudget> {
+  return authenticatedRequest<ProviderBudget>(`/providers/${providerId}/budget`)
+}
+
+export function createProviderBudgetTopUp(
+  providerId: string,
+  input: CreditTopUpInput
+): Promise<ProviderBudgetTopUpCreated> {
+  return authenticatedRequest<ProviderBudgetTopUpCreated>(
+    `/providers/${providerId}/budget/top-ups`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
+  )
+}
+
+export function createUserWalletTopUp(
+  userId: string,
+  input: CreditTopUpInput
+): Promise<WalletTopUpCreated> {
+  return authenticatedRequest<WalletTopUpCreated>(
+    `/users/${userId}/wallet/top-ups`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
   )
 }
 
