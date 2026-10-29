@@ -535,6 +535,67 @@ export function updateUserActive(
   })
 }
 
+// --- Own wallet (all authenticated users) ---
+
+export type WalletBalance = {
+  user_id: string
+  available_credits: number
+  reserved_credits: number
+  debt_credits: number
+  lifetime_credited_credits: number
+  lifetime_spent_credits: number
+  status: "active" | "debt" | "blocked"
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export type WalletEntryType = "top_up" | "reserve" | "settle" | "release"
+
+export type WalletTransaction = {
+  id: string
+  wallet_id: string
+  user_id: string
+  entry_type: WalletEntryType
+  available_delta_credits: number
+  reserved_delta_credits: number
+  charged_credits: number
+  debt_delta_credits: number
+  balance_after_credits: number
+  reserved_after_credits: number
+  debt_after_credits: number
+  source_call_trace_id: string | null
+  idempotency_key: string
+  reason: string
+  actor_user_id: string | null
+  created_at: string
+}
+
+export type WalletTransactionPage = {
+  items: WalletTransaction[]
+  page: number
+  page_size: number
+  total: number
+}
+
+// GET /wallet provisioned lazily on first read by the backend.
+export function getMyWallet(): Promise<WalletBalance> {
+  return authenticatedRequest<WalletBalance>("/wallet")
+}
+
+export function listMyWalletTransactions(
+  options: { page?: number; pageSize?: number } = {}
+): Promise<WalletTransactionPage> {
+  const params = new URLSearchParams()
+  if (options.page !== undefined) params.set("page", String(options.page))
+  if (options.pageSize !== undefined)
+    params.set("page_size", String(options.pageSize))
+  const query = params.toString()
+  return authenticatedRequest<WalletTransactionPage>(
+    `/wallet/transactions${query ? `?${query}` : ""}`
+  )
+}
+
 // --- Inference & Models (V1 Gateway API) ---
 
 export type GatewayModelItem = {
@@ -560,7 +621,8 @@ export async function listV1Models(apiKey: string): Promise<GatewayModelList> {
     try {
       const err = await response.json()
       if (err?.error?.message) message = err.error.message
-      else if (err?.detail) message = typeof err.detail === "string" ? err.detail : message
+      else if (err?.detail)
+        message = typeof err.detail === "string" ? err.detail : message
     } catch {
       // fallback
     }
@@ -568,4 +630,3 @@ export async function listV1Models(apiKey: string): Promise<GatewayModelList> {
   }
   return response.json() as Promise<GatewayModelList>
 }
-

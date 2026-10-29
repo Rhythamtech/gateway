@@ -1,7 +1,15 @@
 "use client"
 
 import * as React from "react"
-import { Boxes, Gauge, KeyRound, Server, Sparkles, UsersRound } from "lucide-react"
+import {
+  Boxes,
+  Gauge,
+  KeyRound,
+  Server,
+  Sparkles,
+  UsersRound,
+  Wallet,
+} from "lucide-react"
 
 import { BrandLockup } from "@/components/brand"
 import { NavMain } from "@/components/nav-main"
@@ -20,6 +28,7 @@ const navigation = [
   { title: "Dashboard", url: "/dashboard", icon: Gauge },
   { title: "Playground", url: "/dashboard/playground", icon: Sparkles },
   { title: "API Keys", url: "/dashboard/api-keys", icon: KeyRound },
+  { title: "Wallet", url: "/dashboard/wallet", icon: Wallet },
   {
     title: "Providers",
     url: "/dashboard/providers",

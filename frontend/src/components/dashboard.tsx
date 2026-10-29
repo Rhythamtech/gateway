@@ -7,6 +7,7 @@ import { ProvidersContent } from "@/components/providers"
 import { ModelGroupDetailContent } from "@/components/model-group-detail"
 import { ModelGroupsContent } from "@/components/model-groups"
 import { UsersContent } from "@/components/users"
+import { WalletContent } from "@/components/wallet"
 import { AuthGate } from "@/components/auth-gate"
 import { DashboardShell } from "@/components/dashboard-shell"
 import { SectionCards } from "@/components/section-cards"
@@ -44,9 +45,11 @@ export function Dashboard({
                 ? "Model Groups"
                 : currentPath.startsWith("/dashboard/api-keys")
                   ? "API Keys"
-                  : currentPath.startsWith("/dashboard/users")
-                    ? "Users"
-                    : "Dashboard"
+                  : currentPath.startsWith("/dashboard/wallet")
+                    ? "Wallet"
+                    : currentPath.startsWith("/dashboard/users")
+                      ? "Users"
+                      : "Dashboard"
 
   const requiresSuperuser = [
     "/dashboard/providers",
@@ -74,6 +77,8 @@ export function Dashboard({
                   <ProviderDetailContent />
                 ) : currentPath.startsWith("/dashboard/api-keys") ? (
                   <ApiKeysContent user={user} />
+                ) : currentPath.startsWith("/dashboard/wallet") ? (
+                  <WalletContent />
                 ) : currentPath === "/dashboard/model-groups" ? (
                   <ModelGroupsContent />
                 ) : currentPath.startsWith("/dashboard/model-groups/") ? (
