@@ -41,10 +41,12 @@ import {
   ModelGroupActionDrawer,
   ModelGroupFormDrawer,
 } from "@/components/model-group-drawers"
+import { UsageAnalyticsDrawer } from "@/components/usage-drawers"
 
 type DrawerState =
   | { mode: "form"; group: ModelGroup | null }
   | { mode: "disable"; group: ModelGroup }
+  | { mode: "usage"; group: ModelGroup }
   | null
 
 function detailHref(groupId: string) {
@@ -277,6 +279,13 @@ export function ModelGroupsContent() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onSelect={() => {
+                                  setDrawerState({ mode: "usage", group })
+                                }}
+                              >
+                                View usage
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={() => {
                                   setActionError(null)
                                   setDrawerState({ mode: "form", group })
                                 }}
@@ -345,6 +354,18 @@ export function ModelGroupsContent() {
             refreshGroups()
             toast.success(`Model group “${name}” disabled.`)
           }}
+        />
+      ) : null}
+      {drawerState?.mode === "usage" ? (
+        <UsageAnalyticsDrawer
+          key={drawerState.group.id}
+          subject={{
+            kind: "gateway_model",
+            id: drawerState.group.id,
+            label: drawerState.group.name,
+          }}
+          scopeNote="Totals aggregate usage from all users."
+          onClose={() => setDrawerState(null)}
         />
       ) : null}
     </>

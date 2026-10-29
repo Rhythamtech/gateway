@@ -26,6 +26,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -45,8 +46,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { UsageAnalyticsDrawer } from "@/components/usage-drawers"
 
-type DrawerState = { mode: "deactivate"; user: CurrentUser } | null
+type DrawerState =
+  | { mode: "deactivate"; user: CurrentUser }
+  | { mode: "usage"; user: CurrentUser }
+  | null
 
 export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
   const [users, setUsers] = React.useState<CurrentUser[] | null>(null)
@@ -213,54 +218,57 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
-                            {isSuperuser ? (
-                              <span
-                                className="text-xs text-muted-foreground"
-                                title="Superusers cannot be deactivated"
-                              >
-                                No actions
-                              </span>
-                            ) : (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    className="text-muted-foreground data-[state=open]:bg-muted"
-                                    disabled={pendingUserId === user.id}
-                                  >
-                                    <IconDotsVertical />
-                                    <span className="sr-only">
-                                      Actions for {user.email}
-                                    </span>
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                  align="end"
-                                  className="w-40"
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="text-muted-foreground data-[state=open]:bg-muted"
+                                  disabled={pendingUserId === user.id}
                                 >
-                                  {user.is_active ? (
-                                    <DropdownMenuItem
-                                      onSelect={() => {
-                                        setActionError(null)
-                                        setDrawerState({
-                                          mode: "deactivate",
-                                          user,
-                                        })
-                                      }}
-                                    >
-                                      Deactivate
-                                    </DropdownMenuItem>
-                                  ) : (
-                                    <DropdownMenuItem
-                                      onSelect={() => handleEnable(user)}
-                                    >
-                                      Enable
-                                    </DropdownMenuItem>
-                                  )}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
+                                  <IconDotsVertical />
+                                  <span className="sr-only">
+                                    Actions for {user.email}
+                                  </span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setDrawerState({
+                                      mode: "usage",
+                                      user,
+                                    })
+                                  }}
+                                >
+                                  View usage
+                                </DropdownMenuItem>
+                                {!isSuperuser ? (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    {user.is_active ? (
+                                      <DropdownMenuItem
+                                        onSelect={() => {
+                                          setActionError(null)
+                                          setDrawerState({
+                                            mode: "deactivate",
+                                            user,
+                                          })
+                                        }}
+                                      >
+                                        Deactivate
+                                      </DropdownMenuItem>
+                                    ) : (
+                                      <DropdownMenuItem
+                                        onSelect={() => handleEnable(user)}
+                                      >
+                                        Enable
+                                      </DropdownMenuItem>
+                                    )}
+                                  </>
+                                ) : null}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </TableCell>
                         </TableRow>
                       )
@@ -284,6 +292,18 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
             refreshUsers()
             toast.success(`“${email}” deactivated.`)
           }}
+        />
+      ) : null}
+      {drawerState?.mode === "usage" ? (
+        <UsageAnalyticsDrawer
+          key={drawerState.user.id}
+          subject={{
+            kind: "user",
+            id: drawerState.user.id,
+            label: drawerState.user.email,
+          }}
+          scopeNote="Totals aggregate all usage generated by this user."
+          onClose={() => setDrawerState(null)}
         />
       ) : null}
     </>

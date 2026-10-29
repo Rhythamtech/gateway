@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import {
+  Activity,
   Boxes,
   Gauge,
   KeyRound,
@@ -45,6 +46,12 @@ const navigation = [
     title: "Users",
     url: "/dashboard/users",
     icon: UsersRound,
+    superuserOnly: true,
+  },
+  {
+    title: "LLM Traces",
+    url: "/dashboard/traces",
+    icon: Activity,
     superuserOnly: true,
   },
 ]

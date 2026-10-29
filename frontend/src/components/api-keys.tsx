@@ -16,6 +16,7 @@ import {
   revokeApiKey,
   type ApiKeyItem,
 } from "@/lib/auth"
+import { UsageAnalyticsDrawer } from "@/components/usage-drawers"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -61,6 +62,7 @@ type DrawerState =
   | { mode: "secret"; secret: string; keyName: string }
   | { mode: "revoke"; key: ApiKeyItem }
   | { mode: "delete"; key: ApiKeyItem }
+  | { mode: "usage"; key: ApiKeyItem }
   | null
 
 function formatDateTime(value: string | null | undefined) {
@@ -325,6 +327,13 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuItem
+                                onSelect={() => {
+                                  setDrawerState({ mode: "usage", key })
+                                }}
+                              >
+                                View usage
+                              </DropdownMenuItem>
                               {!key.revoked ? (
                                 <DropdownMenuItem
                                   onSelect={() => {
@@ -537,6 +546,18 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
           ) : null}
         </DrawerContent>
       </Drawer>
+
+      {drawerState?.mode === "usage" ? (
+        <UsageAnalyticsDrawer
+          key={drawerState.key.id}
+          subject={{
+            kind: "api_key",
+            id: drawerState.key.id,
+            label: drawerState.key.name,
+          }}
+          onClose={() => setDrawerState(null)}
+        />
+      ) : null}
     </>
   )
 }

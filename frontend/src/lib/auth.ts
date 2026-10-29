@@ -596,6 +596,239 @@ export function listMyWalletTransactions(
   )
 }
 
+// --- LLM usage analytics (role scoping enforced by the backend) ---
+
+// Operational usage of actual gateway/provider attempts, including retries —
+// never billing numbers. Timestamps carry no fabricated figures: token counts
+// and average latency are null when the provider did not report them.
+export type UsageTotals = {
+  call_count: number
+  successful_call_count: number
+  failed_call_count: number
+  input_tokens: number
+  output_tokens: number
+  cache_tokens: number
+  total_latency_ms: number
+  average_latency_ms: number | null
+}
+
+export type DailyUsageEntry = {
+  date: string
+  call_count: number
+  successful_call_count: number
+  failed_call_count: number
+  input_tokens: number
+  output_tokens: number
+  cache_tokens: number
+  total_latency_ms: number
+  average_latency_ms: number | null
+}
+
+export type UsageSubjectType = "api_key" | "gateway_model" | "user"
+
+export type UsageAnalytics = {
+  subject_type: UsageSubjectType
+  subject_id: string
+  from_date: string
+  to_date: string
+  totals: UsageTotals
+  daily: DailyUsageEntry[]
+}
+
+export type UsageRange = {
+  // Inclusive date bounds (YYYY-MM-DD). Omit both for the backend default
+  // window: the subject's creation date through today (UTC).
+  from?: string
+  to?: string
+}
+
+// GET /traces/usage/api-keys/{key_id} — owner or superuser.
+export function getApiKeyUsage(
+  keyId: string,
+  range: UsageRange = {}
+): Promise<UsageAnalytics> {
+  return authenticatedRequest<UsageAnalytics>(
+    `/traces/usage/api-keys/${keyId}${buildUsageRangeQuery(range)}`
+  )
+}
+
+// GET /traces/usage/gateway-models/{model_id} — any authenticated user.
+// Regular users receive only their own usage for the model; superusers
+// receive totals across all users. Subject id is the model-group UUID.
+export function getGatewayModelUsage(
+  modelId: string,
+  range: UsageRange = {}
+): Promise<UsageAnalytics> {
+  return authenticatedRequest<UsageAnalytics>(
+    `/traces/usage/gateway-models/${modelId}${buildUsageRangeQuery(range)}`
+  )
+}
+
+// GET /traces/usage/users/{user_id} — superuser only.
+export function getUserUsage(
+  userId: string,
+  range: UsageRange = {}
+): Promise<UsageAnalytics> {
+  return authenticatedRequest<UsageAnalytics>(
+    `/traces/usage/users/${userId}${buildUsageRangeQuery(range)}`
+  )
+}
+
+function buildUsageRangeQuery(range: UsageRange) {
+  const params = new URLSearchParams()
+  if (range.from) params.set("from", range.from)
+  if (range.to) params.set("to", range.to)
+  const query = params.toString()
+  return query ? `?${query}` : ""
+}
+
+// --- LLM traces (inspection is superuser-only) ---
+
+// Read-only, operational data: one row per inbound message/request, and one
+// row per actual gateway/provider attempt (retries included). Provider-reported
+// token figures are null when the provider did not report them, and request
+// payloads are stored sanitized (+ truncated at a size cap) by the backend.
+export type GatewayModelRef = {
+  id: string | null
+  model_id: string
+}
+
+export type ProviderModelRef = {
+  id: string
+  model_id: string
+  provider_id: string
+  provider_name: string
+  provider_alias: string
+}
+
+export type TraceMessageStatus = "pending" | "success" | "failed" | "timeout"
+
+export type MessageTraceItem = {
+  id: string
+  user_id: string
+  message_id: string | null
+  api_key_id: string | null
+  request: Record<string, unknown> | null
+  status: TraceMessageStatus
+  call_count: number
+  successful_call_count: number
+  failed_call_count: number
+  input_tokens: number | null
+  output_tokens: number | null
+  cache_tokens: number | null
+  total_latency_ms: number | null
+  created_at: string
+  finished_at: string | null
+}
+
+export type MessageTraceDetail = MessageTraceItem & {
+  calls: CallTraceItem[]
+}
+
+// One exact call record (shared by list, detail, and message's calls[]).
+// Tokens are provider-reported (null when unavailable); credit fields come
+// from the wallet service for settled attempts.
+export type CallTraceItem = {
+  id: string
+  message_trace_id: string
+  user_id: string
+  message_id: string | null
+  api_key_id: string | null
+  gateway_model: GatewayModelRef | null
+  provider_model: ProviderModelRef | null
+  request: Record<string, unknown> | null
+  input_tokens: number | null
+  output_tokens: number | null
+  cache_tokens: number | null
+  uncached_input_tokens: number | null
+  cache_read_tokens: number | null
+  cache_write_tokens: number | null
+  billable_token_units: number | null
+  token_usage_source: string | null
+  user_credits_charged: number
+  credit_multiplier_ppm: number | null
+  provider_budget_credits_consumed: number
+  provider_cost_nanos: number
+  currency_code: string | null
+  latency_ms: number | null
+  status: string
+  error_code: string | null
+  created_at: string
+  finished_at: string | null
+}
+
+export type MessagesPage = {
+  items: MessageTraceItem[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export type CallsPage = {
+  items: CallTraceItem[]
+  page: number
+  page_size: number
+  total: number
+}
+
+// Only the query filters the backend documents for GET /traces/calls; all are
+// optional. from/to are inclusive dates.
+export type CallTraceFilters = {
+  user_id?: string
+  message_id?: string
+  api_key_id?: string
+  gateway_model_id?: string
+  provider_model_id?: string
+  status?: string
+  from?: string
+  to?: string
+}
+
+export type CallTraceFilterOptions = {
+  page?: number
+  pageSize?: number
+  filters?: CallTraceFilters
+}
+
+export function listMessageTraces(
+  options: { page?: number; pageSize?: number } = {}
+): Promise<MessagesPage> {
+  const params = new URLSearchParams()
+  if (options.page !== undefined) params.set("page", String(options.page))
+  if (options.pageSize !== undefined)
+    params.set("page_size", String(options.pageSize))
+  const query = params.toString()
+  return authenticatedRequest<MessagesPage>(
+    `/traces/messages${query ? `?${query}` : ""}`
+  )
+}
+
+export function getMessageTrace(traceId: string): Promise<MessageTraceDetail> {
+  return authenticatedRequest<MessageTraceDetail>(`/traces/messages/${traceId}`)
+}
+
+export function listCallTraces(
+  options: CallTraceFilterOptions = {}
+): Promise<CallsPage> {
+  const params = new URLSearchParams()
+  if (options.page !== undefined) params.set("page", String(options.page))
+  if (options.pageSize !== undefined)
+    params.set("page_size", String(options.pageSize))
+  const filters = options.filters ?? {}
+  for (const [key, value] of Object.entries(filters)) {
+    const trimmed = value.trim()
+    if (trimmed) params.set(key, trimmed)
+  }
+  const query = params.toString()
+  return authenticatedRequest<CallsPage>(
+    `/traces/calls${query ? `?${query}` : ""}`
+  )
+}
+
+export function getCallTrace(callId: string): Promise<CallTraceItem> {
+  return authenticatedRequest<CallTraceItem>(`/traces/calls/${callId}`)
+}
+
 // --- Inference & Models (V1 Gateway API) ---
 
 export type GatewayModelItem = {

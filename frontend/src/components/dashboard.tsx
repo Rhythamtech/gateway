@@ -7,6 +7,7 @@ import { ProvidersContent } from "@/components/providers"
 import { ModelGroupDetailContent } from "@/components/model-group-detail"
 import { ModelGroupsContent } from "@/components/model-groups"
 import { UsersContent } from "@/components/users"
+import { TracesContent, TraceDetailContent } from "@/components/traces"
 import { WalletContent } from "@/components/wallet"
 import { AuthGate } from "@/components/auth-gate"
 import { DashboardShell } from "@/components/dashboard-shell"
@@ -45,16 +46,21 @@ export function Dashboard({
                 ? "Model Groups"
                 : currentPath.startsWith("/dashboard/api-keys")
                   ? "API Keys"
-                  : currentPath.startsWith("/dashboard/wallet")
-                    ? "Wallet"
-                    : currentPath.startsWith("/dashboard/users")
-                      ? "Users"
-                      : "Dashboard"
+                  : currentPath.startsWith("/dashboard/traces/detail")
+                    ? "Trace details"
+                    : currentPath.startsWith("/dashboard/traces")
+                      ? "LLM Traces"
+                      : currentPath.startsWith("/dashboard/wallet")
+                        ? "Wallet"
+                        : currentPath.startsWith("/dashboard/users")
+                          ? "Users"
+                          : "Dashboard"
 
   const requiresSuperuser = [
     "/dashboard/providers",
     "/dashboard/model-groups",
     "/dashboard/users",
+    "/dashboard/traces",
   ].some((path) => currentPath === path || currentPath.startsWith(`${path}/`))
 
   return (
@@ -85,6 +91,10 @@ export function Dashboard({
                   <ModelGroupDetailContent />
                 ) : currentPath === "/dashboard/users" ? (
                   <UsersContent user={user} />
+                ) : currentPath.startsWith("/dashboard/traces/detail") ? (
+                  <TraceDetailContent />
+                ) : currentPath.startsWith("/dashboard/traces") ? (
+                  <TracesContent />
                 ) : (
                   <DashboardOverview />
                 )}
