@@ -253,6 +253,40 @@ def _migration_0005_wallet_budget_schema(connection: Connection) -> None:
     Base.metadata.create_all(bind=connection, tables=tables)
 
 
+def _migration_0006_provider_capacity(connection: Connection) -> None:
+    """Creates provider_capacity_accounts and provider_capacity_ledger tables.
+
+    Also backfills ``wallet_reservations.capacity_reserved_tokens`` on
+    databases that have the reservations table without the new column.
+    """
+
+    from backend.core.database import Base
+    from backend.wallet import models as _wallet_models  # noqa: F401
+
+    capacity_table_names = (
+        "provider_capacity_accounts",
+        "provider_capacity_ledger",
+    )
+    tables = [Base.metadata.tables[name] for name in capacity_table_names]
+    Base.metadata.create_all(bind=connection, tables=tables)
+
+    # Backfill the new column on existing wallet_reservations rows.
+    if "wallet_reservations" in {
+        row[0]
+        for row in connection.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table'")
+        )
+    }:
+        cols = _sqlite_columns(connection, "wallet_reservations")
+        if "capacity_reserved_tokens" not in cols:
+            connection.execute(
+                text(
+                    "ALTER TABLE wallet_reservations ADD COLUMN "
+                    "capacity_reserved_tokens INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -262,6 +296,7 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ),
     ("0004_model_groups_pricing", _migration_0004_model_groups_pricing),
     ("0005_wallet_budget_schema", _migration_0005_wallet_budget_schema),
+    ("0006_provider_capacity", _migration_0006_provider_capacity),
 ]
 
 

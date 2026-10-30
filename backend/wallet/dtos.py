@@ -183,3 +183,55 @@ class ProviderBudgetTopUpCreated(UTCResponseModel):
     actor_user_id: str | None
     reason: str
     created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Provider capacity (separate from budget)
+# ---------------------------------------------------------------------------
+
+
+class ProviderCapacityAddRequest(BaseModel):
+    """POST /providers/{provider_id}/capacity/add — Super Admin adds tokens."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    amount_tokens: int = Field(gt=0, strict=True)
+    idempotency_key: IdempotencyKey
+    reason: NonEmptyReason
+
+
+class ProviderCapacityResponse(UTCResponseModel):
+    """GET /providers/{provider_id}/capacity."""
+
+    provider_id: str
+    provider_name: str
+    total_tokens: int
+    consumed_tokens: int
+    reserved_tokens: int
+    available_tokens: int
+    updated_at: datetime
+
+
+class ProviderCapacityAddCreated(UTCResponseModel):
+    """POST /providers/{provider_id}/capacity/add — 201 response."""
+
+    transaction_id: str
+    provider_id: str
+    provider_name: str
+    amount_tokens: int
+    total_tokens: int
+    consumed_tokens: int
+    reserved_tokens: int
+    available_tokens: int
+    actor_user_id: str | None
+    reason: str
+    created_at: datetime
+
+
+class SystemCapacityResponse(BaseModel):
+    """GET /system-capacity — aggregate across all providers."""
+
+    total_tokens: int
+    consumed_tokens: int
+    reserved_tokens: int
+    available_tokens: int

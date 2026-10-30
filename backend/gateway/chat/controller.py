@@ -17,6 +17,7 @@ from backend.traces.capture import monitor_stream, start_capture
 from backend.wallet.service import (
     NoAvailableMemberError,
     ProviderBudgetInsufficientError,
+    ProviderCapacityInsufficientError,
 )
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
@@ -42,7 +43,7 @@ async def forward_chat(request: Request, payload: dict[str, Any]) -> Any:
             # strategy; other errors are recorded and abort the request.
             provider = capture.begin_attempt(candidate, payload, stream=stream)
             break
-        except ProviderBudgetInsufficientError:
+        except (ProviderBudgetInsufficientError, ProviderCapacityInsufficientError):
             continue  # skip to the next member per the routing strategy
         except GatewayError as exc:
             capture.failure(exc)
@@ -53,7 +54,7 @@ async def forward_chat(request: Request, payload: dict[str, Any]) -> Any:
                 429,
                 "no_available_member",
                 "No available member can serve this request within "
-                "wallet and provider budget limits",
+                "wallet, provider budget, and provider capacity limits",
             )
         )
         raise NoAvailableMemberError()

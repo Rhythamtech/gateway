@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-RoutingStrategy = Literal["round_robin", "weighted_round_robin"]
+RoutingStrategy = Literal["round_robin", "weighted_round_robin", "priority"]
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/\S+$")
 
 

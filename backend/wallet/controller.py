@@ -22,9 +22,13 @@ from backend.wallet.dtos import (
     ProviderBudgetResponse,
     ProviderBudgetTopUpCreated,
     ProviderBudgetTopUpRequest,
+    ProviderCapacityAddCreated,
+    ProviderCapacityAddRequest,
+    ProviderCapacityResponse,
     SystemBudgetResponse,
     SystemBudgetTopUpCreated,
     SystemBudgetTopUpRequest,
+    SystemCapacityResponse,
     WalletBalance,
     WalletTopUpCreated,
     WalletTopUpRequest,
@@ -225,3 +229,85 @@ def top_up_provider_budget(
         reason=data.reason,
         created_at=result.created_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# Provider capacity (separate from budget — Super Admin managed)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/providers/{provider_id}/capacity",
+    response_model=ProviderCapacityResponse,
+)
+def get_provider_capacity(
+    provider_id: str,
+    _: User = Depends(_require_superuser),
+):
+    """Returns current capacity status: total/consumed/reserved/available tokens.
+
+    Returns zeros when no capacity has ever been added (not an error).
+    """
+    status_obj = service.get_provider_capacity(provider_id)
+    return ProviderCapacityResponse(
+        provider_id=status_obj.provider_id,
+        provider_name=status_obj.provider_name,
+        total_tokens=status_obj.total_tokens,
+        consumed_tokens=status_obj.consumed_tokens,
+        reserved_tokens=status_obj.reserved_tokens,
+        available_tokens=status_obj.available_tokens,
+        updated_at=status_obj.updated_at,
+    )
+
+
+@router.post(
+    "/providers/{provider_id}/capacity/add",
+    response_model=ProviderCapacityAddCreated,
+    status_code=201,
+)
+def add_provider_capacity(
+    provider_id: str,
+    data: ProviderCapacityAddRequest,
+    actor: User = Depends(_require_superuser),
+):
+    """Super Admin adds token capacity to a provider.
+
+    Does NOT draw from the system budget — capacity and budget are independent.
+    Adding capacity never resets existing consumption or reservations.
+    Duplicate idempotency keys return 409.
+    """
+    result = service.add_provider_capacity(
+        provider_id=provider_id,
+        amount_tokens=data.amount_tokens,
+        reason=data.reason,
+        idempotency_key=data.idempotency_key,
+        actor_user_id=actor.id,
+    )
+    return ProviderCapacityAddCreated(
+        transaction_id=result.transaction_id,
+        provider_id=result.provider_id,
+        provider_name=result.provider_name,
+        amount_tokens=result.amount_tokens,
+        total_tokens=result.total_tokens,
+        consumed_tokens=result.consumed_tokens,
+        reserved_tokens=result.reserved_tokens,
+        available_tokens=result.available_tokens,
+        actor_user_id=result.actor_user_id,
+        reason=data.reason,
+        created_at=result.created_at,
+    )
+
+
+@router.get("/system-capacity", response_model=SystemCapacityResponse)
+def get_system_capacity(
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_superuser),
+):
+    """Aggregate capacity across all providers.
+
+    NOTE: this total is NOT universally available to every request.
+    A request can only use providers that belong to its Model Group.
+    Use this only for high-level system health monitoring.
+    """
+    totals = service.list_system_capacity(db)
+    return SystemCapacityResponse(**totals)

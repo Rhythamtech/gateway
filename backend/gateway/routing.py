@@ -3,17 +3,34 @@
 A requested model first resolves against enabled model groups; when one
 matches, its members are enumerated per the configured routing strategy as
 ordered dispatch candidates. Members whose provider is disabled or whose
-model is unavailable are skipped here; members whose provider budget cannot
-cover the reservation fail at hold time — the controller catches that and
-continues with the next candidate per the routing strategy. A request is
-therefore never routed to a provider whose budget cannot cover it.
+model is unavailable are skipped here; members whose provider budget or
+capacity cannot cover the reservation fail at hold time — the controller
+catches that and continues with the next candidate.
 
-Requests that do not match any model group keep the legacy configuration
+Routing strategies
+------------------
+round_robin
+    Rotates across all eligible members in a repeating sequence (process-local
+    counter). Load is distributed evenly in unit increments.
+
+weighted_round_robin
+    True probabilistic weighted selection: each member's share of traffic is
+    proportional to its weight. A member with weight=3 receives 3× the requests
+    of one with weight=1. Implemented via weighted random selection; unavailable
+    members are excluded before sampling.
+
+priority
+    Members are tried in ascending priority order (lowest number first).
+    The highest-priority available member handles every request; lower-priority
+    members act as fallbacks. Ties broken by weight (desc) then id (asc).
+
+Requests that do not match any model group keep the legacy configuration-
 based routing (``resolve_model``); they charge with the default multiplier
 (1x) and the configured default pricing version.
 """
 
 import itertools
+import random
 from dataclasses import dataclass
 
 from backend.core.config import settings
@@ -44,8 +61,10 @@ class RouteCandidate:
     requested_model: str | None = None
 
 
-def _sorted_members(db: Session, group: ModelGroup) -> list[tuple[ProviderModel, Provider, int, int]]:
-    """Group members as (model, provider, weight, priority), priority order."""
+def _sorted_members(
+    db: Session, group: ModelGroup
+) -> list[tuple[ProviderModel, Provider, int, int]]:
+    """Group members as (model, provider, weight, priority), priority+weight order."""
 
     rows = (
         db.query(ModelGroupMember, ProviderModel, Provider)
@@ -58,19 +77,75 @@ def _sorted_members(db: Session, group: ModelGroup) -> list[tuple[ProviderModel,
         (model, provider, member.weight, member.priority)
         for member, model, provider in rows
     ]
+    # Primary: ascending priority; secondary: descending weight; tertiary: model id.
     members.sort(key=lambda item: (item[3], -item[2], item[0].id))
     return members
+
+
+def _eligible(members: list[tuple[ProviderModel, Provider, int, int]]) -> list[tuple[ProviderModel, Provider, int, int]]:
+    """Filter to members with enabled provider and available model."""
+    return [
+        (model, provider, weight, priority)
+        for model, provider, weight, priority in members
+        if provider.is_enabled and model.is_available
+    ]
 
 
 def _order_by_strategy(
     members: list[tuple[ProviderModel, Provider, int, int]], routing_strategy: str
 ) -> list[tuple[ProviderModel, Provider, int, int]]:
-    """Priority-first order; round-robin additionally rotates per request."""
+    """Return members ordered by the routing strategy for one request.
 
-    if len(members) > 1 and routing_strategy == "round_robin":
-        offset = next(_rotation) % len(members)
-        return members[offset:] + members[:offset]
-    return members
+    ``round_robin``         — rotate the sorted list by a global counter.
+    ``weighted_round_robin``— probabilistic weighted sample (no rotation).
+    ``priority``            — already sorted by priority; no reordering.
+    """
+    eligible = _eligible(members)
+    if not eligible:
+        return []
+
+    if routing_strategy == "round_robin":
+        offset = next(_rotation) % len(eligible)
+        return eligible[offset:] + eligible[:offset]
+
+    if routing_strategy == "weighted_round_robin":
+        return _weighted_order(eligible)
+
+    # "priority" and any unknown strategy: priority-sorted order as-is.
+    return eligible
+
+
+def _weighted_order(
+    eligible: list[tuple[ProviderModel, Provider, int, int]],
+) -> list[tuple[ProviderModel, Provider, int, int]]:
+    """Weighted random ordering without replacement.
+
+    The first element is the selected primary candidate (probabilistically
+    chosen proportional to weights). Remaining elements follow in weight-
+    descending order as fallback candidates for the same request.
+    """
+    if len(eligible) == 1:
+        return eligible
+
+    weights = [w for _, _, w, _ in eligible]
+    total = sum(weights)
+    if total == 0:
+        return eligible  # degenerate: treat as equal
+
+    # Pick the primary candidate with probability proportional to weight.
+    r = random.random() * total
+    cumulative = 0.0
+    primary_idx = 0
+    for i, w in enumerate(weights):
+        cumulative += w
+        if r < cumulative:
+            primary_idx = i
+            break
+
+    # Remaining candidates in weight-descending order (fallback sequence).
+    rest = eligible[:primary_idx] + eligible[primary_idx + 1:]
+    rest.sort(key=lambda item: (-item[2], item[3], item[0].id))
+    return [eligible[primary_idx]] + rest
 
 
 def plan(model: str) -> list[RouteCandidate]:
@@ -95,12 +170,9 @@ def plan_with_db(db: Session, model: str) -> list[RouteCandidate]:
         for model_row, provider, _weight, _priority in _order_by_strategy(
             _sorted_members(db, group), group.routing_strategy
         ):
-            # Skip members with a disabled provider or unavailable model;
-            # insufficient provider budget skips at hold time so the check
-            # runs against the live account state inside the reservation
-            # transaction instead of a possibly-stale snapshot here.
-            if not provider.is_enabled or not model_row.is_available:
-                continue
+            # Enabled/available check is done in _eligible() above; budget and
+            # capacity checks run at reservation time inside begin_attempt so
+            # the check is against live account state, not a stale snapshot.
             candidates.append(
                 RouteCandidate(
                     provider_alias=provider.aliases,
@@ -116,10 +188,7 @@ def plan_with_db(db: Session, model: str) -> list[RouteCandidate]:
             )
         return candidates
 
-    # Legacy configuration-based routing: a single fixed candidate. The
-    # provider row is read directly — credential decryption and enablement
-    # checks stay in capture.begin_attempt (get_provider), so planning
-    # never depends on configuration validity.
+    # Legacy configuration-based routing: a single fixed candidate.
     provider_alias, upstream_model = resolve_model(model, db)
     row = db.query(Provider).filter(Provider.aliases == provider_alias).first()
     if row is None:

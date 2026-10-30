@@ -6,12 +6,21 @@ All amounts are integer credits:
   base user credit scaled by the model-group ``credit_multiplier_ppm``.
 * provider/system budget credits — internal token-equivalent units,
   independent of user credits and model multipliers.
+* provider capacity tokens — SEPARATE from budget; the physical token
+  throughput capacity a provider can serve, managed manually by Super Admin.
+  Adding capacity never draws from the system budget pool.
+
+Three distinct resource dimensions per reservation:
+  1. user_wallet       — user credits (billing)
+  2. provider_budget   — financial token-equivalent (cost accounting)
+  3. provider_capacity — physical throughput capacity (independent of cost)
 
 Ledgers (``wallet_ledger_entries``, ``system_budget_ledger``,
-``provider_budget_ledger``) are append-only financial records: they carry NO
-foreign keys to operational entities (same as ``ProviderAuditLog``), so
-deleting a user/provider never removes accounting history. Account balances
-are transactionally maintained projections of their ledgers.
+``provider_budget_ledger``, ``provider_capacity_ledger``) are append-only
+financial records: they carry NO foreign keys to operational entities (same
+as ``ProviderAuditLog``), so deleting a user/provider never removes
+accounting history. Account balances are transactionally maintained
+projections of their ledgers.
 """
 
 from datetime import datetime, timezone
@@ -47,6 +56,9 @@ RESERVATION_RELEASED = "released"
 WALLET_ENTRY_TYPES = ("top_up", "reserve", "settle", "release")
 SYSTEM_ENTRY_TYPES = ("fund", "allocate", "consume")
 PROVIDER_ENTRY_TYPES = ("allocate", "reserve", "settle", "release")
+# Capacity ledger: "add" = Super Admin manually adds tokens;
+# "reserve"/"settle"/"release" mirror the budget lifecycle.
+CAPACITY_ENTRY_TYPES = ("add", "reserve", "settle", "release")
 
 
 def _utcnow() -> datetime:
@@ -205,6 +217,9 @@ class WalletReservation(Base):
     provider_reserved_credits: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )
+    # Capacity tokens held (separate from budget credits).
+    # Zero when the provider has no capacity account (legacy / unconfigured).
+    capacity_reserved_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Request-derived estimates the reservation was based on (restores the
     # estimate for missing-usage policy settlements after a restart).
     estimated_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -583,3 +598,92 @@ class SystemUsageDaily(Base):
     provider_budget_credits_consumed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     provider_cost_nanos: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+# ---------------------------------------------------------------------------
+# Provider capacity (separate from financial budget)
+# ---------------------------------------------------------------------------
+
+
+class ProviderCapacityAccount(Base):
+    """Per-provider token throughput capacity, managed manually by Super Admin.
+
+    Completely separate from ProviderBudgetAccount (financial accounting).
+    All models/model-groups using the same provider share this single pool.
+
+    * total_tokens     — cumulative tokens added by admins (never decremented)
+    * consumed_tokens  — tokens used by settled requests
+    * reserved_tokens  — tokens held for in-flight requests
+    * available_tokens — total - consumed - reserved (maintained transactionally)
+
+    Adding capacity increases total_tokens and available_tokens without
+    touching consumed/reserved so existing reservations are never disturbed.
+    """
+
+    __tablename__ = "provider_capacity_accounts"
+    __table_args__ = (
+        CheckConstraint("total_tokens >= 0", name="ck_provider_capacity_total_nonneg"),
+        CheckConstraint("consumed_tokens >= 0", name="ck_provider_capacity_consumed_nonneg"),
+        CheckConstraint("reserved_tokens >= 0", name="ck_provider_capacity_reserved_nonneg"),
+        CheckConstraint("available_tokens >= 0", name="ck_provider_capacity_available_nonneg"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    # No FK: capacity history must survive provider deletion.
+    provider_id: Mapped[str] = mapped_column(
+        String(36),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    consumed_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reserved_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+
+class ProviderCapacityLedger(Base):
+    """Append-only capacity audit log (no FK; history survives deletion).
+
+    entry_type:
+      "add"     — Super Admin adds tokens (increases total + available)
+      "reserve" — pre-dispatch hold (decreases available, increases reserved)
+      "settle"  — actual usage consumed (decreases reserved, increases consumed)
+      "release" — pre-dispatch failure returns hold (increases available)
+    """
+
+    __tablename__ = "provider_capacity_ledger"
+    __table_args__ = (
+        CheckConstraint("amount_tokens >= 0", name="ck_capacity_ledger_amount_nonneg"),
+        CheckConstraint(
+            "entry_type IN ('add','reserve','settle','release')",
+            name="ck_capacity_ledger_entry_type",
+        ),
+        UniqueConstraint("idempotency_key", name="uq_capacity_ledger_idempotency"),
+        Index("ix_capacity_ledger_account_created", "provider_capacity_account_id", "created_at"),
+        Index("ix_capacity_ledger_call_trace", "source_call_trace_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    provider_capacity_account_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    provider_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    entry_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    amount_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_delta_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    consumed_delta_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reserved_delta_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_delta_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source_call_trace_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    actor_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )

@@ -43,9 +43,12 @@ from backend.traces.service import bump_daily_usage
 from backend.wallet.models import (
     APIKeyUsageDaily,
     BILLING_DAILY_COLUMNS,
+    CAPACITY_ENTRY_TYPES,
     GatewayModelUsageDaily,
     ProviderBudgetAccount,
     ProviderBudgetLedger,
+    ProviderCapacityAccount,
+    ProviderCapacityLedger,
     ProviderModelRate,
     ProviderModelUsageDaily,
     ProviderUsageDaily,
@@ -316,6 +319,22 @@ class ProviderBudgetInsufficientError(GatewayError):
             status.HTTP_409_CONFLICT,
             "insufficient_provider_budget",
             f"Provider budget cannot cover this request: {provider_id}",
+        )
+
+
+class ProviderCapacityInsufficientError(GatewayError):
+    """Raised pre-dispatch when provider has no available capacity.
+
+    Same skip semantics as ProviderBudgetInsufficientError: the router
+    moves to the next eligible candidate. Capacity is separate from budget —
+    a provider with budget but zero capacity cannot serve requests.
+    """
+
+    def __init__(self, provider_id: str):
+        super().__init__(
+            status.HTTP_409_CONFLICT,
+            "insufficient_provider_capacity",
+            f"Provider token capacity cannot cover this request: {provider_id}",
         )
 
 
@@ -860,6 +879,175 @@ def get_or_create_provider_budget(provider_id: str) -> tuple[ProviderBudgetAccou
 
 
 # ---------------------------------------------------------------------------
+# Provider capacity (independent of financial budget)
+# ---------------------------------------------------------------------------
+
+
+def _get_or_create_capacity_account(db: Session, provider_id: str) -> ProviderCapacityAccount:
+    account = (
+        db.query(ProviderCapacityAccount)
+        .filter(ProviderCapacityAccount.provider_id == provider_id)
+        .first()
+    )
+    if account is None:
+        account = ProviderCapacityAccount(provider_id=provider_id)
+        db.add(account)
+        db.flush()
+    return account
+
+
+@dataclass(frozen=True)
+class CapacityTopUpResult:
+    transaction_id: str
+    provider_id: str
+    provider_name: str
+    amount_tokens: int
+    total_tokens: int
+    consumed_tokens: int
+    reserved_tokens: int
+    available_tokens: int
+    actor_user_id: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class CapacityStatus:
+    provider_id: str
+    provider_name: str
+    total_tokens: int
+    consumed_tokens: int
+    reserved_tokens: int
+    available_tokens: int
+    updated_at: datetime
+
+
+def add_provider_capacity(
+    *,
+    provider_id: str,
+    amount_tokens: int,
+    reason: str,
+    idempotency_key: str,
+    actor_user_id: str | None,
+) -> CapacityTopUpResult:
+    """Super Admin adds token capacity to a provider (no system budget required).
+
+    Adding capacity increases total_tokens and available_tokens only.
+    Consumed and reserved tokens are unaffected, so active reservations
+    are never disturbed by capacity additions.
+    """
+    if amount_tokens <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="amount_tokens must be a positive integer",
+        )
+
+    db = SessionLocal()
+    try:
+        provider = db.query(Provider).filter(Provider.id == provider_id).first()
+        if provider is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found"
+            )
+
+        _ensure_unused_idempotency_key(db, ProviderCapacityLedger, idempotency_key)
+
+        account = _get_or_create_capacity_account(db, provider_id)
+        account.total_tokens += amount_tokens
+        account.available_tokens += amount_tokens
+        account.version += 1
+
+        entry = ProviderCapacityLedger(
+            provider_capacity_account_id=account.id,
+            provider_id=provider_id,
+            entry_type="add",
+            amount_tokens=amount_tokens,
+            total_delta_tokens=amount_tokens,
+            consumed_delta_tokens=0,
+            reserved_delta_tokens=0,
+            available_delta_tokens=amount_tokens,
+            idempotency_key=idempotency_key,
+            actor_user_id=actor_user_id,
+            reason=reason,
+        )
+        db.add(entry)
+        db.flush()
+        db.commit()
+        db.refresh(account)
+
+        return CapacityTopUpResult(
+            transaction_id=entry.id,
+            provider_id=provider_id,
+            provider_name=provider.name,
+            amount_tokens=amount_tokens,
+            total_tokens=account.total_tokens,
+            consumed_tokens=account.consumed_tokens,
+            reserved_tokens=account.reserved_tokens,
+            available_tokens=account.available_tokens,
+            actor_user_id=actor_user_id,
+            created_at=entry.created_at,
+        )
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def get_provider_capacity(provider_id: str) -> CapacityStatus:
+    """Returns the current capacity status for a provider.
+
+    Returns a zero-capacity status when no account exists yet (provider
+    has never had capacity added).
+    """
+    db = SessionLocal()
+    try:
+        provider = db.query(Provider).filter(Provider.id == provider_id).first()
+        if provider is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found"
+            )
+        account = (
+            db.query(ProviderCapacityAccount)
+            .filter(ProviderCapacityAccount.provider_id == provider_id)
+            .first()
+        )
+        now = _utcnow()
+        return CapacityStatus(
+            provider_id=provider_id,
+            provider_name=provider.name,
+            total_tokens=account.total_tokens if account else 0,
+            consumed_tokens=account.consumed_tokens if account else 0,
+            reserved_tokens=account.reserved_tokens if account else 0,
+            available_tokens=account.available_tokens if account else 0,
+            updated_at=account.updated_at if account else now,
+        )
+    finally:
+        db.close()
+
+
+def list_system_capacity(db: Session) -> dict:
+    """Total capacity across all providers — for system-wide summary display.
+
+    NOTE: never treat this as universally available per request. A request
+    can only use providers that belong to its requested Model Group.
+    """
+    from sqlalchemy import func as sa_func
+
+    row = db.query(
+        sa_func.sum(ProviderCapacityAccount.total_tokens),
+        sa_func.sum(ProviderCapacityAccount.consumed_tokens),
+        sa_func.sum(ProviderCapacityAccount.reserved_tokens),
+        sa_func.sum(ProviderCapacityAccount.available_tokens),
+    ).first()
+    return {
+        "total_tokens": row[0] or 0,
+        "consumed_tokens": row[1] or 0,
+        "reserved_tokens": row[2] or 0,
+        "available_tokens": row[3] or 0,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Rate snapshots
 # ---------------------------------------------------------------------------
 
@@ -962,6 +1150,19 @@ def reserve_attempt(
         if wallet.available_credits < estimated_credits:
             raise InsufficientCreditsError()
 
+        # -- capacity check (separate from budget) ---------------------------
+        # Capacity is optional: a provider with no capacity account is treated
+        # as having unlimited capacity (legacy behaviour / zero-config path).
+        # Once any capacity has been added, the account must have enough tokens.
+        cap_account = (
+            db.query(ProviderCapacityAccount)
+            .filter(ProviderCapacityAccount.provider_id == provider_id)
+            .first()
+        )
+        capacity_reserve = estimate_units  # same unit: normalized token count
+        if cap_account is not None and cap_account.available_tokens < capacity_reserve:
+            raise ProviderCapacityInsufficientError(provider_id)
+
         message, call = trace_service.start_pending_attempt(
             db,
             user_id=user_id,
@@ -980,6 +1181,7 @@ def reserve_attempt(
             provider_id=provider_id,
             reserved_credits=estimated_credits,
             provider_reserved_credits=estimate_units,
+            capacity_reserved_tokens=capacity_reserve if cap_account is not None else 0,
             estimated_input_tokens=estimate_input_tokens,
             estimated_output_tokens=estimate_output_tokens,
             multiplier_snapshot_ppm=multiplier_ppm,
@@ -1023,6 +1225,27 @@ def reserve_attempt(
                 reason=(f"Reserved provider budget for {call.id}"),
             )
         )
+
+        # Capacity hold (same token units as budget hold).
+        if cap_account is not None and capacity_reserve > 0:
+            cap_account.available_tokens -= capacity_reserve
+            cap_account.reserved_tokens += capacity_reserve
+            cap_account.version += 1
+            db.add(
+                ProviderCapacityLedger(
+                    provider_capacity_account_id=cap_account.id,
+                    provider_id=provider_id,
+                    entry_type="reserve",
+                    amount_tokens=capacity_reserve,
+                    total_delta_tokens=0,
+                    consumed_delta_tokens=0,
+                    reserved_delta_tokens=capacity_reserve,
+                    available_delta_tokens=-capacity_reserve,
+                    source_call_trace_id=call.id,
+                    idempotency_key=f"cap_reserve:{call.id}",
+                    reason=f"Reserved capacity for {call.id}",
+                )
+            )
         db.flush()
 
         db.commit()
@@ -1095,6 +1318,35 @@ def _release(
             reason=(f"Released provider reservation for {reservation.call_trace_id}"),
         )
     )
+
+    # Release capacity hold if one was taken.
+    cap_reserved = getattr(reservation, "capacity_reserved_tokens", 0) or 0
+    if cap_reserved > 0:
+        cap_account = (
+            db.query(ProviderCapacityAccount)
+            .filter(ProviderCapacityAccount.provider_id == reservation.provider_id)
+            .first()
+        )
+        if cap_account is not None:
+            cap_account.available_tokens += cap_reserved
+            cap_account.reserved_tokens -= cap_reserved
+            cap_account.version += 1
+            db.add(
+                ProviderCapacityLedger(
+                    provider_capacity_account_id=cap_account.id,
+                    provider_id=reservation.provider_id,
+                    entry_type="release",
+                    amount_tokens=cap_reserved,
+                    total_delta_tokens=0,
+                    consumed_delta_tokens=0,
+                    reserved_delta_tokens=-cap_reserved,
+                    available_delta_tokens=cap_reserved,
+                    source_call_trace_id=reservation.call_trace_id,
+                    idempotency_key=f"cap_release:{reservation.call_trace_id}",
+                    reason=f"Released capacity for {reservation.call_trace_id}",
+                )
+            )
+
     db.flush()
 
     reservation.status = RESERVATION_RELEASED
@@ -1377,6 +1629,37 @@ def settle_attempt(
             )
         )
         db.flush()
+
+        # -- capacity settlement (same token units as budget) ---------------
+        cap_reserved = getattr(reservation, "capacity_reserved_tokens", 0) or 0
+        if cap_reserved > 0:
+            cap_account = (
+                db.query(ProviderCapacityAccount)
+                .filter(ProviderCapacityAccount.provider_id == reservation.provider_id)
+                .first()
+            )
+            if cap_account is not None:
+                cap_refund = max(0, cap_reserved - billable)
+                cap_account.available_tokens += cap_refund
+                cap_account.reserved_tokens -= cap_reserved
+                cap_account.consumed_tokens += billable
+                cap_account.version += 1
+                db.add(
+                    ProviderCapacityLedger(
+                        provider_capacity_account_id=cap_account.id,
+                        provider_id=reservation.provider_id,
+                        entry_type="settle",
+                        amount_tokens=billable,
+                        total_delta_tokens=0,
+                        consumed_delta_tokens=billable,
+                        reserved_delta_tokens=-cap_reserved,
+                        available_delta_tokens=cap_refund,
+                        source_call_trace_id=call_trace_id,
+                        idempotency_key=f"cap_settle:{call_trace_id}",
+                        reason=f"Consumed {billable} capacity tokens ({source})",
+                    )
+                )
+                db.flush()
 
         # -- system consumed mirror ---------------------------------------
         # Consumption retracts from the circulating system allocation, so
