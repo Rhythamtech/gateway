@@ -104,3 +104,8 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_write_db():
+    with SessionLocal() as db:
+        yield db

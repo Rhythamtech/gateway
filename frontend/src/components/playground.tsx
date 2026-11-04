@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import {
+  ArrowRight,
   ArrowUp,
   Bot,
   Check,
@@ -9,6 +10,7 @@ import {
   ChevronUp,
   ChevronsUpDown,
   Code,
+  Coins,
   Copy,
   Cpu,
   KeyRound,
@@ -29,21 +31,20 @@ import { toast } from "sonner"
 import {
   API_BASE_URL,
   createApiKey,
+  getMyCredits,
   getPlaygroundApiKey,
   listModelGroups,
   listProviderModels,
   listProviders,
   listV1Models,
   setPlaygroundApiKey,
+  type CreditBalance,
   type CurrentUser,
 } from "@/lib/auth"
+import { formatCredits } from "@/lib/credits"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-} from "@/components/ui/card"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -54,18 +55,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -85,6 +81,10 @@ export type ChatMessage = {
   latencyMs?: number
   isStreaming?: boolean
   error?: boolean
+  errorAction?: {
+    label: string
+    href: string
+  }
 }
 
 type ModelChoice = {
@@ -93,6 +93,8 @@ type ModelChoice = {
   category: "model-group" | "provider-model" | "custom"
   detail?: string
   strategy?: string
+  providerId?: string
+  providerName?: string
 }
 
 const STARTER_PROMPTS = [
@@ -106,7 +108,9 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
   const isSuperuser = user.role === "superuser"
 
   // API Key management
-  const [apiKey, setApiKey] = React.useState<string>(() => getPlaygroundApiKey() ?? "")
+  const [apiKey, setApiKey] = React.useState<string>(
+    () => getPlaygroundApiKey() ?? ""
+  )
   const [keyInput, setKeyInput] = React.useState("")
   const [keyDrawerOpen, setKeyDrawerOpen] = React.useState(false)
   const [isGeneratingKey, setIsGeneratingKey] = React.useState(false)
@@ -154,7 +158,9 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
 
   // Metrics state
   const [ttftMs, setTtftMs] = React.useState<number | null>(null)
-  const [totalLatencyMs, setTotalLatencyMs] = React.useState<number | null>(null)
+  const [totalLatencyMs, setTotalLatencyMs] = React.useState<number | null>(
+    null
+  )
   const [tokensPerSec, setTokensPerSec] = React.useState<number | null>(null)
   const [usageStats, setUsageStats] = React.useState<{
     promptTokens: number
@@ -165,14 +171,71 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
 
   // Code export & Inspector
   const [codeDrawerOpen, setCodeDrawerOpen] = React.useState(false)
-  const [codeLang, setCodeLang] = React.useState<"curl" | "python" | "typescript">("curl")
+  const [codeLang, setCodeLang] = React.useState<
+    "curl" | "python" | "typescript"
+  >("curl")
   const [lastRawRequest, setLastRawRequest] = React.useState<string>("")
   const [lastRawResponse, setLastRawResponse] = React.useState<string>("")
-  const [activeTab, setActiveTab] = React.useState<"chat" | "request" | "response">("chat")
+  const [activeTab, setActiveTab] = React.useState<
+    "chat" | "request" | "response"
+  >("chat")
   const [copiedCode, setCopiedCode] = React.useState(false)
 
   // Mobile parameters drawer toggle
   const [paramsDrawerOpen, setParamsDrawerOpen] = React.useState(false)
+
+  // Credit balance state and auto-refresh
+  const [creditBalance, setCreditBalance] =
+    React.useState<CreditBalance | null>(null)
+  const lastCreditsFetchRef = React.useRef<number>(0)
+
+  const fetchCredits = React.useCallback(async () => {
+    try {
+      const balance = await getMyCredits()
+      setCreditBalance(balance)
+      lastCreditsFetchRef.current = Date.now()
+    } catch {
+      // Backend is authoritative; balance loading failure must not disable inference
+    }
+  }, [])
+
+  React.useEffect(() => {
+    let cancelled = false
+    getMyCredits()
+      .then((balance) => {
+        if (!cancelled) {
+          setCreditBalance(balance)
+          lastCreditsFetchRef.current = Date.now()
+        }
+      })
+      .catch(() => {
+        // Backend is authoritative; balance loading failure must not disable inference
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  React.useEffect(() => {
+    const FRESHNESS_MS = 15_000
+
+    function handleFocusOrVisible() {
+      if (document.visibilityState === "visible") {
+        const now = Date.now()
+        if (now - lastCreditsFetchRef.current > FRESHNESS_MS) {
+          fetchCredits()
+        }
+      }
+    }
+
+    window.addEventListener("focus", handleFocusOrVisible)
+    document.addEventListener("visibilitychange", handleFocusOrVisible)
+
+    return () => {
+      window.removeEventListener("focus", handleFocusOrVisible)
+      document.removeEventListener("visibilitychange", handleFocusOrVisible)
+    }
+  }, [fetchCredits])
 
   // Load models on mount or when API key / role changes
   React.useEffect(() => {
@@ -185,15 +248,18 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
       // 1. Superusers can test both Model Groups and Direct Provider models
       if (isSuperuser) {
         try {
-          const groupList = await listModelGroups({ isEnabled: true, pageSize: 100 })
+          const groupList = await listModelGroups({
+            isEnabled: true,
+            pageSize: 100,
+          })
           if (!cancelled && groupList.items) {
             for (const g of groupList.items) {
               const strategyLabel =
                 g.routing_strategy === "priority"
                   ? "Priority Failover"
                   : g.routing_strategy === "weighted_round_robin"
-                  ? "Weighted Round-Robin"
-                  : "Round-Robin"
+                    ? "Weighted Round-Robin"
+                    : "Round-Robin"
               choices.push({
                 id: g.model_id,
                 label: g.name,
@@ -220,6 +286,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
                   label: directId,
                   category: "provider-model",
                   detail: `${p.name} · ${p.protocol}`,
+                  providerId: p.id,
+                  providerName: p.name,
                 })
               }
             } catch {
@@ -277,13 +345,17 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
   async function handleCreatePlaygroundKey() {
     setIsGeneratingKey(true)
     try {
-      const created = await createApiKey(`Playground Key (${new Date().toLocaleDateString()})`)
+      const created = await createApiKey(
+        `Playground Key (${new Date().toLocaleDateString()})`
+      )
       setPlaygroundApiKey(created.api_key)
       setApiKey(created.api_key)
       setKeyDrawerOpen(false)
       toast.success("Playground API key connected!")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create API key.")
+      toast.error(
+        err instanceof Error ? err.message : "Failed to create API key."
+      )
     } finally {
       setIsGeneratingKey(false)
     }
@@ -309,13 +381,15 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
   }
 
   // Active target model ID and label
-  const activeModelId = selectedModel === "__custom__" ? customModel.trim() : selectedModel
+  const activeModelId =
+    selectedModel === "__custom__" ? customModel.trim() : selectedModel
   const activeModelChoice = models.find((m) => m.id === activeModelId)
 
   // Filtered models for combobox popover
   const filteredModels = React.useMemo(() => {
     return models.filter((m) => {
-      const matchesCategory = categoryFilter === "all" || m.category === categoryFilter
+      const matchesCategory =
+        categoryFilter === "all" || m.category === categoryFilter
       const query = modelSearchQuery.toLowerCase().trim()
       const matchesQuery =
         !query ||
@@ -419,23 +493,141 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
       })
 
       if (!response.ok) {
+        setInputPrompt(textToSend)
+
         let errMessage = `Error ${response.status}: ${response.statusText}`
+        let errCode: string | undefined
+        let errorAction: { label: string; href: string } | undefined
+
         try {
           const errData = await response.json()
           setLastRawResponse(JSON.stringify(errData, null, 2))
           if (errData?.error?.message) {
             errMessage = errData.error.message
           } else if (errData?.detail) {
-            errMessage = typeof errData.detail === "string" ? errData.detail : JSON.stringify(errData.detail)
+            errMessage =
+              typeof errData.detail === "string"
+                ? errData.detail
+                : JSON.stringify(errData.detail)
+          }
+          if (errData?.error?.code) {
+            errCode = errData.error.code
           }
         } catch {
           // ignore
         }
 
         if (response.status === 401) {
-          errMessage = "Authentication failed: The API key is invalid or deactivated."
+          errMessage =
+            "Authentication failed: The API key is invalid or deactivated."
         } else if (response.status === 429) {
-          errMessage = "Rate limit reached: The request exceeded the allowed rate."
+          errMessage =
+            "Rate limit reached: The request exceeded the allowed rate of 60 requests per minute."
+        } else if (
+          response.status === 402 ||
+          errCode === "insufficient_credits"
+        ) {
+          errMessage =
+            "Insufficient available credits. This request requires reserving its maximum token allowance up front, which exceeds your available credit balance."
+          errorAction = {
+            label: "View Credits balance",
+            href: "/dashboard/credits",
+          }
+        } else if (response.status === 503) {
+          if (
+            errCode === "provider_credits_exhausted" ||
+            errMessage.includes("Provider has insufficient available credits")
+          ) {
+            if (isSuperuser) {
+              errMessage =
+                "The upstream provider balance is insufficient to fund this request's credit reservation."
+              if (activeModelChoice?.providerId) {
+                errorAction = {
+                  label: `Manage ${activeModelChoice.providerName ?? "Provider"} credits`,
+                  href: `/dashboard/providers/detail?id=${activeModelChoice.providerId}`,
+                }
+              } else {
+                errorAction = {
+                  label: "Manage Model Groups",
+                  href: "/dashboard/model-groups",
+                }
+              }
+            } else {
+              errMessage =
+                "The provider for this model has temporarily exhausted its credit balance. Please select another model or try again later."
+            }
+          } else if (
+            errCode === "model_rate_missing" ||
+            errMessage.includes("credit rate is not configured")
+          ) {
+            if (isSuperuser) {
+              errMessage =
+                "No credit rate is configured for this model. Requests cannot be admitted without an active rate."
+              if (activeModelChoice?.providerId) {
+                errorAction = {
+                  label: `Configure ${activeModelChoice.providerName ?? "model"} rate`,
+                  href: `/dashboard/providers/detail?id=${activeModelChoice.providerId}`,
+                }
+              } else {
+                errorAction = {
+                  label: "Manage Model Groups",
+                  href: "/dashboard/model-groups",
+                }
+              }
+            } else {
+              errMessage =
+                "This model cannot be dispatched because its credit rate is not configured. Please select another model."
+            }
+          } else if (
+            errCode === "model_unavailable" ||
+            errMessage.includes("Provider model is unavailable")
+          ) {
+            if (isSuperuser) {
+              errMessage =
+                "The provider model is marked as unavailable or disabled."
+              if (activeModelChoice?.providerId) {
+                errorAction = {
+                  label: `Manage ${activeModelChoice.providerName ?? "Provider"}`,
+                  href: `/dashboard/providers/detail?id=${activeModelChoice.providerId}`,
+                }
+              } else {
+                errorAction = {
+                  label: "Manage Providers",
+                  href: "/dashboard/providers",
+                }
+              }
+            } else {
+              errMessage =
+                "This model is currently unavailable from the provider. Please select another model."
+            }
+          } else if (
+            errCode === "no_available_member" ||
+            errMessage.includes("No eligible provider")
+          ) {
+            if (isSuperuser) {
+              errMessage =
+                "No eligible provider in the model group could serve this request (all members were disabled, missing rates, or exhausted credits)."
+              errorAction = {
+                label: "Manage Model Groups",
+                href: "/dashboard/model-groups",
+              }
+            } else {
+              errMessage =
+                "No provider is currently available to serve this model group. Please choose another model."
+            }
+          }
+        } else if (
+          response.status === 400 &&
+          (errCode === "output_limit_exceeded" ||
+            errMessage.includes("Requested output exceeds"))
+        ) {
+          errMessage = `Requested output (${maxTokens} tokens) exceeds the model's configured limit. Open the Parameters dialog to lower Max Output Tokens and retry.`
+          if (isSuperuser && activeModelChoice?.providerId) {
+            errorAction = {
+              label: `Check ${activeModelChoice.providerName ?? "model"} rate limits`,
+              href: `/dashboard/providers/detail?id=${activeModelChoice.providerId}`,
+            }
+          }
         }
 
         setMessages((prev) =>
@@ -446,11 +638,13 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
                   content: `⚠️ **Request Failed**\n\n${errMessage}`,
                   isStreaming: false,
                   error: true,
+                  errorAction,
                 }
               : msg
           )
         )
         setFinishReason("error")
+        void fetchCredits()
         return
       }
 
@@ -496,7 +690,11 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
                   setMessages((prev) =>
                     prev.map((msg) =>
                       msg.id === assistantMessageId
-                        ? { ...msg, content: accumulatedContent, isStreaming: true }
+                        ? {
+                            ...msg,
+                            content: accumulatedContent,
+                            isStreaming: true,
+                          }
                         : msg
                     )
                   )
@@ -524,7 +722,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
         setTotalLatencyMs(totalDuration)
 
         if (tokenCount > 0 && totalDuration > 0) {
-          const tps = Math.round((tokenCount / (totalDuration / 1000)) * 10) / 10
+          const tps =
+            Math.round((tokenCount / (totalDuration / 1000)) * 10) / 10
           setTokensPerSec(tps)
         }
 
@@ -533,7 +732,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
             msg.id === assistantMessageId
               ? {
                   ...msg,
-                  content: accumulatedContent || "(No response content returned)",
+                  content:
+                    accumulatedContent || "(No response content returned)",
                   isStreaming: false,
                   latencyMs: totalDuration,
                   tokens: tokenCount,
@@ -541,6 +741,7 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
               : msg
           )
         )
+        void fetchCredits()
       } else {
         // Non-streaming JSON response
         const data = await response.json()
@@ -560,7 +761,9 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
           })
           if (data.usage.completion_tokens && totalDuration > 0) {
             setTokensPerSec(
-              Math.round((data.usage.completion_tokens / (totalDuration / 1000)) * 10) / 10
+              Math.round(
+                (data.usage.completion_tokens / (totalDuration / 1000)) * 10
+              ) / 10
             )
           }
         }
@@ -578,6 +781,7 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
               : msg
           )
         )
+        void fetchCredits()
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") {
@@ -587,13 +791,15 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
             msg.id === assistantMessageId
               ? {
                   ...msg,
-                  content: accumulatedContent + "\n\n*(Generation stopped by user)*",
+                  content:
+                    accumulatedContent + "\n\n*(Generation stopped by user)*",
                   isStreaming: false,
                 }
               : msg
           )
         )
       } else {
+        setInputPrompt(textToSend)
         const errorMsg = err instanceof Error ? err.message : "Network error."
         setMessages((prev) =>
           prev.map((msg) =>
@@ -608,6 +814,7 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
           )
         )
       }
+      void fetchCredits()
     } finally {
       setIsGenerating(false)
       abortControllerRef.current = null
@@ -619,6 +826,7 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
       abortControllerRef.current.abort()
       abortControllerRef.current = null
     }
+    void fetchCredits()
   }
 
   function handleClearChat() {
@@ -720,108 +928,110 @@ console.log(data.choices[0].message.content);`
 }`
   }
 
-  // Parameters Sidebar Content (Shared between desktop and mobile drawer)
-  const ParametersSidebar = (
-    <div className="flex flex-col gap-4">
-      {/* Parameter Controls Card */}
-      <div className="rounded-xl border bg-card text-card-foreground shadow-2xs overflow-hidden">
-        <div className="flex items-center justify-between border-b px-4 py-3 bg-muted/10">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="size-4 text-muted-foreground" />
-            <span className="text-xs font-semibold text-foreground">Parameters</span>
-          </div>
-          <span className="text-[10px] text-muted-foreground">Sampling</span>
+  // Parameters Content (Shared between the desktop dialog and mobile dialog)
+  const ParametersContent = (
+    <div className="space-y-4 p-4 text-xs">
+      {/* Temperature */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label
+            htmlFor="param-temp"
+            className="cursor-pointer text-xs font-medium text-foreground"
+          >
+            Temperature
+          </Label>
+          <span className="font-mono text-xs font-semibold text-foreground tabular-nums">
+            {temperature.toFixed(2)}
+          </span>
         </div>
-        <div className="space-y-4 p-4 text-xs">
-          {/* Temperature */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="param-temp" className="text-xs font-medium text-foreground cursor-pointer">
-                Temperature
-              </Label>
-              <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
-                {temperature.toFixed(2)}
-              </span>
-            </div>
-            <Slider
-              id="param-temp"
-              value={[temperature]}
-              min={0}
-              max={2}
-              step={0.05}
-              onValueChange={([val]) => setTemperature(val)}
-            />
-            <div className="flex justify-between text-[10px] text-muted-foreground/70">
-              <span>Precise (0.0)</span>
-              <span>Creative (2.0)</span>
-            </div>
-          </div>
-
-          {/* Max Output Tokens */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="param-max-tokens" className="text-xs font-medium text-foreground cursor-pointer">
-                Max Output Tokens
-              </Label>
-              <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
-                {maxTokens.toLocaleString()}
-              </span>
-            </div>
-            <Slider
-              id="param-max-tokens"
-              value={[maxTokens]}
-              min={256}
-              max={8192}
-              step={256}
-              onValueChange={([val]) => setMaxTokens(val)}
-            />
-            <div className="flex justify-between text-[10px] text-muted-foreground/70 font-mono">
-              <span>256</span>
-              <span>2,048</span>
-              <span>4,096</span>
-              <span>8,192</span>
-            </div>
-          </div>
-
-          {/* Top P */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="param-top-p" className="text-xs font-medium text-foreground cursor-pointer">
-                Top P (Nucleus)
-              </Label>
-              <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
-                {topP.toFixed(2)}
-              </span>
-            </div>
-            <Slider
-              id="param-top-p"
-              value={[topP]}
-              min={0}
-              max={1}
-              step={0.05}
-              onValueChange={([val]) => setTopP(val)}
-            />
-            <div className="flex justify-between text-[10px] text-muted-foreground/70">
-              <span>Focused (0.0)</span>
-              <span>Broad (1.0)</span>
-            </div>
-          </div>
-
-          {/* Stream toggle */}
-          <div className="flex items-center justify-between rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
-            <div className="space-y-0.5">
-              <Label htmlFor="param-stream" className="text-xs font-medium text-foreground cursor-pointer">
-                Stream Output
-              </Label>
-              <p className="text-[10px] text-muted-foreground">Server-Sent Events (SSE) chunks</p>
-            </div>
-            <Checkbox
-              id="param-stream"
-              checked={stream}
-              onCheckedChange={(checked) => setStream(Boolean(checked))}
-            />
-          </div>
+        <Slider
+          id="param-temp"
+          value={[temperature]}
+          min={0}
+          max={2}
+          step={0.05}
+          onValueChange={([val]) => setTemperature(val)}
+        />
+        <div className="flex justify-between text-[10px] text-muted-foreground/70">
+          <span>Precise (0.0)</span>
+          <span>Creative (2.0)</span>
         </div>
+      </div>
+
+      {/* Max Output Tokens */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label
+            htmlFor="param-max-tokens"
+            className="cursor-pointer text-xs font-medium text-foreground"
+          >
+            Max Output Tokens
+          </Label>
+          <span className="font-mono text-xs font-semibold text-foreground tabular-nums">
+            {maxTokens.toLocaleString()}
+          </span>
+        </div>
+        <Slider
+          id="param-max-tokens"
+          value={[maxTokens]}
+          min={256}
+          max={8192}
+          step={256}
+          onValueChange={([val]) => setMaxTokens(val)}
+        />
+        <div className="flex justify-between font-mono text-[10px] text-muted-foreground/70">
+          <span>256</span>
+          <span>2,048</span>
+          <span>4,096</span>
+          <span>8,192</span>
+        </div>
+      </div>
+
+      {/* Top P */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label
+            htmlFor="param-top-p"
+            className="cursor-pointer text-xs font-medium text-foreground"
+          >
+            Top P (Nucleus)
+          </Label>
+          <span className="font-mono text-xs font-semibold text-foreground tabular-nums">
+            {topP.toFixed(2)}
+          </span>
+        </div>
+        <Slider
+          id="param-top-p"
+          value={[topP]}
+          min={0}
+          max={1}
+          step={0.05}
+          onValueChange={([val]) => setTopP(val)}
+        />
+        <div className="flex justify-between text-[10px] text-muted-foreground/70">
+          <span>Focused (0.0)</span>
+          <span>Broad (1.0)</span>
+        </div>
+      </div>
+
+      {/* Stream toggle */}
+      <div className="flex items-center justify-between rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
+        <div className="space-y-0.5">
+          <Label
+            htmlFor="param-stream"
+            className="cursor-pointer text-xs font-medium text-foreground"
+          >
+            Stream Output
+          </Label>
+          <p className="text-[10px] text-muted-foreground">
+            Server-Sent Events (SSE) chunks
+          </p>
+        </div>
+        <Checkbox
+          id="param-stream"
+          checked={stream}
+          onCheckedChange={(checked) => setStream(Boolean(checked))}
+        />
       </div>
     </div>
   )
@@ -829,7 +1039,7 @@ console.log(data.choices[0].message.content);`
   return (
     <div className="flex flex-1 flex-col gap-3 px-4 lg:px-6">
       {/* Sleek Integrated Toolbar (No clunky outer card wrapper) */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 border-b pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3 sm:gap-2.5">
         {/* Left: Clean Model Selector & System Instructions Toggle */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Model Combobox Popover */}
@@ -839,46 +1049,64 @@ console.log(data.choices[0].message.content);`
                 variant="outline"
                 role="combobox"
                 aria-expanded={modelPickerOpen}
-                className="h-9 gap-2 border-border/70 bg-background/80 px-3 font-normal shadow-2xs hover:bg-accent/50 hover:border-border transition-colors"
+                className="h-9 gap-2 border-border/70 bg-background/80 px-3 font-normal shadow-2xs transition-colors hover:border-border hover:bg-accent/50"
               >
-                <Cpu className="size-4 text-primary shrink-0" />
-                <span className="font-medium text-xs sm:text-sm text-foreground truncate max-w-[150px] sm:max-w-[240px]">
-                  {activeModelChoice ? activeModelChoice.label : activeModelId || "Select a model"}
+                <Cpu className="size-4 shrink-0 text-primary" />
+                <span className="max-w-[150px] truncate text-xs font-medium text-foreground sm:max-w-[240px] sm:text-sm">
+                  {activeModelChoice
+                    ? activeModelChoice.label
+                    : activeModelId || "Select a model"}
                 </span>
 
                 {isSuperuser ? (
                   activeModelChoice?.category === "model-group" ? (
-                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground">
+                    <Badge
+                      variant="secondary"
+                      className="h-4 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                    >
                       {activeModelChoice.strategy === "priority"
                         ? "Priority"
                         : activeModelChoice.strategy === "weighted_round_robin"
-                        ? "WRR"
-                        : "Group"}
+                          ? "WRR"
+                          : "Group"}
                     </Badge>
                   ) : activeModelChoice?.category === "provider-model" ? (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground">
+                    <Badge
+                      variant="outline"
+                      className="h-4 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                    >
                       Direct
                     </Badge>
                   ) : selectedModel === "__custom__" ? (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-primary">
+                    <Badge
+                      variant="outline"
+                      className="h-4 px-1.5 py-0 text-[10px] font-normal text-primary"
+                    >
                       Custom
                     </Badge>
                   ) : null
                 ) : null}
 
-                <ChevronsUpDown className="size-3.5 text-muted-foreground shrink-0 ml-0.5 opacity-60" />
+                <ChevronsUpDown className="ml-0.5 size-3.5 shrink-0 text-muted-foreground opacity-60" />
               </Button>
             </PopoverTrigger>
 
-            <PopoverContent align="start" className="w-[320px] sm:w-[380px] p-0 shadow-xl border-border">
+            <PopoverContent
+              align="start"
+              className="w-[320px] border-border p-0 shadow-xl sm:w-[380px]"
+            >
               {/* Search Bar */}
               <div className="flex items-center border-b px-3 py-2">
                 <Search className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
                 <input
-                  placeholder={isSuperuser ? "Search models or providers…" : "Search models…"}
+                  placeholder={
+                    isSuperuser
+                      ? "Search models or providers…"
+                      : "Search models…"
+                  }
                   value={modelSearchQuery}
                   onChange={(e) => setModelSearchQuery(e.target.value)}
-                  className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
+                  className="w-full bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
                   autoFocus
                 />
                 {modelSearchQuery ? (
@@ -939,7 +1167,7 @@ console.log(data.choices[0].message.content);`
               ) : null}
 
               {/* Models List */}
-              <div className="max-h-72 overflow-y-auto p-1.5 space-y-0.5">
+              <div className="max-h-72 space-y-0.5 overflow-y-auto p-1.5">
                 {isLoadingModels ? (
                   <div className="py-6 text-center text-xs text-muted-foreground">
                     Discovering models…
@@ -964,15 +1192,17 @@ console.log(data.choices[0].message.content);`
                         className={cn(
                           "flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors",
                           isSelected
-                            ? "bg-primary/10 text-primary font-medium"
-                            : "hover:bg-muted text-foreground"
+                            ? "bg-primary/10 font-medium text-primary"
+                            : "text-foreground hover:bg-muted"
                         )}
                       >
                         <div className="flex items-center gap-2 overflow-hidden">
                           <Check
                             className={cn(
                               "size-3.5 shrink-0",
-                              isSelected ? "opacity-100 text-primary" : "opacity-0"
+                              isSelected
+                                ? "text-primary opacity-100"
+                                : "opacity-0"
                             )}
                           />
                           <div className="flex flex-col overflow-hidden">
@@ -989,15 +1219,19 @@ console.log(data.choices[0].message.content);`
 
                         {isSuperuser ? (
                           <Badge
-                            variant={m.category === "model-group" ? "secondary" : "outline"}
-                            className="shrink-0 text-[10px] px-1.5 py-0 font-normal text-muted-foreground"
+                            variant={
+                              m.category === "model-group"
+                                ? "secondary"
+                                : "outline"
+                            }
+                            className="shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
                           >
                             {m.category === "model-group"
                               ? m.strategy === "priority"
                                 ? "Priority"
                                 : m.strategy === "weighted_round_robin"
-                                ? "Weighted"
-                                : "Round Robin"
+                                  ? "Weighted"
+                                  : "Round Robin"
                               : "Direct"}
                           </Badge>
                         ) : null}
@@ -1024,7 +1258,7 @@ console.log(data.choices[0].message.content);`
                           }
                         }}
                         placeholder="e.g. openai/gpt-4o"
-                        className="h-7 text-xs font-mono"
+                        className="h-7 font-mono text-xs"
                         autoFocus
                       />
                       <Button
@@ -1080,8 +1314,23 @@ console.log(data.choices[0].message.content);`
           </Button>
         </div>
 
-        {/* Right: Key Badge, Code, Clear, Mobile Params */}
-        <div className="flex items-center gap-1.5">
+        {/* Right: Key Badge, Code, Clear, Parameters */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* Available Credits Link (Desktop / Tablet) */}
+          <a
+            href="/dashboard/credits"
+            title="View your credit balance and history in Credits"
+            className="hidden h-9 items-center gap-1.5 rounded-md border border-border/70 bg-background/80 px-2.5 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-accent/50 hover:text-foreground sm:inline-flex"
+          >
+            <Coins className="size-3.5 text-muted-foreground" />
+            <span>Available credits:</span>
+            <span className="font-medium text-foreground tabular-nums">
+              {creditBalance !== null
+                ? formatCredits(creditBalance.available_credits)
+                : "—"}
+            </span>
+          </a>
+
           {/* API Key Status Pill */}
           {apiKey ? (
             <Button
@@ -1092,7 +1341,9 @@ console.log(data.choices[0].message.content);`
             >
               <span className="size-1.5 rounded-full bg-emerald-500" />
               <span className="font-mono text-xs">
-                {apiKey.startsWith("sk-") ? `${apiKey.slice(0, 10)}…` : "API Key"}
+                {apiKey.startsWith("sk-")
+                  ? `${apiKey.slice(0, 10)}…`
+                  : "API Key"}
               </span>
             </Button>
           ) : (
@@ -1130,38 +1381,60 @@ console.log(data.choices[0].message.content);`
             <span className="hidden sm:inline">Clear</span>
           </Button>
 
-          {/* Mobile Parameters Sheet Trigger */}
+          {/* Parameters Dialog Trigger */}
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-2 text-xs lg:hidden"
+            className="h-9 gap-1.5 px-2.5 text-xs"
             onClick={() => setParamsDrawerOpen(true)}
           >
             <SlidersHorizontal className="size-3.5" />
+            <span className="hidden sm:inline">Parameters</span>
           </Button>
+        </div>
+
+        {/* Mobile own available credits (below 640px, placed on its own line with 8px gap, never over the composer) */}
+        <div className="flex w-full items-center sm:hidden">
+          <a
+            href="/dashboard/credits"
+            title="View your credit balance and history in Credits"
+            className="inline-flex h-8 w-full items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted"
+          >
+            <div className="flex items-center gap-1.5">
+              <Coins className="size-3.5 text-muted-foreground" />
+              <span>Available credits</span>
+            </div>
+            <span className="font-medium text-foreground tabular-nums">
+              {creditBalance !== null
+                ? formatCredits(creditBalance.available_credits)
+                : "—"}
+            </span>
+          </a>
         </div>
       </div>
 
-      {/* Main Split Grid: Unified Chat Workspace (Left) & Parameters (Right) */}
+      {/* Main Split Grid: Unified Chat Workspace (Full Width) */}
       <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-12">
-        {/* Left Area (8 cols on desktop, 9 on xl): Unified Chat Workspace Card */}
-        <div className="flex flex-col lg:col-span-8 xl:col-span-9">
-          <Card className="flex flex-1 flex-col overflow-hidden rounded-xl border shadow-2xs min-h-[580px]">
+        {/* Left Area (Full Width): Unified Chat Workspace Card */}
+        <div className="flex flex-col lg:col-span-12">
+          <Card className="flex min-h-[580px] flex-1 flex-col overflow-hidden rounded-xl border shadow-2xs">
             {/* Header: Conversation / Request / Response Tabs & Live Status */}
-            <CardHeader className="flex flex-row items-center justify-between border-b px-4 py-2 bg-muted/10">
+            <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/10 px-4 py-2">
               <Tabs
                 value={activeTab}
-                onValueChange={(val) => setActiveTab(val as "chat" | "request" | "response")}
+                onValueChange={(val) =>
+                  setActiveTab(val as "chat" | "request" | "response")
+                }
                 className="w-auto"
               >
                 <TabsList className="h-8">
-                  <TabsTrigger value="chat" className="text-xs px-3">
+                  <TabsTrigger value="chat" className="px-3 text-xs">
                     Conversation
                   </TabsTrigger>
-                  <TabsTrigger value="request" className="text-xs px-3">
+                  <TabsTrigger value="request" className="px-3 text-xs">
                     Request JSON
                   </TabsTrigger>
-                  <TabsTrigger value="response" className="text-xs px-3">
+                  <TabsTrigger value="response" className="px-3 text-xs">
                     Response Trace
                   </TabsTrigger>
                 </TabsList>
@@ -1169,7 +1442,10 @@ console.log(data.choices[0].message.content);`
 
               <div className="flex items-center gap-2">
                 {isGenerating ? (
-                  <Badge variant="outline" className="animate-pulse border-primary/50 text-[11px] py-0.5 px-2.5">
+                  <Badge
+                    variant="outline"
+                    className="animate-pulse border-primary/50 px-2.5 py-0.5 text-[11px]"
+                  >
                     <Sparkles className="mr-1 size-3 text-primary" />
                     Generating…
                   </Badge>
@@ -1177,7 +1453,7 @@ console.log(data.choices[0].message.content);`
                   <Badge
                     variant="outline"
                     className={cn(
-                      "text-[11px] py-0.5 px-2",
+                      "px-2 py-0.5 text-[11px]",
                       finishReason === "error"
                         ? "border-destructive text-destructive"
                         : "text-muted-foreground"
@@ -1191,7 +1467,7 @@ console.log(data.choices[0].message.content);`
 
             {/* Seamless System Prompt Drawer (Opens inline inside the canvas, zero wasted height when closed) */}
             {showSystemPrompt ? (
-              <div className="border-b bg-muted/20 px-4 py-3 space-y-2">
+              <div className="space-y-2 border-b bg-muted/20 px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                     <Terminal className="size-3.5 text-primary" />
@@ -1210,7 +1486,7 @@ console.log(data.choices[0].message.content);`
                   value={systemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
                   placeholder="Set role instructions, persona, or output format guidelines for the model…"
-                  className="min-h-[64px] resize-y text-xs bg-background"
+                  className="min-h-[64px] resize-y bg-background text-xs"
                 />
               </div>
             ) : null}
@@ -1225,7 +1501,9 @@ console.log(data.choices[0].message.content);`
                       <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-2xs">
                         <Sparkles className="size-5" />
                       </div>
-                      <h3 className="mt-3 text-sm font-semibold text-foreground">Model Playground</h3>
+                      <h3 className="mt-3 text-sm font-semibold text-foreground">
+                        Model Playground
+                      </h3>
                       <p className="mt-1 max-w-sm text-xs text-muted-foreground">
                         {isSuperuser
                           ? "Test model groups and direct provider endpoints with real-time SSE streaming and token telemetry."
@@ -1240,7 +1518,9 @@ console.log(data.choices[0].message.content);`
                             className="rounded-lg border bg-muted/20 p-2.5 text-left text-xs transition-colors hover:border-primary/50 hover:bg-muted/50"
                             onClick={() => handleSendMessage(prompt)}
                           >
-                            <p className="line-clamp-2 text-foreground">{prompt}</p>
+                            <p className="line-clamp-2 text-foreground">
+                              {prompt}
+                            </p>
                           </button>
                         ))}
                       </div>
@@ -1264,27 +1544,35 @@ console.log(data.choices[0].message.content);`
                             <div
                               className={`group relative max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm shadow-2xs ${
                                 isUser
-                                  ? "bg-primary text-primary-foreground rounded-tr-xs"
+                                  ? "rounded-tr-xs bg-primary text-primary-foreground"
                                   : message.error
-                                    ? "border border-destructive/40 bg-destructive/10 text-foreground rounded-tl-xs"
-                                    : "border bg-muted/30 text-foreground rounded-tl-xs"
+                                    ? "rounded-tl-xs border border-destructive/40 bg-destructive/10 text-foreground"
+                                    : "rounded-tl-xs border bg-muted/30 text-foreground"
                               }`}
                             >
                               <div className="flex items-center justify-between gap-4 pb-1">
                                 <span
                                   className={`text-[10px] font-semibold tracking-wider uppercase ${
-                                    isUser ? "text-primary-foreground/75" : "text-muted-foreground"
+                                    isUser
+                                      ? "text-primary-foreground/75"
+                                      : "text-muted-foreground"
                                   }`}
                                 >
-                                  {isUser ? "You" : activeModelId || "Assistant"}
+                                  {isUser
+                                    ? "You"
+                                    : activeModelId || "Assistant"}
                                 </span>
                                 <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                                   <button
                                     type="button"
                                     className={`rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10 ${
-                                      isUser ? "text-primary-foreground" : "text-muted-foreground"
+                                      isUser
+                                        ? "text-primary-foreground"
+                                        : "text-muted-foreground"
                                     }`}
-                                    onClick={() => handleCopyContent(message.content)}
+                                    onClick={() =>
+                                      handleCopyContent(message.content)
+                                    }
                                     title="Copy content"
                                   >
                                     <Copy className="size-3" />
@@ -1292,22 +1580,38 @@ console.log(data.choices[0].message.content);`
                                 </div>
                               </div>
 
-                              <div className="whitespace-pre-wrap leading-relaxed text-xs sm:text-sm">
+                              <div className="text-xs leading-relaxed whitespace-pre-wrap sm:text-sm">
                                 {message.content}
                                 {message.isStreaming && !message.content ? (
-                                  <span className="inline-block animate-pulse text-muted-foreground text-xs">
+                                  <span className="inline-block animate-pulse text-xs text-muted-foreground">
                                     Waiting for first token…
                                   </span>
                                 ) : null}
                                 {message.isStreaming && message.content ? (
-                                  <span className="inline-block size-1.5 animate-pulse rounded-full bg-primary ml-1" />
+                                  <span className="ml-1 inline-block size-1.5 animate-pulse rounded-full bg-primary" />
                                 ) : null}
                               </div>
 
+                              {message.errorAction ? (
+                                <div className="mt-2.5">
+                                  <a
+                                    href={message.errorAction.href}
+                                    className="inline-flex items-center gap-1.5 rounded-md border border-border/80 bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                                  >
+                                    <span>{message.errorAction.label}</span>
+                                    <ArrowRight className="size-3 text-muted-foreground" />
+                                  </a>
+                                </div>
+                              ) : null}
+
                               {message.latencyMs || message.tokens ? (
                                 <div className="mt-2 flex items-center gap-2 border-t border-border/30 pt-1 text-[10px] text-muted-foreground">
-                                  {message.latencyMs ? <span>{message.latencyMs} ms</span> : null}
-                                  {message.tokens ? <span>· {message.tokens} tokens</span> : null}
+                                  {message.latencyMs ? (
+                                    <span>{message.latencyMs} ms</span>
+                                  ) : null}
+                                  {message.tokens ? (
+                                    <span>· {message.tokens} tokens</span>
+                                  ) : null}
                                 </div>
                               ) : null}
                             </div>
@@ -1340,7 +1644,7 @@ console.log(data.choices[0].message.content);`
             </CardContent>
 
             {/* Linear-Style Modern Combined Composer & Live Telemetry Statusline */}
-            <div className="border-t border-border/60 bg-muted/5 p-3 sm:p-4 space-y-2.5">
+            <div className="space-y-2.5 border-t border-border/60 bg-muted/5 p-3 sm:p-4">
               <form
                 onSubmit={(e) => {
                   e.preventDefault()
@@ -1348,7 +1652,7 @@ console.log(data.choices[0].message.content);`
                 }}
                 className={cn(
                   "relative flex flex-col rounded-xl border border-input/80 bg-background shadow-2xs transition-all duration-200",
-                  "focus-within:border-ring/80 focus-within:ring-2 focus-within:ring-ring/20 dark:bg-muted/15 dark:border-border/60"
+                  "focus-within:border-ring/80 focus-within:ring-2 focus-within:ring-ring/20 dark:border-border/60 dark:bg-muted/15"
                 )}
               >
                 {/* Borderless Expanding Textarea */}
@@ -1368,37 +1672,43 @@ console.log(data.choices[0].message.content);`
                       ? "Ask anything, test prompts, or enter instructions…"
                       : "Connect API key to begin testing models…"
                   }
-                  className="w-full resize-none border-0 bg-transparent px-3.5 pt-3 pb-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/60 outline-none focus:outline-none focus:ring-0 min-h-[50px] max-h-44"
+                  className="max-h-44 min-h-[50px] w-full resize-none border-0 bg-transparent px-3.5 pt-3 pb-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60 focus:ring-0 focus:outline-none"
                   disabled={isGenerating}
                 />
 
                 {/* Bottom Combined Tray */}
-                <div className="flex items-center justify-between px-3 pb-2 pt-1 border-t border-transparent">
+                <div className="flex items-center justify-between border-t border-transparent px-3 pt-1 pb-2">
                   {/* Left: Active Model Pill & Keyboard Shortcut Hints */}
                   <div className="flex items-center gap-2 overflow-hidden text-xs text-muted-foreground">
                     {activeModelId ? (
                       <span className="inline-flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground/90">
-                        <span className="size-1.5 rounded-full bg-emerald-500 shrink-0" />
-                        <span className="truncate max-w-[130px] sm:max-w-[220px]">{activeModelId}</span>
+                        <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+                        <span className="max-w-[130px] truncate sm:max-w-[220px]">
+                          {activeModelId}
+                        </span>
                       </span>
                     ) : null}
-                    <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-muted-foreground/50 select-none">
-                      <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground/70">↵</kbd>
+                    <span className="hidden items-center gap-1 text-[11px] text-muted-foreground/50 select-none sm:inline-flex">
+                      <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground/70">
+                        ↵
+                      </kbd>
                       <span>send</span>
                       <span className="opacity-40">·</span>
-                      <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground/70">⇧↵</kbd>
+                      <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground/70">
+                        ⇧↵
+                      </kbd>
                       <span>new line</span>
                     </span>
                   </div>
 
                   {/* Right: Modern Integrated Action Button */}
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex shrink-0 items-center gap-1.5">
                     {isGenerating ? (
                       <button
                         type="button"
                         onClick={handleStopGeneration}
                         title="Stop generation"
-                        className="flex size-7 items-center justify-center rounded-lg bg-foreground text-background shadow-2xs hover:bg-destructive hover:text-destructive-foreground active:scale-95 transition-all cursor-pointer"
+                        className="hover:text-destructive-foreground flex size-7 cursor-pointer items-center justify-center rounded-lg bg-foreground text-background shadow-2xs transition-all hover:bg-destructive active:scale-95"
                       >
                         <Square className="size-3 fill-current" />
                       </button>
@@ -1410,8 +1720,8 @@ console.log(data.choices[0].message.content);`
                         className={cn(
                           "flex size-7 items-center justify-center rounded-lg transition-all",
                           inputPrompt.trim()
-                            ? "bg-primary text-primary-foreground shadow-2xs hover:opacity-90 active:scale-95 cursor-pointer"
-                            : "bg-muted text-muted-foreground/35 cursor-not-allowed"
+                            ? "cursor-pointer bg-primary text-primary-foreground shadow-2xs hover:opacity-90 active:scale-95"
+                            : "cursor-not-allowed bg-muted text-muted-foreground/35"
                         )}
                       >
                         <ArrowUp className="size-3.5" strokeWidth={2.5} />
@@ -1422,13 +1732,13 @@ console.log(data.choices[0].message.content);`
               </form>
 
               {/* Statusline: Live Telemetry below chat input */}
-              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-1 text-[11px] font-mono text-muted-foreground select-none">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-1 font-mono text-[11px] text-muted-foreground select-none">
                 <div className="flex items-center gap-2 overflow-hidden">
                   {/* Status Indicator */}
                   <div className="flex items-center gap-1.5 font-sans">
                     {isGenerating ? (
                       <span className="inline-flex items-center gap-1.5 font-medium text-primary">
-                        <span className="size-2 rounded-full bg-primary animate-pulse" />
+                        <span className="size-2 animate-pulse rounded-full bg-primary" />
                         <span>Streaming…</span>
                       </span>
                     ) : finishReason ? (
@@ -1436,7 +1746,9 @@ console.log(data.choices[0].message.content);`
                         <span
                           className={cn(
                             "size-1.5 rounded-full",
-                            finishReason === "error" ? "bg-destructive" : "bg-emerald-500"
+                            finishReason === "error"
+                              ? "bg-destructive"
+                              : "bg-emerald-500"
                           )}
                         />
                         <span className="capitalize">{finishReason}</span>
@@ -1457,7 +1769,9 @@ console.log(data.choices[0].message.content);`
                     <span
                       className={cn(
                         "tabular-nums",
-                        ttftMs !== null ? "text-foreground font-medium" : "text-muted-foreground/50"
+                        ttftMs !== null
+                          ? "font-medium text-foreground"
+                          : "text-muted-foreground/50"
                       )}
                     >
                       {ttftMs !== null ? `${ttftMs}ms` : "—"}
@@ -1472,7 +1786,9 @@ console.log(data.choices[0].message.content);`
                     <span
                       className={cn(
                         "tabular-nums",
-                        totalLatencyMs !== null ? "text-foreground font-medium" : "text-muted-foreground/50"
+                        totalLatencyMs !== null
+                          ? "font-medium text-foreground"
+                          : "text-muted-foreground/50"
                       )}
                     >
                       {totalLatencyMs !== null ? `${totalLatencyMs}ms` : "—"}
@@ -1487,7 +1803,9 @@ console.log(data.choices[0].message.content);`
                     <span
                       className={cn(
                         "tabular-nums",
-                        tokensPerSec !== null ? "text-foreground font-medium" : "text-muted-foreground/50"
+                        tokensPerSec !== null
+                          ? "font-medium text-foreground"
+                          : "text-muted-foreground/50"
                       )}
                     >
                       {tokensPerSec !== null ? `${tokensPerSec} tps` : "—"}
@@ -1497,16 +1815,22 @@ console.log(data.choices[0].message.content);`
 
                 {/* Right side: Token counts */}
                 <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px]">
-                  <Zap className="size-3 text-amber-500/80 shrink-0" />
+                  <Zap className="size-3 shrink-0 text-amber-500/80" />
                   {usageStats ? (
                     <span>
-                      <span className="text-foreground font-semibold tabular-nums">{usageStats.completionTokens}</span>
+                      <span className="font-semibold text-foreground tabular-nums">
+                        {usageStats.completionTokens}
+                      </span>
                       <span className="text-muted-foreground/70"> out</span>
-                      <span className="text-muted-foreground/40 mx-1">·</span>
-                      <span className="text-foreground font-semibold tabular-nums">{usageStats.promptTokens}</span>
+                      <span className="mx-1 text-muted-foreground/40">·</span>
+                      <span className="font-semibold text-foreground tabular-nums">
+                        {usageStats.promptTokens}
+                      </span>
                       <span className="text-muted-foreground/70"> in</span>
-                      <span className="text-muted-foreground/40 mx-1">·</span>
-                      <span className="text-foreground font-semibold tabular-nums">{usageStats.totalTokens}</span>
+                      <span className="mx-1 text-muted-foreground/40">·</span>
+                      <span className="font-semibold text-foreground tabular-nums">
+                        {usageStats.totalTokens}
+                      </span>
                       <span className="text-muted-foreground/70"> tok</span>
                     </span>
                   ) : (
@@ -1517,43 +1841,46 @@ console.log(data.choices[0].message.content);`
             </div>
           </Card>
         </div>
-
-        {/* Right Area (4 cols desktop, 3 on xl): Parameters Sidebar */}
-        <div className="hidden lg:flex lg:col-span-4 xl:col-span-3 flex-col gap-4">
-          {ParametersSidebar}
-        </div>
       </div>
 
-      {/* Drawer: Mobile Parameters */}
-      <Drawer open={paramsDrawerOpen} onOpenChange={setParamsDrawerOpen}>
-        <DrawerContent className="mx-auto max-w-lg p-4 max-h-[85vh] overflow-y-auto">
-          <DrawerHeader className="px-0">
-            <DrawerTitle>Model Parameters</DrawerTitle>
-            <DrawerDescription>Configure sampling hyperparameters.</DrawerDescription>
-          </DrawerHeader>
-          <div className="py-2">{ParametersSidebar}</div>
-          <DrawerFooter className="px-0 pt-2">
-            <DrawerClose asChild>
+      {/* Parameters Dialog (All Viewports) */}
+      <Dialog open={paramsDrawerOpen} onOpenChange={setParamsDrawerOpen}>
+        <DialogContent className="w-[92vw] max-w-md overflow-hidden border-border p-0 shadow-2xl sm:max-w-lg">
+          <DialogHeader className="p-4 pb-3">
+            <DialogTitle className="flex items-center gap-2 text-sm sm:text-base">
+              <SlidersHorizontal className="size-4 text-primary" />
+              <span>Model Parameters</span>
+            </DialogTitle>
+            <DialogDescription>
+              Configure sampling hyperparameters.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {ParametersContent}
+          </div>
+          <DialogFooter className="flex items-center justify-between border-t bg-muted/15 p-3 sm:justify-between">
+            <DialogClose asChild>
               <Button variant="outline">Done</Button>
-            </DrawerClose>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Pop Dialog: API Key Configuration (Well structured, matching code pop up) */}
       <Dialog open={keyDrawerOpen} onOpenChange={setKeyDrawerOpen}>
-        <DialogContent className="max-w-md sm:max-w-lg w-[92vw] p-0 overflow-hidden shadow-2xl border-border">
+        <DialogContent className="w-[92vw] max-w-md overflow-hidden border-border p-0 shadow-2xl sm:max-w-lg">
           <DialogHeader className="p-4 pb-3">
             <DialogTitle className="flex items-center gap-2 text-sm sm:text-base">
               <KeyRound className="size-4 text-primary" />
               <span>Connect Playground API Key</span>
             </DialogTitle>
             <DialogDescription>
-              The gateway requires an API key to authenticate model requests, record traces, and meter token usage.
+              The gateway requires an API key to authenticate model requests,
+              record traces, and meter token usage.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="p-4 pt-1 space-y-4">
+          <div className="space-y-4 p-4 pt-1">
             {apiKey ? (
               <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
                 <div className="flex items-center justify-between">
@@ -1563,30 +1890,33 @@ console.log(data.choices[0].message.content);`
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-6 px-2 text-[11px] border-emerald-500/40 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 cursor-pointer"
+                    className="h-6 cursor-pointer border-emerald-500/40 px-2 text-[11px] text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
                     onClick={handleClearKey}
                   >
                     Disconnect
                   </Button>
                 </div>
-                <p className="mt-1.5 font-mono text-[11px] break-all text-emerald-700 dark:text-emerald-300 bg-background/60 rounded p-2 border border-emerald-500/20">
+                <p className="mt-1.5 rounded border border-emerald-500/20 bg-background/60 p-2 font-mono text-[11px] break-all text-emerald-700 dark:text-emerald-300">
                   {apiKey}
                 </p>
               </div>
             ) : null}
 
             {/* Quick 1-Click Key Generator */}
-            <div className="rounded-lg border bg-muted/30 p-3.5 space-y-2">
+            <div className="space-y-2 rounded-lg border bg-muted/30 p-3.5">
               <div className="flex items-center gap-2">
                 <Sparkles className="size-3.5 text-primary" />
-                <h4 className="text-xs font-semibold text-foreground">1-Click Playground Key</h4>
+                <h4 className="text-xs font-semibold text-foreground">
+                  1-Click Playground Key
+                </h4>
               </div>
               <p className="text-xs text-muted-foreground">
-                Generate an instant temporary API key saved to this browser session for immediate testing.
+                Generate an instant temporary API key saved to this browser
+                session for immediate testing.
               </p>
               <Button
                 size="sm"
-                className="w-full h-8 text-xs font-medium cursor-pointer"
+                className="h-8 w-full cursor-pointer text-xs font-medium"
                 onClick={handleCreatePlaygroundKey}
                 disabled={isGeneratingKey}
               >
@@ -1597,12 +1927,17 @@ console.log(data.choices[0].message.content);`
 
             <div className="flex items-center gap-2">
               <Separator className="flex-1" />
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Or paste key</span>
+              <span className="text-[10px] tracking-wider text-muted-foreground uppercase">
+                Or paste key
+              </span>
               <Separator className="flex-1" />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="manual-key" className="text-xs font-medium text-foreground">
+              <Label
+                htmlFor="manual-key"
+                className="text-xs font-medium text-foreground"
+              >
                 Existing API Key
               </Label>
               <Input
@@ -1611,12 +1946,12 @@ console.log(data.choices[0].message.content);`
                 placeholder="sk-gw-api01-…"
                 value={keyInput}
                 onChange={(e) => setKeyInput(e.target.value)}
-                className="font-mono text-xs h-8"
+                className="h-8 font-mono text-xs"
               />
               <Button
                 variant="secondary"
                 size="sm"
-                className="w-full h-8 text-xs cursor-pointer"
+                className="h-8 w-full cursor-pointer text-xs"
                 onClick={handleSaveManualKey}
                 disabled={!keyInput.trim()}
               >
@@ -1625,8 +1960,8 @@ console.log(data.choices[0].message.content);`
             </div>
           </div>
 
-          <DialogFooter className="p-3 bg-muted/15 border-t flex items-center justify-between sm:justify-between">
-            <span className="text-[11px] text-muted-foreground font-mono">
+          <DialogFooter className="flex items-center justify-between border-t bg-muted/15 p-3 sm:justify-between">
+            <span className="font-mono text-[11px] text-muted-foreground">
               Header: Authorization / x-api-key
             </span>
             <DialogClose asChild>
@@ -1640,18 +1975,19 @@ console.log(data.choices[0].message.content);`
 
       {/* Pop Dialog: Code Snippet Export (Well structured, no overflow, no overlap) */}
       <Dialog open={codeDrawerOpen} onOpenChange={setCodeDrawerOpen}>
-        <DialogContent className="max-w-2xl sm:max-w-3xl w-[92vw] p-0 overflow-hidden shadow-2xl border-border">
+        <DialogContent className="w-[92vw] max-w-2xl overflow-hidden border-border p-0 shadow-2xl sm:max-w-3xl">
           <DialogHeader className="p-4 pb-3">
             <DialogTitle className="flex items-center gap-2 text-sm sm:text-base">
               <Code className="size-4 text-primary" />
               <span>Integration Code</span>
             </DialogTitle>
             <DialogDescription>
-              Ready-to-use client snippets matching your selected model, parameters, and conversation history.
+              Ready-to-use client snippets matching your selected model,
+              parameters, and conversation history.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="p-4 pt-0 space-y-3">
+          <div className="space-y-3 p-4 pt-0">
             {/* Toolbar: Language Tabs (Left) & Dedicated Copy Button (Right) */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
               <div className="flex items-center gap-1 rounded-lg bg-muted/60 p-0.5 text-xs">
@@ -1659,9 +1995,9 @@ console.log(data.choices[0].message.content);`
                   type="button"
                   onClick={() => setCodeLang("curl")}
                   className={cn(
-                    "rounded-md px-2.5 py-1 font-medium transition-colors cursor-pointer",
+                    "cursor-pointer rounded-md px-2.5 py-1 font-medium transition-colors",
                     codeLang === "curl"
-                      ? "bg-background text-foreground shadow-2xs font-semibold"
+                      ? "bg-background font-semibold text-foreground shadow-2xs"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -1671,9 +2007,9 @@ console.log(data.choices[0].message.content);`
                   type="button"
                   onClick={() => setCodeLang("python")}
                   className={cn(
-                    "rounded-md px-2.5 py-1 font-medium transition-colors cursor-pointer",
+                    "cursor-pointer rounded-md px-2.5 py-1 font-medium transition-colors",
                     codeLang === "python"
-                      ? "bg-background text-foreground shadow-2xs font-semibold"
+                      ? "bg-background font-semibold text-foreground shadow-2xs"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -1683,9 +2019,9 @@ console.log(data.choices[0].message.content);`
                   type="button"
                   onClick={() => setCodeLang("typescript")}
                   className={cn(
-                    "rounded-md px-2.5 py-1 font-medium transition-colors cursor-pointer",
+                    "cursor-pointer rounded-md px-2.5 py-1 font-medium transition-colors",
                     codeLang === "typescript"
-                      ? "bg-background text-foreground shadow-2xs font-semibold"
+                      ? "bg-background font-semibold text-foreground shadow-2xs"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -1714,15 +2050,15 @@ console.log(data.choices[0].message.content);`
             </div>
 
             {/* Well-Structured Code Container (Controlled overflow, no overlapping) */}
-            <div className="relative rounded-lg border border-border/80 bg-muted/40 overflow-hidden">
-              <pre className="max-h-[380px] min-h-[160px] overflow-x-auto overflow-y-auto p-4 font-mono text-xs leading-relaxed text-foreground whitespace-pre select-all">
+            <div className="relative overflow-hidden rounded-lg border border-border/80 bg-muted/40">
+              <pre className="max-h-[380px] min-h-[160px] overflow-x-auto overflow-y-auto p-4 font-mono text-xs leading-relaxed whitespace-pre text-foreground select-all">
                 <code>{getCodeSnippet()}</code>
               </pre>
             </div>
           </div>
 
-          <DialogFooter className="p-3 bg-muted/15 border-t flex items-center justify-between sm:justify-between">
-            <span className="text-[11px] text-muted-foreground font-mono">
+          <DialogFooter className="flex items-center justify-between border-t bg-muted/15 p-3 sm:justify-between">
+            <span className="font-mono text-[11px] text-muted-foreground">
               Endpoint: /v1/chat/completions
             </span>
             <DialogClose asChild>

@@ -41,3 +41,12 @@ export function DashboardShell({
     </SidebarProvider>
   )
 }
+
+/** The one page-level content wrapper: owns outer gutters, page padding, and the 1440px content cap. Child sections never add their own page padding. */
+export function PageContent({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mx-auto w-full max-w-[1440px] min-w-0 px-4 pt-5 pb-6 md:px-6 md:pt-6 md:pb-8 lg:px-8 lg:pt-8 lg:pb-10">
+      {children}
+    </div>
+  )
+}

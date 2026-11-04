@@ -4,8 +4,10 @@ import * as React from "react"
 import {
   Activity,
   Boxes,
+  Coins,
   Gauge,
   KeyRound,
+  ListChecks,
   Server,
   Settings,
   Sparkles,
@@ -29,6 +31,7 @@ const navigation = [
   { title: "Dashboard", url: "/dashboard", icon: Gauge },
   { title: "Playground", url: "/dashboard/playground", icon: Sparkles },
   { title: "API Keys", url: "/dashboard/api-keys", icon: KeyRound },
+  { title: "Credits", url: "/dashboard/credits", icon: Coins },
   {
     title: "Providers",
     url: "/dashboard/providers",
@@ -51,6 +54,12 @@ const navigation = [
     title: "LLM Traces",
     url: "/dashboard/traces",
     icon: Activity,
+    superuserOnly: true,
+  },
+  {
+    title: "Credit review",
+    url: "/dashboard/credit-review",
+    icon: ListChecks,
     superuserOnly: true,
   },
   { title: "Settings", url: "/dashboard/settings", icon: Settings },

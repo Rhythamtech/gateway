@@ -505,6 +505,103 @@ def _migration_0012_remove_wallet_credit_schema(connection: Connection) -> None:
         )
 
 
+def _migration_0013_usage_credits(connection: Connection) -> None:
+    from backend.credits.models import (
+        CreditEntry,
+        CreditUsage,
+        ModelCreditRate,
+        ProviderCredits,
+        UserCredits,
+    )
+
+    for model in (
+        UserCredits,
+        ProviderCredits,
+        ModelCreditRate,
+        CreditUsage,
+        CreditEntry,
+    ):
+        model.__table__.create(connection, checkfirst=True)
+
+
+def _migration_0014_credit_micros_rename(connection: Connection) -> None:
+    """Rename the intermediate `tokens_per_credit` columns to the micros naming.
+
+    Databases migrated by an intermediate usage-credits build created
+    ``credit_model_rates`` / ``credit_usage`` with a ``tokens_per_credit``
+    column, which the models never read. SQLite updates column references
+    inside CHECK constraints and indexes together with a rename.
+    """
+
+    for table in ("credit_model_rates", "credit_usage"):
+        columns = _sqlite_columns(connection, table)
+        if "tokens_per_credit" in columns and "tokens_per_credit_micros" not in columns:
+            connection.execute(
+                text(
+                    f"ALTER TABLE {table} RENAME COLUMN tokens_per_credit "
+                    "TO tokens_per_credit_micros"
+                )
+            )
+
+
+def _migration_0015_remove_max_output_tokens(connection: Connection) -> None:
+    """Remove max_output_tokens from credit_model_rates and credit_usage."""
+
+    rate_columns = _sqlite_columns(connection, "credit_model_rates")
+    if "max_output_tokens" in rate_columns:
+        connection.execute(text("PRAGMA foreign_keys = OFF"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE credit_model_rates__v15 (
+                    id VARCHAR(36) PRIMARY KEY,
+                    provider_model_id VARCHAR(36) NOT NULL,
+                    version INTEGER NOT NULL,
+                    tokens_per_credit_micros BIGINT NOT NULL CHECK (tokens_per_credit_micros > 0),
+                    max_request_tokens INTEGER NOT NULL CHECK (max_request_tokens > 0),
+                    actor_id VARCHAR(36) NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    UNIQUE (provider_model_id, version),
+                    FOREIGN KEY(provider_model_id) REFERENCES provider_models (id) ON DELETE RESTRICT
+                )
+                """
+            )
+        )
+        col_list = (
+            "tokens_per_credit_micros"
+            if "tokens_per_credit_micros" in rate_columns
+            else "tokens_per_credit"
+        )
+        connection.execute(
+            text(
+                f"""
+                INSERT INTO credit_model_rates__v15 (
+                    id, provider_model_id, version, tokens_per_credit_micros,
+                    max_request_tokens, actor_id, created_at
+                )
+                SELECT id, provider_model_id, version, {col_list},
+                       max_request_tokens, actor_id, created_at
+                FROM credit_model_rates
+                """
+            )
+        )
+        connection.execute(text("DROP TABLE credit_model_rates"))
+        connection.execute(
+            text("ALTER TABLE credit_model_rates__v15 RENAME TO credit_model_rates")
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_credit_model_rates_provider_model_id "
+                "ON credit_model_rates (provider_model_id)"
+            )
+        )
+        connection.execute(text("PRAGMA foreign_keys = ON"))
+
+    usage_columns = _sqlite_columns(connection, "credit_usage")
+    if "max_output_tokens" in usage_columns:
+        connection.execute(text("ALTER TABLE credit_usage DROP COLUMN max_output_tokens"))
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -524,6 +621,9 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
         "0012_remove_wallet_credit_schema",
         _migration_0012_remove_wallet_credit_schema,
     ),
+    ("0013_usage_credits", _migration_0013_usage_credits),
+    ("0014_credit_micros_rename", _migration_0014_credit_micros_rename),
+    ("0015_remove_max_output_tokens", _migration_0015_remove_max_output_tokens),
 ]
 
 

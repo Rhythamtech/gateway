@@ -342,6 +342,7 @@ def monitor_stream(
         raw_usage: dict[str, Any] = {}
         message_id: str | None = None
         error: BaseException | None = None
+        completed = False
 
         try:
             async for piece in events:
@@ -365,11 +366,31 @@ def monitor_stream(
                     elif protocol == "openai" and isinstance(piece.get("usage"), dict):
                         raw_usage.update(piece["usage"])
 
+                    if piece.get("error") or piece.get("type") == "error":
+                        error = GatewayError(
+                            502, "upstream_error", "Provider reported a stream error"
+                        )
+                    terminal = piece.get("done") or piece.get("type") == "message_stop"
+                    if terminal and not completed:
+                        capture.stream_done(
+                            raw_usage=raw_usage, error=error, message_id=message_id
+                        )
+                        completed = True
+
                 yield piece
         except BaseException as exc:  # noqa: BLE001 - re-raised below
             error = exc
             raise
         finally:
-            capture.stream_done(raw_usage=raw_usage, error=error, message_id=message_id)
+            if not completed:
+                if error is None and protocol is not None:
+                    error = GatewayError(
+                        502,
+                        "incomplete_stream",
+                        "Provider stream ended without a completion event",
+                    )
+                capture.stream_done(
+                    raw_usage=raw_usage, error=error, message_id=message_id
+                )
 
     return wrapped()

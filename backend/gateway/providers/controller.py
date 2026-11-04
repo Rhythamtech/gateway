@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from backend.auth.models import User
-from backend.core.database import get_db
+from backend.core.database import get_db, get_write_db
 from backend.dependencies import require_superuser
 from backend.gateway.providers import service
 from backend.gateway.providers.dtos import (
@@ -39,7 +39,7 @@ def get_provider(
 )
 def create_provider(
     data: ProviderCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_write_db),
     current_user: User = Depends(require_superuser),
 ):
     return service.create_provider(db, data, actor_id=current_user.id)
@@ -49,7 +49,7 @@ def create_provider(
 def update_provider(
     provider_id: str,
     data: ProviderUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_write_db),
     current_user: User = Depends(require_superuser),
 ):
     return service.update_provider(db, provider_id, data, actor_id=current_user.id)
@@ -58,7 +58,7 @@ def update_provider(
 @router.delete("/delete/{provider_id}", response_model=ProviderDeleteResponse)
 def delete_provider(
     provider_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_write_db),
     current_user: User = Depends(require_superuser),
 ):
     service.delete_provider(db, provider_id, actor_id=current_user.id)
@@ -68,7 +68,7 @@ def delete_provider(
 @router.post("/disable/{provider_id}", response_model=ProviderResponse)
 def disable_provider(
     provider_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_write_db),
     current_user: User = Depends(require_superuser),
 ):
     return service.disable_provider(db, provider_id, actor_id=current_user.id)

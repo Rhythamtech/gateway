@@ -1,82 +1,51 @@
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.core.errors import GatewayError
 from backend.gateway.chat.models import (
     anthropic_to_openai,
-    openai_to_anthropic_response,
     openai_stream_to_anthropic,
+    openai_to_anthropic_response,
 )
+from backend.gateway.execution import admit_request
 from backend.gateway.messages.dtos import AnthropicMessageRequest
-from backend.gateway.providers.service import call_provider, read_sse_data
-from backend.gateway.routing import plan
 from backend.gateway.streaming import sse
-from backend.traces.capture import monitor_stream, start_capture
+from backend.traces.capture import start_capture
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
 
 @router.post("/messages")
 async def create_message(request: Request, data: AnthropicMessageRequest) -> Any:
-    payload = data.model_dump()
-    stream = payload.get("stream", False)
-
+    payload = data.model_dump(exclude_none=True)
     capture = start_capture(request, payload)
-
     try:
-        candidates = plan(payload["model"])
+        execution = admit_request(request, payload, capture)
     except GatewayError as exc:
         capture.failure(exc)
         raise
 
-    provider = None
-    for candidate in candidates:
-        try:
-            # Resolves provider and validates it can serve this request.
-            provider = capture.begin_attempt(candidate, payload, stream=stream)
-            break
-        except GatewayError as exc:
-            capture.failure(exc)
-            raise
-    else:
-        raise GatewayError(503, "no_available_member", "No available member can serve this request")
+    upstream_payload = execution.payload
+    upstream_payload["model"] = execution.candidate.upstream_model
+    if execution.provider.protocol == "openai":
+        upstream_payload = anthropic_to_openai(upstream_payload)
+    response = await execution.send(upstream_payload)
 
-    if provider.protocol == "anthropic":
-        upstream_payload = dict(payload)
-        upstream_payload["model"] = candidate.upstream_model
-    else:
-        upstream_payload = anthropic_to_openai(payload)
-        upstream_payload["model"] = candidate.upstream_model
-
-    try:
-        upstream_response = await call_provider(candidate.provider_alias, upstream_payload, stream)
-    except GatewayError as exc:
-        capture.failure(exc)
-        raise
-
-    if not stream:
-        try:
-            data = upstream_response.json()
-        except Exception as exc:  # noqa: BLE001 - malformed upstream bodies
-            capture.failure(
-                GatewayError(502, "upstream_error", "Provider returned an invalid response")
-            )
-            raise
-
-        capture.success(data, protocol=provider.protocol)
-
-        if provider.protocol == "anthropic":
-            return JSONResponse(content=data)
-
-        return JSONResponse(
-            content=openai_to_anthropic_response(data, payload["model"]),
+    if not payload.get("stream"):
+        result = await execution.read_json()
+        return (
+            result
+            if execution.provider.protocol == "anthropic"
+            else openai_to_anthropic_response(result, payload["model"])
         )
 
-    # Usage comes from raw upstream events; converted streams are latency-only.
-    if provider.protocol == "anthropic":
-        events = monitor_stream(read_sse_data(upstream_response), capture, protocol="anthropic")
+    events = execution.stream_events()
+    if execution.provider.protocol == "openai":
+        pieces = openai_stream_to_anthropic(
+            response, execution.candidate.upstream_model, events=events
+        )
+    else:
 
         async def stream_anthropic():
             async for event in events:
@@ -86,11 +55,5 @@ async def create_message(request: Request, data: AnthropicMessageRequest) -> Any
                 event.pop("event", None)
                 yield sse(event, event_type)
 
-        return StreamingResponse(stream_anthropic(), media_type="text/event-stream")
-
-    pieces = monitor_stream(
-        openai_stream_to_anthropic(upstream_response, candidate.upstream_model),
-        capture,
-    )
-
-    return StreamingResponse(pieces, media_type="text/event-stream")
+        pieces = stream_anthropic()
+    return execution.stream_response(pieces)

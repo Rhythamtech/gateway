@@ -1,8 +1,8 @@
 ---
 import Layout from "@/layouts/main.astro"
-import { Dashboard } from "@/components/dashboard"
+import DashboardIsland from "@/components/dashboard-island.astro"
 ---
 
 <Layout>
-  <Dashboard client:only="react" currentPath="/dashboard/providers" />
+  <DashboardIsland currentPath="/dashboard/providers" />
 </Layout>

@@ -346,7 +346,9 @@ def openai_to_anthropic_response(completion: dict[str, Any], request_model: str)
     }
 
 
-async def anthropic_stream_to_openai(response, model: str) -> AsyncIterator[str]:
+async def anthropic_stream_to_openai(
+    response, model: str, *, events=None
+) -> AsyncIterator[str]:
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
     sent_role = False
@@ -371,7 +373,7 @@ async def anthropic_stream_to_openai(response, model: str) -> AsyncIterator[str]
             }],
         })
 
-    async for event in read_sse_data(response):
+    async for event in events if events is not None else read_sse_data(response):
         if event.get("done"):
             break
 
@@ -420,7 +422,9 @@ async def anthropic_stream_to_openai(response, model: str) -> AsyncIterator[str]
     yield "data: [DONE]\n\n"
 
 
-async def openai_stream_to_anthropic(response, model: str) -> AsyncIterator[str]:
+async def openai_stream_to_anthropic(
+    response, model: str, *, events=None
+) -> AsyncIterator[str]:
     message_id = f"msg_{uuid.uuid4().hex[:24]}"
     block_index = -1
     current_kind = ""
@@ -460,14 +464,14 @@ async def openai_stream_to_anthropic(response, model: str) -> AsyncIterator[str]
             return data
         return ""
 
-    async for chunk in read_sse_data(response):
+    async for chunk in events if events is not None else read_sse_data(response):
         if chunk.get("done"):
             break
 
         if not started:
             yield start_message()
 
-        choice = chunk.get("choices", [{}])[0]
+        choice = (chunk.get("choices") or [{}])[0]
         delta = choice.get("delta", {}) or {}
 
         if delta.get("content"):

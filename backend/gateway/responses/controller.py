@@ -1,82 +1,58 @@
+import json
 import uuid
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.core.errors import GatewayError
-from backend.gateway.chat.models import anthropic_to_openai_response, openai_to_anthropic
-from backend.gateway.providers.service import call_provider, read_sse_data
+from backend.gateway.chat.models import (
+    anthropic_stream_to_openai,
+    anthropic_to_openai_response,
+    openai_to_anthropic,
+)
+from backend.gateway.execution import admit_request, validate_credit_request
 from backend.gateway.responses.dtos import ResponsesRequest
 from backend.gateway.responses.models import chat_to_responses, responses_to_chat
-from backend.gateway.routing import plan
 from backend.gateway.streaming import sse
-from backend.traces.capture import monitor_stream, start_capture
+from backend.traces.capture import start_capture
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
 
 @router.post("/responses")
 async def create_response(request: Request, data: ResponsesRequest) -> Any:
-    payload = data.model_dump()
+    payload = data.model_dump(exclude_none=True)
 
     for key in ("previous_response_id", "background", "conversation"):
         if payload.get(key):
             raise GatewayError(400, "unsupported_parameter", f"{key} is not supported")
 
+    validate_credit_request(payload)
     chat_payload = responses_to_chat(payload)
-    stream = chat_payload.get("stream", False)
-
     capture = start_capture(request, payload)
-
     try:
-        candidates = plan(chat_payload["model"])
+        execution = admit_request(request, chat_payload, capture)
     except GatewayError as exc:
         capture.failure(exc)
         raise
 
-    provider = None
-    for candidate in candidates:
-        try:
-            # Resolves provider and validates it can serve this request.
-            provider = capture.begin_attempt(candidate, chat_payload, stream=stream)
-            break
-        except GatewayError as exc:
-            capture.failure(exc)
-            raise
-    else:
-        raise GatewayError(503, "no_available_member", "No available member can serve this request")
+    upstream_payload = execution.payload
+    upstream_payload["model"] = execution.candidate.upstream_model
+    if execution.provider.protocol == "anthropic":
+        upstream_payload = openai_to_anthropic(upstream_payload)
+    response = await execution.send(upstream_payload)
 
-    chat_payload["model"] = candidate.upstream_model
+    if not payload.get("stream"):
+        result = await execution.read_json()
+        if execution.provider.protocol == "anthropic":
+            result = anthropic_to_openai_response(result)
+        return chat_to_responses(result, payload)
 
-    if provider.protocol == "anthropic":
-        upstream_payload = openai_to_anthropic(chat_payload)
-    else:
-        upstream_payload = chat_payload
-
-    try:
-        upstream_response = await call_provider(candidate.provider_alias, upstream_payload, stream)
-    except GatewayError as exc:
-        capture.failure(exc)
-        raise
-
-    if not stream:
-        try:
-            data = upstream_response.json()
-        except Exception as exc:  # noqa: BLE001 - malformed upstream bodies
-            capture.failure(
-                GatewayError(502, "upstream_error", "Provider returned an invalid response")
-            )
-            raise
-
-        capture.success(data, protocol=provider.protocol)
-
-        if provider.protocol == "anthropic":
-            data = anthropic_to_openai_response(data)
-
-        return JSONResponse(content=chat_to_responses(data, payload))
-
-    events = monitor_stream(read_sse_data(upstream_response), capture, protocol=provider.protocol)
+    events = execution.stream_events()
+    if execution.provider.protocol == "anthropic":
+        events = anthropic_stream_to_openai(
+            response, execution.candidate.upstream_model, events=events
+        )
 
     async def stream_response():
         response_id = f"resp_{uuid.uuid4().hex[:24]}"
@@ -84,22 +60,29 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
         text_started = False
         tool_calls: dict[int, dict[str, Any]] = {}
 
-        yield sse({
-            "type": "response.created",
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "status": "in_progress",
-                "model": payload["model"],
-                "output": [],
+        yield sse(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": response_id,
+                    "object": "response",
+                    "status": "in_progress",
+                    "model": payload["model"],
+                    "output": [],
+                },
             },
-        }, "response.created")
+            "response.created",
+        )
 
         async for chunk in events:
+            if isinstance(chunk, str):
+                if chunk.strip() == "data: [DONE]":
+                    break
+                chunk = json.loads(chunk.removeprefix("data: ").strip())
             if chunk.get("done"):
                 break
 
-            choice = chunk.get("choices", [{}])[0]
+            choice = (chunk.get("choices") or [{}])[0]
             delta = choice.get("delta", {}) or {}
 
             if delta.get("content"):
@@ -107,11 +90,14 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
                     output_index += 1
                     text_started = True
 
-                yield sse({
-                    "type": "response.output_text.delta",
-                    "output_index": output_index,
-                    "delta": delta["content"],
-                }, "response.output_text.delta")
+                yield sse(
+                    {
+                        "type": "response.output_text.delta",
+                        "output_index": output_index,
+                        "delta": delta["content"],
+                    },
+                    "response.output_text.delta",
+                )
 
             for tool_call in delta.get("tool_calls") or []:
                 index = tool_call.get("index", 0)
@@ -132,31 +118,38 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
         output = []
 
         if text_started:
-            output.append({
-                "type": "message",
-                "role": "assistant",
-                "status": "completed",
-                "content": [{"type": "output_text", "text": "", "annotations": []}],
-            })
+            output.append(
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": "", "annotations": []}],
+                }
+            )
 
         for tool_call in tool_calls.values():
-            output.append({
-                "type": "function_call",
-                "call_id": tool_call["call_id"],
-                "name": tool_call["name"],
-                "arguments": tool_call["arguments"],
-                "status": "completed",
-            })
+            output.append(
+                {
+                    "type": "function_call",
+                    "call_id": tool_call["call_id"],
+                    "name": tool_call["name"],
+                    "arguments": tool_call["arguments"],
+                    "status": "completed",
+                }
+            )
 
-        yield sse({
-            "type": "response.completed",
-            "response": {
-                "id": response_id,
-                "object": "response",
-                "status": "completed",
-                "model": payload["model"],
-                "output": output,
+        yield sse(
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": response_id,
+                    "object": "response",
+                    "status": "completed",
+                    "model": payload["model"],
+                    "output": output,
+                },
             },
-        }, "response.completed")
+            "response.completed",
+        )
 
-    return StreamingResponse(stream_response(), media_type="text/event-stream")
+    return execution.stream_response(stream_response())

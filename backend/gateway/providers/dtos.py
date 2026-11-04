@@ -3,11 +3,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from backend.core.datetime_safety import UTCDateTime
+from backend.credits.dtos import CreditAmount
 
 ProviderProtocol = Literal["openai", "anthropic"]
 
 
 class ProviderCreateRequest(BaseModel):
+    initial_credits: CreditAmount | None = None
     name: str = Field(min_length=1, max_length=255)
     aliases: str = Field(min_length=1, max_length=64)
     base_url: str = Field(min_length=1)

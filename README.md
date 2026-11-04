@@ -39,6 +39,14 @@ Set `PROVIDER_ENCRYPTION_KEY` in production. If it is omitted, a key is derived
 from `JWT_SECRET_KEY`, which is intended for local development only and makes
 stored credentials depend on the JWT secret.
 
+## Usage credits
+
+Inference requires funded user/provider credits and a superuser-configured
+provider-model rate. One rate determines both deductions. Existing deployments
+must configure rates and add credits before inference can resume after upgrade.
+See [the credit API and operating guide](docs/credits.md) for setup, endpoint
+bodies, reservations, and recovery.
+
 ## Tests
 
 ```bash

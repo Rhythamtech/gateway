@@ -32,12 +32,12 @@ const REFRESH_TOKEN_KEY = "gateway.refresh_token"
 const PLAYGROUND_API_KEY = "gateway.playground_api_key"
 
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number
-  ) {
+  readonly status: number
+
+  constructor(message: string, status: number) {
     super(message)
     this.name = "ApiError"
+    this.status = status
   }
 }
 
@@ -310,6 +310,7 @@ export type ProviderInput = {
   protocol: ProviderProtocol
   api_key?: string
   custom_header?: Record<string, string>
+  initial_credits?: string
 }
 
 export type ProviderUpdate = {
@@ -791,6 +792,232 @@ export function listCallTraces(
 
 export function getCallTrace(callId: string): Promise<CallTraceItem> {
   return authenticatedRequest<CallTraceItem>(`/traces/calls/${callId}`)
+}
+
+// --- Usage credits (decimal-string amounts; arithmetic lives in lib/credits.ts) ---
+
+export type CreditBalance = {
+  remaining_credits: string
+  reserved_credits: string
+  available_credits: string
+}
+
+export type CreditEntry = {
+  id: string
+  credits: string
+  remaining_credits: string
+  usage_id: string | null
+  actor_id: string | null
+  reason: string
+  created_at: string
+}
+
+export type CreditHistoryPage = {
+  items: CreditEntry[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export type CreditUsage = {
+  id: string
+  request_id: string
+  user_id: string
+  provider_id: string
+  provider_model_id: string
+  api_key_id: string
+  rate_id: string
+  tokens_per_credit: string
+  max_request_tokens: number
+  reserved_credits: string
+  charged_credits: string
+  input_tokens: number | null
+  output_tokens: number | null
+  provider_request_id: string | null
+  status: string
+  reason: string | null
+  resolved_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type CreditUsagePage = {
+  items: CreditUsage[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export type CreditUsageStatusFilter =
+  | "reserved"
+  | "dispatched"
+  | "usage_recorded"
+  | "needs_review"
+  | "settled"
+  | "released"
+
+export type CreditAddition = {
+  credits: string
+  idempotency_key: string
+  reason: string
+}
+
+export type ModelCreditRate = {
+  id: string
+  provider_model_id: string
+  version: number
+  tokens_per_credit: string
+  max_request_tokens: number
+  created_at: string
+}
+
+export type ModelRateUpdate = {
+  tokens_per_credit: string
+  max_request_tokens: number
+}
+
+export type UsageResolution = {
+  action: "settle" | "release"
+  input_tokens?: number
+  output_tokens?: number
+  reason: string
+}
+
+export type CreditPage = { page?: number; pageSize?: number }
+
+function creditPageQuery(page?: number, pageSize?: number): string {
+  const params = new URLSearchParams()
+  if (page !== undefined) params.set("page", String(page))
+  if (pageSize !== undefined) params.set("page_size", String(pageSize))
+  const query = params.toString()
+  return query ? `?${query}` : ""
+}
+
+export function getMyCredits(): Promise<CreditBalance> {
+  return authenticatedRequest<CreditBalance>("/credits/me")
+}
+
+export function listMyCreditHistory(
+  options: CreditPage = {}
+): Promise<CreditHistoryPage> {
+  return authenticatedRequest<CreditHistoryPage>(
+    `/credits/me/history${creditPageQuery(options.page, options.pageSize)}`
+  )
+}
+
+export function listMyCreditUsage(
+  options: CreditPage = {}
+): Promise<CreditUsagePage> {
+  return authenticatedRequest<CreditUsagePage>(
+    `/credits/me/usage${creditPageQuery(options.page, options.pageSize)}`
+  )
+}
+
+export function getUserCredits(userId: string): Promise<CreditBalance> {
+  return authenticatedRequest<CreditBalance>(`/credits/users/${userId}`)
+}
+
+export function listUserCreditHistory(
+  userId: string,
+  options: CreditPage = {}
+): Promise<CreditHistoryPage> {
+  return authenticatedRequest<CreditHistoryPage>(
+    `/credits/users/${userId}/history${creditPageQuery(options.page, options.pageSize)}`
+  )
+}
+
+export function addUserCredits(
+  userId: string,
+  input: CreditAddition
+): Promise<CreditEntry> {
+  return authenticatedRequest<CreditEntry>(`/credits/users/${userId}/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+}
+
+export function getProviderCredits(providerId: string): Promise<CreditBalance> {
+  return authenticatedRequest<CreditBalance>(`/provider/${providerId}/credits`)
+}
+
+export function listProviderCreditHistory(
+  providerId: string,
+  options: CreditPage = {}
+): Promise<CreditHistoryPage> {
+  return authenticatedRequest<CreditHistoryPage>(
+    `/provider/${providerId}/credits/history${creditPageQuery(options.page, options.pageSize)}`
+  )
+}
+
+export function addProviderCredits(
+  providerId: string,
+  input: CreditAddition
+): Promise<CreditEntry> {
+  return authenticatedRequest<CreditEntry>(
+    `/provider/${providerId}/credits/add`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
+  )
+}
+
+export function getModelCreditRate(modelId: string): Promise<ModelCreditRate> {
+  return authenticatedRequest<ModelCreditRate>(
+    `/provider/models/${modelId}/credit-rate`
+  )
+}
+
+export function setModelCreditRate(
+  modelId: string,
+  input: ModelRateUpdate
+): Promise<ModelCreditRate> {
+  return authenticatedRequest<ModelCreditRate>(
+    `/provider/models/${modelId}/credit-rate`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
+  )
+}
+
+export type CreditUsageFilters = {
+  page?: number
+  pageSize?: number
+  status?: CreditUsageStatusFilter
+  userId?: string
+}
+
+export function listCreditUsage(
+  options: CreditUsageFilters = {}
+): Promise<CreditUsagePage> {
+  const params = new URLSearchParams()
+  if (options.page !== undefined) params.set("page", String(options.page))
+  if (options.pageSize !== undefined)
+    params.set("page_size", String(options.pageSize))
+  if (options.status) params.set("status", options.status)
+  if (options.userId?.trim()) params.set("user_id", options.userId.trim())
+  const query = params.toString()
+  return authenticatedRequest<CreditUsagePage>(
+    `/credits/usage${query ? `?${query}` : ""}`
+  )
+}
+
+export function resolveCreditUsage(
+  usageId: string,
+  input: UsageResolution
+): Promise<CreditUsage> {
+  return authenticatedRequest<CreditUsage>(
+    `/credits/usage/${usageId}/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }
+  )
 }
 
 // --- Inference & Models (V1 Gateway API) ---

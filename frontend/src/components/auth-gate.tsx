@@ -20,15 +20,19 @@ import {
 type AuthGateProps = {
   children: (user: CurrentUser) => React.ReactNode
   requiresSuperuser?: boolean
+  validationKey?: string
+  loadingFallback?: React.ReactNode
 }
 
 export function AuthGate({
   children,
   requiresSuperuser = false,
+  validationKey,
+  loadingFallback,
 }: AuthGateProps) {
   // Seeded from the previous successful session check (see the cache helpers
   // in lib/auth.ts) so route changes that remount this gate paint the page
-  // immediately. The revalidation below still runs on every mount.
+  // immediately. Revalidate on mount and each persisted dashboard route change.
   const [user, setUser] = React.useState<CurrentUser | null>(getCachedUser)
   const [error, setError] = React.useState<string | null>(null)
   const [retryCount, setRetryCount] = React.useState(0)
@@ -68,9 +72,10 @@ export function AuthGate({
     return () => {
       cancelled = true
     }
-  }, [retryCount])
+  }, [retryCount, validationKey])
 
   if (!user && !error) {
+    if (loadingFallback) return loadingFallback
     return (
       <div
         className="flex min-h-64 items-center justify-center p-6"

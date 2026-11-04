@@ -412,6 +412,24 @@ def create_provider(
     db.add(provider)
     db.flush()
 
+    if data.initial_credits is not None:
+        from backend.credits.calculation import to_microcredits
+        from backend.credits.models import CreditEntry, ProviderCredits
+
+        amount = to_microcredits(data.initial_credits)
+        db.add(ProviderCredits(provider_id=provider.id, remaining=amount, reserved=0))
+        db.add(
+            CreditEntry(
+                owner_type="provider",
+                owner_id=provider.id,
+                amount=amount,
+                remaining_after=amount,
+                actor_id=actor_id,
+                idempotency_key=f"initial:{provider.id}",
+                reason="Initial provider credits",
+            )
+        )
+
     _audit(
         db,
         provider_id=provider.id,
@@ -533,14 +551,27 @@ def delete_provider(
 ) -> None:
     provider = get_provider_or_404(db, provider_id)
 
+    from backend.credits.models import ModelCreditRate, ProviderCredits
     from backend.gateway.model_groups.models import ModelGroup, ModelGroupMember
     from backend.traces.models import LLMCallTrace
 
+    has_rate = (
+        db.query(ModelCreditRate)
+        .join(
+            ProviderModel,
+            ModelCreditRate.provider_model_id == ProviderModel.id,
+        )
+        .filter(ProviderModel.provider_id == provider_id)
+        .first()
+    )
+    if db.get(ProviderCredits, provider_id) is not None or has_rate is not None:
+        raise HTTPException(
+            409, "Provider has credit history or configured rates. Disable it instead."
+        )
+
     # Check and clean up provider models
     models = (
-        db.query(ProviderModel)
-        .filter(ProviderModel.provider_id == provider.id)
-        .all()
+        db.query(ProviderModel).filter(ProviderModel.provider_id == provider.id).all()
     )
     model_ids = [m.id for m in models]
 

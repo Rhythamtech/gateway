@@ -47,10 +47,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { UsageAnalyticsDrawer } from "@/components/usage-drawers"
+import { CreditFundingDrawer } from "@/components/credit-drawers"
+import { UserCreditsDrawer } from "@/components/credit-tracking"
 
 type DrawerState =
   | { mode: "deactivate"; user: CurrentUser }
   | { mode: "usage"; user: CurrentUser }
+  | { mode: "credits"; user: CurrentUser; nonce: number }
+  | { mode: "fund"; user: CurrentUser; nonce: number }
   | null
 
 export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
@@ -243,6 +247,29 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                                 >
                                   View usage
                                 </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setDrawerState({
+                                      mode: "credits",
+                                      user,
+                                      nonce: 0,
+                                    })
+                                  }}
+                                >
+                                  View credits
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setActionError(null)
+                                    setDrawerState({
+                                      mode: "fund",
+                                      user,
+                                      nonce: 0,
+                                    })
+                                  }}
+                                >
+                                  Add credits
+                                </DropdownMenuItem>
                                 {!isSuperuser ? (
                                   <>
                                     <DropdownMenuSeparator />
@@ -291,6 +318,44 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
             setDrawerState(null)
             refreshUsers()
             toast.success(`“${email}” deactivated.`)
+          }}
+        />
+      ) : null}
+      {drawerState?.mode === "credits" ? (
+        <UserCreditsDrawer
+          key={`${drawerState.user.id}-${drawerState.nonce}`}
+          user={{ id: drawerState.user.id, email: drawerState.user.email }}
+          onClose={() => setDrawerState(null)}
+          onAddCredits={() => {
+            setActionError(null)
+            setDrawerState((prev) =>
+              prev?.mode === "credits"
+                ? { mode: "fund", user: prev.user, nonce: prev.nonce }
+                : prev
+            )
+          }}
+        />
+      ) : null}
+      {drawerState?.mode === "fund" ? (
+        <CreditFundingDrawer
+          key={`${drawerState.user.id}-fund-${drawerState.nonce}`}
+          target={{
+            kind: "user",
+            id: drawerState.user.id,
+            name: drawerState.user.email,
+          }}
+          balance={null}
+          onClose={() => setDrawerState(null)}
+          onFunded={() => {
+            setDrawerState((prev) =>
+              prev?.mode === "fund"
+                ? {
+                    mode: "credits",
+                    user: prev.user,
+                    nonce: prev.nonce + 1,
+                  }
+                : prev
+            )
           }}
         />
       ) : null}

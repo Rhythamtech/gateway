@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from uuid import uuid4
 
@@ -22,6 +22,9 @@ from backend.api_keys.controller import router as api_keys_router
 from backend.api_keys.middleware import APIKeyAuthMiddleware
 from backend.core.database import Base, write_engine
 from backend.core.errors import GatewayError
+from backend.credits.controller import router as credits_router
+from backend.credits.models import CreditUsage as CreditUsage
+from backend.credits.reconciliation import reconcile_credits
 from backend.core.migrations import run_pending_migrations
 from backend.gateway.chat.controller import router as chat_router
 from backend.gateway.messages.controller import router as messages_router
@@ -53,9 +56,14 @@ async def lifespan(_: FastAPI):
     if seeded:
         logger.info("Imported %s provider(s) from configuration", seeded)
 
-    yield
-
-    shutdown_telemetry()
+    reconciliation_task = asyncio.create_task(reconcile_credits())
+    try:
+        yield
+    finally:
+        reconciliation_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await reconciliation_task
+        shutdown_telemetry()
 
 
 Base.metadata.create_all(bind=write_engine)
@@ -99,6 +107,7 @@ app.include_router(models_gateway_router)
 app.include_router(providers_router)
 app.include_router(provider_models_router)
 app.include_router(traces_router)
+app.include_router(credits_router)
 
 
 # ---------------------------------------------------------------------------

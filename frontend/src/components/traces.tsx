@@ -1,11 +1,24 @@
 import * as React from "react"
 import {
+  IconArrowLeft,
+  IconArrowUpRight,
   IconBan,
+  IconCheck,
+  IconChevronRight,
   IconCircleCheckFilled,
+  IconClock,
+  IconCode,
+  IconCopy,
+  IconFilter,
   IconRefresh,
+  IconRoute,
+  IconSearch,
+  IconX,
 } from "@tabler/icons-react"
-
+import { toast } from "sonner"
+import { PageContent } from "@/components/dashboard-shell"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { cn } from "@/lib/utils"
 import {
   getMessageTrace,
   listCallTraces,
@@ -24,10 +37,14 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Drawer,
   DrawerClose,
@@ -37,13 +54,17 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -52,10 +73,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 const PAGE_SIZE = 20
-
 type TabKey = "messages" | "calls"
 
 function formatDateTime(value: string | null | undefined) {
@@ -63,630 +83,709 @@ function formatDateTime(value: string | null | undefined) {
   const date = parseApiTimestamp(value)
   return date === null ? value : formatTimestampInDeviceZone(date)
 }
-
-// null ("not reported by the provider") renders as an em dash and stays
-// visually distinct from a real 0, which renders as "0".
 function formatInt(value: number | null | undefined) {
-  return value === null || value === undefined
-    ? "—"
-    : value.toLocaleString("en-US")
+  return value == null ? "—" : value.toLocaleString("en-US")
 }
-
 function formatMs(value: number | null) {
   if (value === null) return "—"
-  if (value < 1_000) return `${value.toLocaleString("en-US")} ms`
-  const seconds = value / 1_000
-  if (seconds < 60)
-    return `${seconds < 10 ? seconds.toFixed(2) : seconds.toFixed(1)} s`
-  const minutes = Math.floor(seconds / 60)
-  const rest = Math.round(seconds % 60)
-  if (minutes < 60) return `${minutes}m ${rest}s`
-  const hours = Math.floor(minutes / 60)
-  return `${hours}h ${minutes % 60}m`
+  if (value < 1000) return `${value.toLocaleString("en-US")} ms`
+  if (value < 60000) return `${(value / 1000).toFixed(2)} s`
+  const seconds = Math.round(value / 1000)
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
 }
-
-// Short display for long identifiers; the full value stays available via the
-// native title tooltip.
 function shortId(value: string | null | undefined) {
   if (!value) return "—"
-  return `${value.slice(0, 8)}…`
+  return value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value
 }
-
+function requestModel(request: Record<string, unknown> | null) {
+  return typeof request?.model === "string" ? request.model : "Inbound request"
+}
 function TraceStatusBadge({ status }: { status: string }) {
-  if (status === "success") {
-    return (
-      <Badge variant="outline" className="px-1.5 text-muted-foreground">
-        <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
-        Success
-      </Badge>
-    )
-  }
-  if (status === "failed") {
-    return (
-      <Badge variant="outline" className="px-1.5 text-destructive">
-        <IconBan />
-        Failed
-      </Badge>
-    )
-  }
-  if (status === "timeout") {
-    return (
-      <Badge
-        variant="outline"
-        className="px-1.5 text-amber-700 dark:text-amber-400"
-      >
-        Timeout
-      </Badge>
-    )
-  }
+  const Icon =
+    status === "success"
+      ? IconCircleCheckFilled
+      : status === "failed"
+        ? IconBan
+        : IconClock
   return (
-    <Badge variant="outline" className="px-1.5 text-muted-foreground">
-      {status === "pending" ? "Pending" : status}
+    <Badge
+      variant={
+        status === "failed" || status === "timeout"
+          ? "destructive"
+          : "secondary"
+      }
+    >
+      <Icon />
+      {status === "success"
+        ? "Success"
+        : status === "failed"
+          ? "Failed"
+          : status === "timeout"
+            ? "Timeout"
+            : status === "pending"
+              ? "Pending"
+              : status}
     </Badge>
   )
 }
-
-// Rendered as plain text so stored payloads stay untrusted output; the
-// backend already redacted secrets ("[REDACTED]") and truncated large
-// payloads before persisting them.
+function CopyButton({
+  value,
+  label = "Copy",
+}: {
+  value: string
+  label?: string
+}) {
+  const [copied, setCopied] = React.useState(false)
+  React.useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => setCopied(false), 1800)
+    return () => window.clearTimeout(timer)
+  }, [copied])
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-label={label}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value)
+          setCopied(true)
+        } catch {
+          toast.error("Unable to copy. Select and copy the text instead.")
+        }
+      }}
+    >
+      {copied ? (
+        <IconCheck data-icon="inline-start" />
+      ) : (
+        <IconCopy data-icon="inline-start" />
+      )}
+      {copied ? "Copied" : label}
+    </Button>
+  )
+}
 function RequestBlock({
   request,
 }: {
   request: Record<string, unknown> | null
 }) {
-  if (!request || Object.keys(request).length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        No request payload was stored for this record.
-      </p>
-    )
-  }
+  const payload =
+    request && Object.keys(request).length
+      ? JSON.stringify(request, null, 2)
+      : null
   return (
-    <div className="overflow-hidden rounded-lg border bg-muted">
-      <pre className="max-h-72 overflow-auto p-3 font-mono text-xs leading-5 break-all select-all">
-        {JSON.stringify(request, null, 2)}
-      </pre>
+    <div className="overflow-hidden rounded-lg border">
+      <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2">
+        <span className="flex items-center gap-2 text-sm font-medium">
+          <IconCode className="size-4 text-muted-foreground" /> Request JSON
+        </span>
+        {payload ? <CopyButton value={payload} label="Copy JSON" /> : null}
+      </div>
+      {payload ? (
+        <pre className="max-h-96 overflow-auto p-4 font-mono text-xs leading-6 break-all whitespace-pre-wrap select-text">
+          {payload}
+        </pre>
+      ) : (
+        <p className="p-4 text-sm text-muted-foreground">
+          No request payload was stored for this record.
+        </p>
+      )}
     </div>
   )
 }
-
-function TracesChip({
+function TraceField({
   label,
-  value,
-  wrap,
+  children,
+  mono = false,
 }: {
   label: string
-  value: React.ReactNode
-  wrap?: boolean
+  children: React.ReactNode
+  mono?: boolean
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-lg border bg-muted p-2">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className={`text-sm${wrap ? "font-mono break-words" : ""}`}>
-        {value}
-      </span>
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          "text-sm break-words",
+          mono && "font-mono text-xs leading-5 break-all"
+        )}
+      >
+        {children}
+      </dd>
     </div>
   )
 }
-
-function AttemptCountsCell({
-  total,
-  ok,
-  failed,
+function TokenPair({
+  input,
+  output,
+  label = "Input tokens / output tokens",
 }: {
-  total: number
-  ok: number
-  failed: number
+  input: number | null
+  output: number | null
+  label?: string
 }) {
   return (
-    <span className="whitespace-nowrap">
-      <span className="font-mono text-xs tabular-nums">{formatInt(total)}</span>
-      <span className="ml-2 text-xs text-muted-foreground tabular-nums">
-        {formatInt(ok)} ok · {formatInt(failed)} failed
-      </span>
+    <span className="tabular-nums" title={label}>
+      {formatInt(input)} <span className="px-1 text-muted-foreground">/</span>{" "}
+      {formatInt(output)}
     </span>
   )
 }
+const filterFields: {
+  key: keyof CallTraceFilters
+  label: string
+  type?: "date"
+}[] = [
+  { key: "message_id", label: "Message ID" },
+  { key: "user_id", label: "User ID" },
+  { key: "api_key_id", label: "API key ID" },
+  { key: "gateway_model_id", label: "Gateway model ID" },
+  { key: "provider_model_id", label: "Provider model ID" },
+  { key: "from", label: "From date", type: "date" },
+  { key: "to", label: "To date", type: "date" },
+]
 
 export function TracesContent() {
   const [tab, setTab] = React.useState<TabKey>("messages")
   const [reloadTick, setReloadTick] = React.useState(0)
-
-  const [messageItems, setMessageItems] = React.useState<MessagesPage | null>(
-    null
-  )
-  const [messagesError, setMessagesError] = React.useState<string | null>(null)
-  const [messagesPage, setMessagesPage] = React.useState(1)
-
-  const [callItems, setCallItems] = React.useState<CallsPage | null>(null)
-  const [callsError, setCallsError] = React.useState<string | null>(null)
-  const [callsPage, setCallsPage] = React.useState(1)
+  const [page, setPage] = React.useState(1)
+  const [search, setSearch] = React.useState("")
+  const [result, setResult] = React.useState<{
+    tab: TabKey
+    page: number
+    tick: number
+    filters: CallTraceFilters
+    data: MessagesPage | CallsPage
+  } | null>(null)
+  const [failure, setFailure] = React.useState<{
+    tab: TabKey
+    page: number
+    tick: number
+    filters: CallTraceFilters
+    message: string
+  } | null>(null)
   const [draftFilters, setDraftFilters] = React.useState<CallTraceFilters>({})
-  const [appliedFilters, setAppliedFilters] = React.useState<CallTraceFilters>(
-    {}
-  )
-
+  const [filters, setFilters] = React.useState<CallTraceFilters>({})
+  const [filtersOpen, setFiltersOpen] = React.useState(false)
+  const [messageId, setMessageId] = React.useState<string | null>(null)
   const [drawerCall, setDrawerCall] = React.useState<CallTraceItem | null>(null)
-
+  const searchId = React.useId()
+  const statusId = React.useId()
   React.useEffect(() => {
-    if (tab !== "messages") return
     let cancelled = false
-
-    listMessageTraces({ page: messagesPage, pageSize: PAGE_SIZE })
-      .then((result) => {
-        if (cancelled) return
-        setMessageItems(result)
-        setMessagesError(null)
+    const request =
+      tab === "messages"
+        ? listMessageTraces({ page, pageSize: PAGE_SIZE })
+        : listCallTraces({ page, pageSize: PAGE_SIZE, filters })
+    request
+      .then((data) => {
+        if (!cancelled)
+          setResult({ tab, page, tick: reloadTick, filters, data })
       })
       .catch((error: unknown) => {
-        if (cancelled) return
-        setMessagesError(
-          error instanceof Error
-            ? error.message
-            : "Unable to load message traces."
-        )
+        if (!cancelled)
+          setFailure({
+            tab,
+            page,
+            tick: reloadTick,
+            filters,
+            message:
+              error instanceof Error ? error.message : "Unable to load traces.",
+          })
       })
-
     return () => {
       cancelled = true
     }
-  }, [tab, messagesPage, reloadTick])
-
-  React.useEffect(() => {
-    if (tab !== "calls") return
-    let cancelled = false
-
-    listCallTraces({
-      page: callsPage,
-      pageSize: PAGE_SIZE,
-      filters: appliedFilters,
-    })
-      .then((result) => {
-        if (cancelled) return
-        setCallItems(result)
-        setCallsError(null)
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setCallsError(
-          error instanceof Error ? error.message : "Unable to load call traces."
-        )
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [tab, callsPage, appliedFilters, reloadTick])
-
-  function refreshActive() {
-    setReloadTick((tick) => tick + 1)
-  }
-
-  // The calls endpoint is the only trace list with documented filters; the
-  // messages endpoint accepts pagination only, so its tab shows no filter UI.
-  function applyFilters() {
-    const next: CallTraceFilters = {}
-    for (const [key, value] of Object.entries(draftFilters)) {
-      const trimmed = value.trim()
-      if (trimmed) next[key as keyof CallTraceFilters] = trimmed
-    }
-    setAppliedFilters(next)
-    setCallsPage(1)
-  }
-
+  }, [tab, page, filters, reloadTick])
+  const matchesRequest = (
+    value: {
+      tab: TabKey
+      page: number
+      tick: number
+      filters: CallTraceFilters
+    } | null
+  ) =>
+    value?.tab === tab &&
+    value.page === page &&
+    value.tick === reloadTick &&
+    value.filters === filters
+  const data = matchesRequest(result) ? result!.data : null
+  const error = matchesRequest(failure) && !data ? failure!.message : null
+  const loading = !data && !error
+  const query = search.trim().toLowerCase()
+  const items =
+    data?.items.filter((item) => {
+      const call = "provider_model" in item ? item : null
+      return [
+        item.id,
+        item.message_id,
+        item.user_id,
+        item.api_key_id,
+        item.status,
+        requestModel(item.request),
+        call?.gateway_model?.model_id,
+        call?.provider_model?.model_id,
+        call?.provider_model?.provider_name,
+        call?.provider_model?.provider_alias,
+        call?.error_code,
+      ].some((value) => value?.toLowerCase().includes(query))
+    }) ?? []
+  const appliedCount = Object.keys(filters).length
   function resetFilters() {
     setDraftFilters({})
-    setAppliedFilters({})
-    setCallsPage(1)
+    setFilters({})
+    setPage(1)
   }
-
-  const appliedCount = Object.keys(appliedFilters).length
-
   return (
-    <>
-      <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
-        <p className="text-sm text-muted-foreground">
-          Messages are inbound requests; calls are the actual provider attempts
-          behind them — retries and failover included. Tokens are
-          provider-reported and null when not reported; payloads are sanitized
-          before storage. Viewing traces does not enable collection. Operational
-          data — not billing.
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={refreshActive}
-        >
-          <IconRefresh />
-          <span className="hidden lg:inline">Refresh</span>
-        </Button>
-      </div>
-
-      <div className="px-4 lg:px-6">
+    <PageContent>
+      <div className="flex min-w-0 flex-col gap-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex max-w-2xl flex-col gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+              Request traces
+            </h1>
+            <p className="text-sm leading-6 text-muted-foreground">
+              Follow a request through the gateway. Inspect provider attempts,
+              retries, and the time spent along the way.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            disabled={loading}
+            onClick={() => setReloadTick((tick) => tick + 1)}
+          >
+            <IconRefresh
+              data-icon="inline-start"
+              className={cn(loading && "motion-safe:animate-spin")}
+            />
+            Refresh
+          </Button>
+        </div>
         <Tabs
           value={tab}
-          onValueChange={(value) => setTab(value as TabKey)}
-          className="items-center"
+          onValueChange={(value) => {
+            setTab(value as TabKey)
+            setPage(1)
+            setSearch("")
+          }}
+          className="gap-0"
         >
-          <TabsList>
-            <TabsTrigger value="messages">Messages</TabsTrigger>
-            <TabsTrigger value="calls">Calls</TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        {tab === "calls" ? (
-          <div className="mt-3 flex flex-col gap-3 rounded-lg border bg-card p-3">
-            <p className="text-xs font-medium text-muted-foreground">
-              Filters{appliedCount > 0 ? ` (${appliedCount} applied)` : ""}
-            </p>
-            <div className="flex flex-col gap-2">
-              <span className="text-xs text-muted-foreground">
-                Identifiers and status
-              </span>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                <FilterInput
-                  label="Message ID"
-                  value={draftFilters.message_id ?? ""}
-                  onChange={(value) =>
-                    setDraftFilters((draft) => ({
-                      ...draft,
-                      message_id: value,
-                    }))
-                  }
-                />
-                <FilterInput
-                  label="User ID (UUID)"
-                  value={draftFilters.user_id ?? ""}
-                  onChange={(value) =>
-                    setDraftFilters((draft) => ({ ...draft, user_id: value }))
-                  }
-                />
-                <FilterInput
-                  label="API key ID (UUID)"
-                  value={draftFilters.api_key_id ?? ""}
-                  onChange={(value) =>
-                    setDraftFilters((draft) => ({
-                      ...draft,
-                      api_key_id: value,
-                    }))
-                  }
-                />
-                <FilterInput
-                  label="Gateway model ID (model group UUID)"
-                  value={draftFilters.gateway_model_id ?? ""}
-                  onChange={(value) =>
-                    setDraftFilters((draft) => ({
-                      ...draft,
-                      gateway_model_id: value,
-                    }))
-                  }
-                />
-                <FilterInput
-                  label="Provider model ID (UUID)"
-                  value={draftFilters.provider_model_id ?? ""}
-                  onChange={(value) =>
-                    setDraftFilters((draft) => ({
-                      ...draft,
-                      provider_model_id: value,
-                    }))
-                  }
-                />
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-muted-foreground">Status</span>
-                  <Select
-                    value={draftFilters.status ?? "any"}
-                    onValueChange={(value) =>
-                      setDraftFilters((draft) => ({
-                        ...draft,
-                        status: value === "any" ? undefined : value,
-                      }))
-                    }
-                  >
-                    <SelectTrigger
-                      size="sm"
-                      className="w-full"
-                      aria-label="Filter by status"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="any">Any status</SelectItem>
-                      <SelectItem value="success">Success</SelectItem>
-                      <SelectItem value="failed">Failed</SelectItem>
-                      <SelectItem value="timeout">Timeout</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+            <TabsList variant="line">
+              <TabsTrigger value="messages">
+                <IconRoute />
+                Messages
+              </TabsTrigger>
+              <TabsTrigger value="calls">
+                <IconRoute />
+                Provider calls
+              </TabsTrigger>
+            </TabsList>
+            <span className="text-xs text-muted-foreground">
+              {data
+                ? `${formatInt(data.total)} ${tab === "messages" ? "messages recorded" : "matching calls"}`
+                : "Recorded gateway traffic"}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-sm">
+              <IconSearch
+                aria-hidden="true"
+                className="size-4 shrink-0 text-muted-foreground"
+              />
+              <label htmlFor={searchId} className="sr-only">
+                Search this page
+              </label>
+              <Input
+                id={searchId}
+                type="search"
+                placeholder="Search this page…"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
             </div>
-            <div className="flex flex-col gap-2">
-              <span className="text-xs text-muted-foreground">
-                Recorded date (both bounds inclusive)
-              </span>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <FilterInput
-                  label="From date"
-                  type="date"
-                  value={draftFilters.from ?? ""}
-                  onChange={(value) =>
-                    setDraftFilters((draft) => ({ ...draft, from: value }))
-                  }
-                />
-                <FilterInput
-                  label="To date"
-                  type="date"
-                  value={draftFilters.to ?? ""}
-                  onChange={(value) =>
-                    setDraftFilters((draft) => ({ ...draft, to: value }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button type="button" size="sm" onClick={applyFilters}>
-                Apply filters
+            {tab === "calls" ? (
+              <Button
+                variant="outline"
+                aria-expanded={filtersOpen}
+                aria-controls="trace-call-filters"
+                onClick={() => setFiltersOpen(!filtersOpen)}
+              >
+                <IconFilter data-icon="inline-start" />
+                Filters
+                {appliedCount ? (
+                  <Badge variant="secondary">{appliedCount}</Badge>
+                ) : null}
               </Button>
-              {appliedCount > 0 || Object.keys(draftFilters).length > 0 ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={resetFilters}
+            ) : (
+              <span className="hidden text-xs text-muted-foreground sm:block">
+                One message. Every attempt.
+              </span>
+            )}
+          </div>
+          {tab === "calls" ? (
+            <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+              <CollapsibleContent id="trace-call-filters">
+                <form
+                  className="mb-4 flex flex-col gap-4 rounded-lg border bg-muted/20 p-4"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    const next = Object.fromEntries(
+                      Object.entries(draftFilters)
+                        .filter(([, value]) => value?.trim())
+                        .map(([key, value]) => [key, value.trim()])
+                    ) as CallTraceFilters
+                    setFilters(next)
+                    setPage(1)
+                    setSearch("")
+                  }}
                 >
-                  Reset
-                </Button>
+                  <div className="flex flex-col gap-1">
+                    <h2 className="text-sm font-medium">
+                      Filter provider calls
+                    </h2>
+                    <p className="text-xs text-muted-foreground">
+                      Filters apply to all recorded calls. Date bounds are
+                      inclusive; model, user, and key IDs use UUIDs.
+                    </p>
+                  </div>
+                  <FieldGroup className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <Field>
+                      <FieldLabel htmlFor={statusId}>Status</FieldLabel>
+                      <Select
+                        value={draftFilters.status ?? "any"}
+                        onValueChange={(value) =>
+                          setDraftFilters((draft) => ({
+                            ...draft,
+                            status: value === "any" ? undefined : value,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id={statusId} className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="any">Any status</SelectItem>
+                            <SelectItem value="success">Success</SelectItem>
+                            <SelectItem value="failed">Failed</SelectItem>
+                            <SelectItem value="timeout">Timeout</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {filterFields.map(({ key, label, type }) => (
+                      <FilterInput
+                        key={key}
+                        label={label}
+                        type={type}
+                        value={draftFilters[key] ?? ""}
+                        onChange={(value) =>
+                          setDraftFilters((draft) => ({
+                            ...draft,
+                            [key]: value,
+                          }))
+                        }
+                      />
+                    ))}
+                  </FieldGroup>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="submit" size="sm">
+                      Apply filters
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={resetFilters}
+                    >
+                      Reset filters
+                    </Button>
+                  </div>
+                </form>
+              </CollapsibleContent>
+            </Collapsible>
+          ) : null}
+          {appliedCount > 0 && tab === "calls" ? (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              {Object.entries(filters).map(([key, value]) => (
+                <Badge key={key} variant="outline" className="max-w-full">
+                  <span className="truncate">
+                    {key.replaceAll("_", " ")}: {value}
+                  </span>
+                </Badge>
+              ))}
+              <Button variant="ghost" size="sm" onClick={resetFilters}>
+                <IconX data-icon="inline-start" />
+                Clear
+              </Button>
+            </div>
+          ) : null}
+          <TabsContent
+            value={tab}
+            className="@container/trace mt-0"
+            aria-busy={loading}
+          >
+            <div className="overflow-hidden rounded-xl border bg-card">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+                <h2 className="text-sm font-medium">
+                  {tab === "messages"
+                    ? "Inbound messages"
+                    : "Provider attempts"}
+                </h2>
+                <span className="text-xs text-muted-foreground">
+                  {tab === "messages"
+                    ? "Includes retries and failover"
+                    : "One row per provider call"}
+                </span>
+              </div>
+              {error ? (
+                <TraceEmpty
+                  title="Unable to load traces"
+                  description={error}
+                  action={
+                    <Button
+                      variant="outline"
+                      onClick={() => setReloadTick((tick) => tick + 1)}
+                    >
+                      Try again
+                    </Button>
+                  }
+                  error
+                />
+              ) : loading ? (
+                <div
+                  className="flex flex-col gap-5 p-5"
+                  role="status"
+                  aria-label="Loading traces"
+                >
+                  {Array.from({ length: 6 }, (_, index) => (
+                    <div key={index} className="flex items-center gap-6">
+                      <Skeleton className="h-9 flex-1" />
+                      <Skeleton className="h-6 w-20" />
+                      <Skeleton className="hidden h-6 w-20 sm:block" />
+                    </div>
+                  ))}
+                </div>
+              ) : !items.length ? (
+                <TraceEmpty
+                  title={
+                    query
+                      ? "No matches on this page"
+                      : appliedCount && tab === "calls"
+                        ? "No calls match these filters"
+                        : "No traces recorded yet"
+                  }
+                  description={
+                    query
+                      ? "Try another model, identifier, or status. Search covers only the current page of results."
+                      : appliedCount && tab === "calls"
+                        ? "Adjust your filters or clear them to see all recorded provider calls."
+                        : "Enable tracing for a user in User Management, then send a request through the gateway to inspect it here."
+                  }
+                  action={
+                    query ? (
+                      <Button variant="outline" onClick={() => setSearch("")}>
+                        Clear search
+                      </Button>
+                    ) : appliedCount && tab === "calls" ? (
+                      <Button variant="outline" onClick={resetFilters}>
+                        Clear filters
+                      </Button>
+                    ) : (
+                      <Button asChild variant="outline">
+                        <a href="/dashboard/users">
+                          Manage user tracing
+                          <IconArrowUpRight data-icon="inline-end" />
+                        </a>
+                      </Button>
+                    )
+                  }
+                />
+              ) : (
+                <Table>
+                  <TableHeader className="bg-muted/30">
+                    <TableRow>
+                      <TableHead className="pl-4">
+                        {tab === "messages" ? "Request" : "Provider / model"}
+                      </TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden @min-[800px]/trace:table-cell">
+                        {tab === "messages" ? "Attempts" : "Gateway model"}
+                      </TableHead>
+                      <TableHead className="hidden @min-[620px]/trace:table-cell">
+                        Tokens{" "}
+                        <span className="font-normal text-muted-foreground">
+                          in / out
+                        </span>
+                      </TableHead>
+                      <TableHead className="hidden text-right @min-[440px]/trace:table-cell">
+                        Duration
+                      </TableHead>
+                      <TableHead className="w-12 pr-4">
+                        <span className="sr-only">Inspect</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {items.map((item) =>
+                      "provider_model" in item ? (
+                        <CallRow
+                          key={item.id}
+                          call={item}
+                          onOpen={() => setDrawerCall(item)}
+                        />
+                      ) : (
+                        <MessageRow
+                          key={item.id}
+                          item={item}
+                          onOpen={() => setMessageId(item.id)}
+                        />
+                      )
+                    )}
+                  </TableBody>
+                </Table>
+              )}
+              {data && data.total > 0 ? (
+                <TablePagination
+                  page={page}
+                  pageSize={data.page_size}
+                  total={data.total}
+                  onPageChange={(next) => {
+                    setPage(next)
+                    setSearch("")
+                  }}
+                />
               ) : null}
             </div>
-          </div>
-        ) : null}
-
-        {tab === "messages" ? (
-          <>
-            {messagesError !== null && messageItems !== null ? (
-              <p className="mt-3 mb-2 text-sm text-destructive" role="alert">
-                {messagesError}{" "}
-                <button
-                  type="button"
-                  className="underline underline-offset-2"
-                  onClick={refreshActive}
-                >
-                  Try again
-                </button>
-              </p>
-            ) : null}
-            <div className="mt-3 overflow-hidden rounded-lg border">
-              <Table>
-                <TableHeader className="sticky top-0 z-10 bg-muted">
-                  <TableRow>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Message ID</TableHead>
-                    <TableHead>User</TableHead>
-                    <TableHead>API key</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Attempts</TableHead>
-                    <TableHead>Tokens (in / out)</TableHead>
-                    <TableHead className="text-right">Latency</TableHead>
-                    <TableHead>
-                      <span className="sr-only">Actions</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {messageItems === null ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={9}
-                        className="h-24 text-center text-muted-foreground"
-                      >
-                        {messagesError !== null ? (
-                          <span>
-                            {messagesError}{" "}
-                            <button
-                              type="button"
-                              className="underline underline-offset-2"
-                              onClick={refreshActive}
-                            >
-                              Try again
-                            </button>
-                          </span>
-                        ) : (
-                          "Loading message traces…"
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ) : messageItems.items.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={9}
-                        className="h-24 text-center text-muted-foreground"
-                      >
-                        No message traces recorded. Tracing is opt-in per user
-                        and requests from users with tracing disabled are not
-                        persisted; viewing this page never enables collection.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    messageItems.items.map((item) => (
-                      <MessageRow key={item.id} item={item} />
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-            {messageItems && messageItems.total > 0 ? (
-              <TablePagination
-                page={messagesPage}
-                pageSize={messageItems.page_size}
-                total={messageItems.total}
-                onPageChange={setMessagesPage}
-              />
-            ) : null}
-          </>
-        ) : (
-          <>
-            {callsError !== null && callItems !== null ? (
-              <p className="mt-3 mb-2 text-sm text-destructive" role="alert">
-                {callsError}{" "}
-                <button
-                  type="button"
-                  className="underline underline-offset-2"
-                  onClick={refreshActive}
-                >
-                  Try again
-                </button>
-              </p>
-            ) : null}
-            <div className="mt-3 overflow-hidden rounded-lg border">
-              <Table>
-                <TableHeader className="sticky top-0 z-10 bg-muted">
-                  <TableRow>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Message ID</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Gateway model</TableHead>
-                    <TableHead>Provider attempt</TableHead>
-                    <TableHead>Tokens (in / out)</TableHead>
-                    <TableHead className="text-right">Latency</TableHead>
-                    <TableHead>
-                      <span className="sr-only">Actions</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {callItems === null ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={8}
-                        className="h-24 text-center text-muted-foreground"
-                      >
-                        {callsError !== null ? (
-                          <span>
-                            {callsError}{" "}
-                            <button
-                              type="button"
-                              className="underline underline-offset-2"
-                              onClick={refreshActive}
-                            >
-                              Try again
-                            </button>
-                          </span>
-                        ) : (
-                          "Loading call traces…"
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ) : callItems.items.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={8}
-                        className="h-24 text-center text-muted-foreground"
-                      >
-                        {appliedCount > 0 ? (
-                          <span>
-                            No call traces match these filters.{" "}
-                            <button
-                              type="button"
-                              className="underline underline-offset-2"
-                              onClick={resetFilters}
-                            >
-                              Reset filters
-                            </button>{" "}
-                            to see all recorded attempts.
-                          </span>
-                        ) : (
-                          "No call traces recorded. Tracing is opt-in per user and requests from users with tracing disabled are not persisted; viewing this page never enables collection."
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    callItems.items.map((call) => (
-                      <CallRow
-                        key={call.id}
-                        call={call}
-                        onOpen={() => setDrawerCall(call)}
-                      />
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-            {callItems && callItems.total > 0 ? (
-              <TablePagination
-                page={callsPage}
-                pageSize={callItems.page_size}
-                total={callItems.total}
-                onPageChange={setCallsPage}
-              />
-            ) : null}
-          </>
-        )}
+          </TabsContent>
+        </Tabs>
+        <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
+          Tracing is opt-in per user. Payloads are sanitized before storage;
+          viewing this page does not enable collection. Token counts come from
+          providers; — means unreported. For billing, see{" "}
+          <a href="/dashboard/credits" className="underline underline-offset-4">
+            Credits
+          </a>
+          .
+        </p>
       </div>
-
+      <MessageInspector
+        traceId={messageId}
+        onClose={() => setMessageId(null)}
+      />
       <CallTraceDrawer call={drawerCall} onClose={() => setDrawerCall(null)} />
-    </>
+    </PageContent>
   )
 }
-
-function MessageRow({ item }: { item: MessageTraceItem }) {
+function TraceEmpty({
+  title,
+  description,
+  action,
+  error = false,
+}: {
+  title: string
+  description: string
+  action?: React.ReactNode
+  error?: boolean
+}) {
+  return (
+    <div
+      className="flex flex-col items-center gap-3 px-6 py-16 text-center"
+      role={error ? "alert" : "status"}
+    >
+      <span className="flex size-12 items-center justify-center rounded-xl border bg-muted/40">
+        {error ? (
+          <IconBan className="size-6 text-destructive" />
+        ) : (
+          <IconRoute className="size-6 text-muted-foreground" />
+        )}
+      </span>
+      <h3 className="mt-1 font-medium">{title}</h3>
+      <p className="max-w-md text-sm leading-6 text-muted-foreground">
+        {description}
+      </p>
+      {action ? <div className="mt-2">{action}</div> : null}
+    </div>
+  )
+}
+function MessageRow({
+  item,
+  onOpen,
+}: {
+  item: MessageTraceItem
+  onOpen: () => void
+}) {
   return (
     <TableRow>
-      <TableCell className="text-muted-foreground">
-        {formatDateTime(item.created_at)}
-      </TableCell>
-      <TableCell>
-        {item.message_id ? (
+      <TableCell className="py-4 pl-4">
+        <button
+          type="button"
+          className="flex max-w-[96px] min-w-0 flex-col gap-1.5 text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring min-[375px]:max-w-[130px] @min-[600px]/trace:max-w-[280px]"
+          onClick={onOpen}
+          aria-label={`Inspect message ${item.message_id ?? item.id}`}
+        >
           <span
-            className="block max-w-40 truncate font-mono text-xs"
-            title={item.message_id}
+            className="w-full truncate font-medium"
+            title={requestModel(item.request)}
           >
-            {item.message_id}
+            {requestModel(item.request)}
           </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        )}
-      </TableCell>
-      <TableCell>
-        <span
-          className="font-mono text-xs text-muted-foreground"
-          title={item.user_id}
-        >
-          {shortId(item.user_id)}
-        </span>
-      </TableCell>
-      <TableCell>
-        <span
-          className="font-mono text-xs text-muted-foreground"
-          title={item.api_key_id ?? ""}
-        >
-          {item.api_key_id ? shortId(item.api_key_id) : "—"}
-        </span>
+          <span
+            className="w-full truncate text-xs text-muted-foreground"
+            title={item.message_id ?? item.id}
+          >
+            {shortId(item.message_id ?? item.id)}
+          </span>
+          <span className="w-full truncate text-xs text-muted-foreground">
+            {formatDateTime(item.created_at)}
+          </span>
+        </button>
       </TableCell>
       <TableCell>
         <TraceStatusBadge status={item.status} />
+        <span className="mt-2 block text-xs text-muted-foreground tabular-nums @min-[440px]/trace:hidden">
+          {formatMs(item.total_latency_ms)}
+        </span>
       </TableCell>
-      <TableCell>
-        <AttemptCountsCell
-          total={item.call_count}
-          ok={item.successful_call_count}
-          failed={item.failed_call_count}
-        />
+      <TableCell className="hidden @min-[800px]/trace:table-cell">
+        <span className="tabular-nums">
+          {item.call_count}{" "}
+          <span className="text-muted-foreground">
+            {item.call_count === 1 ? "call" : "calls"}
+          </span>
+        </span>
+        <span
+          className={cn(
+            "mt-1 block text-xs text-muted-foreground",
+            item.failed_call_count > 0 && "text-destructive"
+          )}
+        >
+          {item.failed_call_count
+            ? `${item.failed_call_count} failed`
+            : `${item.successful_call_count} succeeded`}
+        </span>
       </TableCell>
-      <TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums">
-        {formatInt(item.input_tokens)} / {formatInt(item.output_tokens)}
+      <TableCell className="hidden @min-[620px]/trace:table-cell">
+        <TokenPair input={item.input_tokens} output={item.output_tokens} />
       </TableCell>
-      <TableCell className="text-right font-mono text-xs text-muted-foreground tabular-nums">
+      <TableCell className="hidden text-right tabular-nums @min-[440px]/trace:table-cell">
         {formatMs(item.total_latency_ms)}
       </TableCell>
-      <TableCell className="text-right">
-        <Button variant="outline" size="sm" asChild>
-          <a href={`/dashboard/traces/detail?id=${item.id}`}>Open trace</a>
+      <TableCell className="pr-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Open message ${item.message_id ?? item.id}`}
+          onClick={onOpen}
+        >
+          <IconChevronRight />
         </Button>
       </TableCell>
     </TableRow>
   )
 }
-
 function CallRow({
   call,
   onOpen,
@@ -696,278 +795,65 @@ function CallRow({
 }) {
   return (
     <TableRow>
-      <TableCell className="text-muted-foreground">
-        {formatDateTime(call.created_at)}
-      </TableCell>
-      <TableCell>
-        {call.message_id ? (
+      <TableCell className="py-4 pl-4">
+        <button
+          type="button"
+          className="flex max-w-[96px] min-w-0 flex-col gap-1.5 text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring min-[375px]:max-w-[130px] @min-[600px]/trace:max-w-[260px]"
+          onClick={onOpen}
+          aria-label={`Inspect call ${call.id}`}
+        >
           <span
-            className="block max-w-40 truncate font-mono text-xs"
-            title={call.message_id}
+            className="w-full truncate font-medium"
+            title={call.provider_model?.model_id}
           >
-            {call.message_id}
+            {call.provider_model?.model_id ?? "Unresolved provider"}
           </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        )}
+          <span className="w-full truncate text-xs text-muted-foreground">
+            {call.provider_model?.provider_name ?? "No provider recorded"}
+          </span>
+          <span className="w-full truncate text-xs text-muted-foreground">
+            {formatDateTime(call.created_at)}
+          </span>
+        </button>
       </TableCell>
       <TableCell>
         <TraceStatusBadge status={call.status} />
-      </TableCell>
-      <TableCell>
-        <span className="font-mono text-xs break-all text-muted-foreground">
-          {call.gateway_model ? call.gateway_model.model_id : "—"}
+        {call.error_code ? (
+          <span
+            className="mt-2 block max-w-20 truncate text-xs text-destructive min-[375px]:max-w-28"
+            title={call.error_code}
+          >
+            {call.error_code}
+          </span>
+        ) : null}
+        <span className="mt-2 block text-xs text-muted-foreground @min-[440px]/trace:hidden">
+          {formatMs(call.latency_ms)}
         </span>
       </TableCell>
-      <TableCell>
-        {call.provider_model ? (
-          <span className="font-mono text-xs break-words whitespace-nowrap">
-            {call.provider_model.provider_alias}/{call.provider_model.model_id}
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        )}
+      <TableCell className="hidden max-w-40 @min-[800px]/trace:table-cell">
+        <span className="block truncate" title={call.gateway_model?.model_id}>
+          {call.gateway_model?.model_id ?? "—"}
+        </span>
       </TableCell>
-      <TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums">
-        {formatInt(call.input_tokens)} / {formatInt(call.output_tokens)}
+      <TableCell className="hidden @min-[620px]/trace:table-cell">
+        <TokenPair input={call.input_tokens} output={call.output_tokens} />
       </TableCell>
-      <TableCell className="text-right font-mono text-xs text-muted-foreground tabular-nums">
+      <TableCell className="hidden text-right tabular-nums @min-[440px]/trace:table-cell">
         {formatMs(call.latency_ms)}
       </TableCell>
-      <TableCell className="text-right">
-        <Button variant="outline" size="sm" onClick={onOpen}>
-          Attempt detail
+      <TableCell className="pr-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Open call ${call.id}`}
+          onClick={onOpen}
+        >
+          <IconChevronRight />
         </Button>
       </TableCell>
     </TableRow>
   )
 }
-
-export function CallTraceDrawer({
-  call,
-  onClose,
-}: {
-  call: CallTraceItem | null
-  onClose: () => void
-}) {
-  const isMobile = useIsMobile()
-
-  return (
-    <Drawer
-      direction={isMobile ? "bottom" : "right"}
-      open={call !== null}
-      onOpenChange={(next) => {
-        if (!next) onClose()
-      }}
-    >
-      <DrawerContent>
-        <DrawerHeader className="shrink-0 gap-1 border-b">
-          <DrawerTitle>Provider attempt</DrawerTitle>
-          <DrawerDescription>
-            One actual gateway/provider attempt for a recorded message — failed
-            and timed-out attempts included. Operational data — not billing.
-          </DrawerDescription>
-        </DrawerHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-2 text-sm">
-          {call ? (
-            <>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                <TracesChip
-                  label="Status"
-                  value={
-                    <span className="flex items-center gap-1">
-                      <TraceStatusBadge status={call.status} />
-                    </span>
-                  }
-                />
-                <TracesChip label="Latency" value={formatMs(call.latency_ms)} />
-                <TracesChip
-                  label="Error code"
-                  value={
-                    call.error_code ? (
-                      <span className="font-mono text-xs break-all">
-                        {call.error_code}
-                      </span>
-                    ) : (
-                      "—"
-                    )
-                  }
-                />
-                <TracesChip
-                  label="Created"
-                  value={formatDateTime(call.created_at)}
-                />
-                <TracesChip
-                  label="Finished"
-                  value={formatDateTime(call.finished_at)}
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Request, model, and actor identity — full identifiers on hover
-                </p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <TracesChip
-                    label="Gateway model"
-                    wrap
-                    value={
-                      call.gateway_model ? (
-                        <span
-                          className="font-mono text-xs break-all"
-                          title={call.gateway_model.model_id}
-                        >
-                          {call.gateway_model.model_id}
-                        </span>
-                      ) : (
-                        "—"
-                      )
-                    }
-                  />
-                  <TracesChip
-                    label="Provider attempt"
-                    wrap
-                    value={
-                      call.provider_model ? (
-                        <span
-                          className="font-mono text-xs break-words"
-                          title={`${call.provider_model.provider_alias}/${call.provider_model.model_id}`}
-                        >
-                          {call.provider_model.provider_alias}/
-                          {call.provider_model.model_id}
-                        </span>
-                      ) : (
-                        "—"
-                      )
-                    }
-                  />
-                  <TracesChip
-                    label="Message ID"
-                    value={
-                      call.message_id ? (
-                        <span
-                          className="font-mono text-xs break-all"
-                          title={call.message_id}
-                        >
-                          {shortId(call.message_id)}
-                        </span>
-                      ) : (
-                        "—"
-                      )
-                    }
-                  />
-                  <TracesChip
-                    label="Message trace"
-                    value={
-                      <span
-                        className="font-mono text-xs break-all"
-                        title={call.message_trace_id}
-                      >
-                        {shortId(call.message_trace_id)}
-                      </span>
-                    }
-                  />
-                  <TracesChip
-                    label="User"
-                    value={
-                      <span
-                        className="font-mono text-xs break-all"
-                        title={call.user_id}
-                      >
-                        {shortId(call.user_id)}
-                      </span>
-                    }
-                  />
-                  <TracesChip
-                    label="API key"
-                    value={
-                      call.api_key_id ? (
-                        <span
-                          className="font-mono text-xs break-all"
-                          title={call.api_key_id}
-                        >
-                          {shortId(call.api_key_id)}
-                        </span>
-                      ) : (
-                        "—"
-                      )
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Provider-reported token usage — null when the provider did not
-                  report a figure, never imputed
-                </p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <TracesChip
-                    label="Input tokens"
-                    value={formatInt(call.input_tokens)}
-                  />
-                  <TracesChip
-                    label="Output tokens"
-                    value={formatInt(call.output_tokens)}
-                  />
-                  <TracesChip
-                    label="Cache tokens"
-                    value={formatInt(call.cache_tokens)}
-                  />
-                  <TracesChip
-                    label="Uncached input"
-                    value={formatInt(call.uncached_input_tokens)}
-                  />
-                  <TracesChip
-                    label="Cache read"
-                    value={formatInt(call.cache_read_tokens)}
-                  />
-                  <TracesChip
-                    label="Cache write"
-                    value={formatInt(call.cache_write_tokens)}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Sanitized request — inherited from the message trace; secrets
-                  were redacted before storage and large payloads are truncated
-                </p>
-                <RequestBlock request={call.request} />
-              </div>
-            </>
-          ) : null}
-        </div>
-        <DrawerFooter
-          className="shrink-0 border-t"
-          style={{
-            paddingBottom: "calc(1rem + env(safe-area-inset-bottom))",
-          }}
-        >
-          <div className="flex w-full items-center justify-between gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              asChild
-              disabled={call === null}
-            >
-              <a href={`/dashboard/traces/detail?id=${call?.message_trace_id}`}>
-                View message
-              </a>
-            </Button>
-            <DrawerClose asChild>
-              <Button type="button" size="sm">
-                Close
-              </Button>
-            </DrawerClose>
-          </div>
-        </DrawerFooter>
-      </DrawerContent>
-    </Drawer>
-  )
-}
-
 function FilterInput({
   label,
   value,
@@ -980,23 +866,18 @@ function FilterInput({
   type?: "text" | "date"
 }) {
   const id = React.useId()
-
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-xs text-muted-foreground">
-        {label}
-      </label>
-      <input
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Input
         id={id}
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-9 rounded-md border bg-transparent px-3 py-1 text-sm shadow-2xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
       />
-    </div>
+    </Field>
   )
 }
-
 function TablePagination({
   page,
   pageSize,
@@ -1009,18 +890,14 @@ function TablePagination({
   onPageChange: (page: number) => void
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const start = (page - 1) * pageSize + 1
-  const end = Math.min(total, page * pageSize)
-
   return (
-    <div className="flex flex-col items-start justify-between gap-2 pt-2 sm:flex-row sm:items-center">
-      <p className="text-sm text-muted-foreground">
-        Showing {start.toLocaleString("en-US")}–{end.toLocaleString("en-US")} of{" "}
-        {total.toLocaleString("en-US")}.
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
+      <p className="text-xs text-muted-foreground tabular-nums">
+        {formatInt((page - 1) * pageSize + 1)}–
+        {formatInt(Math.min(total, page * pageSize))} of {formatInt(total)}
       </p>
       <div className="flex items-center gap-2">
         <Button
-          type="button"
           variant="outline"
           size="sm"
           disabled={page <= 1}
@@ -1028,11 +905,10 @@ function TablePagination({
         >
           Previous
         </Button>
-        <span className="text-sm text-muted-foreground tabular-nums">
-          Page {page} of {totalPages}
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {page} / {totalPages}
         </span>
         <Button
-          type="button"
           variant="outline"
           size="sm"
           disabled={page >= totalPages}
@@ -1044,317 +920,525 @@ function TablePagination({
     </div>
   )
 }
-
-export function TraceDetailContent() {
-  const [traceId] = React.useState(
-    () => new URLSearchParams(window.location.search).get("id") ?? ""
-  )
-  const [trace, setTrace] = React.useState<MessageTraceDetail | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
-  const [reloadTick, setReloadTick] = React.useState(0)
-  const [drawerCall, setDrawerCall] = React.useState<CallTraceItem | null>(null)
-
+function useTraceDetail(traceId: string | null, tick = 0) {
+  const [result, setResult] = React.useState<{
+    id: string
+    tick: number
+    trace?: MessageTraceDetail
+    error?: string
+  } | null>(null)
   React.useEffect(() => {
     if (!traceId) return
     let cancelled = false
-
     getMessageTrace(traceId)
-      .then((result) => {
-        if (cancelled) return
-        setTrace(result)
-        setError(null)
+      .then((trace) => {
+        if (!cancelled) setResult({ id: traceId, tick, trace })
       })
-      .catch((requestError: unknown) => {
-        if (cancelled) return
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "Unable to load the trace."
-        )
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setResult({
+            id: traceId,
+            tick,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Unable to load the trace.",
+          })
       })
-
     return () => {
       cancelled = true
     }
-  }, [traceId, reloadTick])
-
-  if (!traceId) {
-    return (
-      <div className="px-4 lg:px-6">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>No trace selected</CardTitle>
-            <CardDescription>
-              Open a trace from the LLM Traces list to see its details.
-            </CardDescription>
-          </CardHeader>
-          <CardFooter>
-            <Button asChild>
-              <a href="/dashboard/traces">All traces</a>
-            </Button>
-          </CardFooter>
-        </Card>
-      </div>
-    )
-  }
-
-  if (error !== null && trace === null) {
-    return (
-      <div className="px-4 lg:px-6">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>Unable to load the trace</CardTitle>
-            <CardDescription>{error}</CardDescription>
-          </CardHeader>
-          <CardFooter>
-            <Button onClick={() => setReloadTick((tick) => tick + 1)}>
-              Try again
-            </Button>
-          </CardFooter>
-        </Card>
-      </div>
-    )
-  }
-
-  if (trace === null) {
-    return (
-      <div className="px-4 py-16 text-center text-muted-foreground lg:px-6">
-        Loading trace…
-      </div>
-    )
-  }
-
+  }, [traceId, tick])
+  return result?.id === traceId && result.tick === tick ? result : null
+}
+function TraceSummary({ trace }: { trace: MessageTraceItem }) {
   return (
-    <>
-      <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
-        <p className="text-sm text-muted-foreground">
-          One inbound request and its recorded provider attempts — retries and
-          failover included. Payloads are sanitized before storage. Operational
-          data — not billing.
-        </p>
-        <Button asChild size="sm" variant="outline">
-          <a href="/dashboard/traces">All traces</a>
-        </Button>
-      </div>
-
-      <div className="px-4 lg:px-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Message trace
-              <TraceStatusBadge status={trace.status} />
-            </CardTitle>
-            <CardDescription>
-              Created {formatDateTime(trace.created_at)} · finished{" "}
-              {formatDateTime(trace.finished_at)} · message status is success
-              when any attempt succeeded, else timeout, else failed
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <TracesChip
-                label="Trace ID"
-                value={
-                  <span
-                    className="font-mono text-xs break-all"
-                    title={trace.id}
-                  >
-                    {trace.id}
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-5 rounded-lg border bg-muted/20 p-4 sm:grid-cols-4">
+      <TraceField label="Duration">
+        {formatMs(trace.total_latency_ms)}
+      </TraceField>
+      <TraceField label="Provider calls">
+        {formatInt(trace.call_count)}
+      </TraceField>
+      <TraceField label="Input tokens">
+        {formatInt(trace.input_tokens)}
+      </TraceField>
+      <TraceField label="Output tokens">
+        {formatInt(trace.output_tokens)}
+      </TraceField>
+    </dl>
+  )
+}
+function TraceIdentity({ trace }: { trace: MessageTraceItem }) {
+  return (
+    <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <TraceField label="Trace ID" mono>
+        {trace.id}
+      </TraceField>
+      <TraceField label="Message ID" mono>
+        {trace.message_id ?? "—"}
+      </TraceField>
+      <TraceField label="User ID" mono>
+        {trace.user_id}
+      </TraceField>
+      <TraceField label="API key ID" mono>
+        {trace.api_key_id ?? "—"}
+      </TraceField>
+      <TraceField label="Started">
+        {formatDateTime(trace.created_at)}
+      </TraceField>
+      <TraceField label="Finished">
+        {formatDateTime(trace.finished_at)}
+      </TraceField>
+      <TraceField label="Cache tokens">
+        {formatInt(trace.cache_tokens)}
+      </TraceField>
+    </dl>
+  )
+}
+function AttemptTimeline({ calls }: { calls: CallTraceItem[] }) {
+  if (!calls.length)
+    return (
+      <p className="rounded-lg border border-dashed p-6 text-sm leading-6 text-muted-foreground">
+        No provider attempts were recorded. The request may have stopped before
+        a provider was resolved.
+      </p>
+    )
+  return (
+    <ol className="flex flex-col">
+      {calls.map((call, index) => (
+        <li key={call.id} className="relative flex gap-3 pb-4 last:pb-0">
+          <div className="relative flex w-7 shrink-0 justify-center">
+            {index < calls.length - 1 ? (
+              <span className="absolute top-7 bottom-[-4px] w-px bg-border" />
+            ) : null}
+            <span className="relative flex size-7 items-center justify-center rounded-full border bg-background text-xs text-muted-foreground tabular-nums">
+              {index + 1}
+            </span>
+          </div>
+          <Collapsible className="min-w-0 flex-1 overflow-hidden rounded-lg border">
+            <CollapsibleTrigger className="group flex w-full flex-col gap-3 p-4 text-left outline-none hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring">
+              <span className="flex w-full flex-wrap items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-2">
+                  <IconChevronRight className="size-4 shrink-0 text-muted-foreground group-data-[state=open]:rotate-90" />
+                  <span className="text-sm font-medium break-all">
+                    {call.provider_model?.model_id ?? "Unresolved provider"}
                   </span>
-                }
-              />
-              <TracesChip
-                label="Message ID"
-                value={
-                  trace.message_id ? (
-                    <span
-                      className="font-mono text-xs break-all"
-                      title={trace.message_id}
-                    >
-                      {trace.message_id}
-                    </span>
-                  ) : (
-                    "—"
-                  )
-                }
-              />
-              <TracesChip
-                label="User"
-                value={
-                  <span
-                    className="font-mono text-xs break-all"
-                    title={trace.user_id}
-                  >
-                    {trace.user_id}
-                  </span>
-                }
-              />
-              <TracesChip
-                label="API key"
-                value={
-                  trace.api_key_id ? (
-                    <span
-                      className="font-mono text-xs break-all"
-                      title={trace.api_key_id}
-                    >
-                      {trace.api_key_id}
-                    </span>
-                  ) : (
-                    "—"
-                  )
-                }
-              />
-              <TracesChip
-                label="Attempts"
-                value={
-                  <span className="font-mono text-xs tabular-nums">
-                    {formatInt(trace.call_count)} total ·{" "}
-                    {formatInt(trace.successful_call_count)} ok ·{" "}
-                    {formatInt(trace.failed_call_count)} failed
-                  </span>
-                }
-              />
-              <TracesChip
-                label="Tokens (in / out)"
-                value={
-                  <span className="font-mono text-xs tabular-nums">
-                    {formatInt(trace.input_tokens)} /{" "}
-                    {formatInt(trace.output_tokens)}
-                  </span>
-                }
-              />
-              <TracesChip
-                label="Cache tokens"
-                value={formatInt(trace.cache_tokens)}
-              />
-              <TracesChip
-                label="Total latency"
-                value={formatMs(trace.total_latency_ms)}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="px-4 lg:px-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              Recorded provider attempts ({trace.calls.length})
-            </CardTitle>
-            <CardDescription>
-              In the order the gateway recorded them — retries and failover
-              included. Open one for usage, accounting, and the inherited
-              request payload.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {trace.calls.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                No provider attempts recorded for this message — the request may
-                have failed before resolving to a provider.
-              </p>
-            ) : (
-              <div className="overflow-hidden rounded-lg border">
-                <Table>
-                  <TableHeader className="bg-muted">
-                    <TableRow>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Gateway model</TableHead>
-                      <TableHead>Provider attempt</TableHead>
-                      <TableHead>Tokens (in / out)</TableHead>
-                      <TableHead className="text-right">Latency</TableHead>
-                      <TableHead>Error</TableHead>
-                      <TableHead>
-                        <span className="sr-only">Actions</span>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {trace.calls.map((call) => (
-                      <TableRow key={call.id}>
-                        <TableCell className="text-muted-foreground">
-                          {formatDateTime(call.created_at)}
-                        </TableCell>
-                        <TableCell>
-                          <TraceStatusBadge status={call.status} />
-                        </TableCell>
-                        <TableCell>
-                          <span className="font-mono text-xs break-all text-muted-foreground">
-                            {call.gateway_model
-                              ? call.gateway_model.model_id
-                              : "—"}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          {call.provider_model ? (
-                            <span className="font-mono text-xs break-words whitespace-nowrap">
-                              {call.provider_model.provider_alias}/
-                              {call.provider_model.model_id}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              —
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums">
-                          {formatInt(call.input_tokens)} /{" "}
-                          {formatInt(call.output_tokens)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs text-muted-foreground tabular-nums">
-                          {formatMs(call.latency_ms)}
-                        </TableCell>
-                        <TableCell>
-                          {call.error_code ? (
-                            <span
-                              className="font-mono text-xs break-all text-destructive"
-                              title={call.error_code}
-                            >
-                              {call.error_code}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              —
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setDrawerCall(call)}
-                          >
-                            Attempt detail
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                </span>
+                <TraceStatusBadge status={call.status} />
+              </span>
+              <span className="flex flex-wrap justify-between gap-x-4 gap-y-1 pl-6 text-xs text-muted-foreground">
+                <span>
+                  {call.provider_model?.provider_name ?? "No provider recorded"}
+                </span>
+                <span className="tabular-nums">
+                  {formatMs(call.latency_ms)}
+                </span>
+              </span>
+              {call.error_code ? (
+                <span className="pl-6 font-mono text-xs break-all text-destructive">
+                  {call.error_code}
+                </span>
+              ) : null}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="border-t p-4">
+                <CallFacts call={call} />
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </CollapsibleContent>
+          </Collapsible>
+        </li>
+      ))}
+    </ol>
+  )
+}
+function CallFacts({ call }: { call: CallTraceItem }) {
+  return (
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-5">
+      <TraceField label="Gateway model" mono>
+        {call.gateway_model?.model_id ?? "—"}
+      </TraceField>
+      <TraceField label="Provider alias" mono>
+        {call.provider_model?.provider_alias ?? "—"}
+      </TraceField>
+      <TraceField label="Call ID" mono>
+        {call.id}
+      </TraceField>
+      <TraceField label="Error code" mono>
+        {call.error_code ?? "—"}
+      </TraceField>
+      <TraceField label="Input / output tokens">
+        <TokenPair input={call.input_tokens} output={call.output_tokens} />
+      </TraceField>
+      <TraceField label="Cache tokens">
+        {formatInt(call.cache_tokens)}
+      </TraceField>
+      <TraceField label="Uncached input">
+        {formatInt(call.uncached_input_tokens)}
+      </TraceField>
+      <TraceField label="Cache read / write">
+        <TokenPair
+          input={call.cache_read_tokens}
+          output={call.cache_write_tokens}
+          label="Cache read tokens / cache write tokens"
+        />
+      </TraceField>
+      <TraceField label="Started">{formatDateTime(call.created_at)}</TraceField>
+      <TraceField label="Finished">
+        {formatDateTime(call.finished_at)}
+      </TraceField>
+    </dl>
+  )
+}
+// Controlled drawers have no DrawerTrigger to restore focus to.
+function useDrawerFocus() {
+  const opener = React.useRef<HTMLElement | null>(null)
+  return {
+    onOpenAutoFocus: () => {
+      opener.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null
+    },
+    onCloseAutoFocus: (event: Event) => {
+      event.preventDefault()
+      if (opener.current?.isConnected) opener.current.focus()
+    },
+  }
+}
 
-      <div className="px-4 lg:px-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Sanitized request</CardTitle>
-            <CardDescription>
-              Stored once per message; secrets were redacted before storage and
-              large payloads are truncated.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <RequestBlock request={trace.request} />
-          </CardContent>
-        </Card>
+function MessageInspector({
+  traceId,
+  onClose,
+}: {
+  traceId: string | null
+  onClose: () => void
+}) {
+  const isMobile = useIsMobile()
+  const focusProps = useDrawerFocus()
+  const [tick, setTick] = React.useState(0)
+  const result = useTraceDetail(traceId, tick)
+  const trace = result?.trace
+  return (
+    <Drawer
+      autoFocus
+      direction={isMobile ? "bottom" : "right"}
+      open={traceId !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DrawerContent
+        {...focusProps}
+        className="data-[vaul-drawer-direction=bottom]:max-h-[92dvh] data-[vaul-drawer-direction=right]:w-full data-[vaul-drawer-direction=right]:sm:max-w-2xl"
+      >
+        <DrawerHeader className="border-b">
+          <div className="flex items-center justify-between gap-3">
+            <DrawerTitle>Message trace</DrawerTitle>
+            <DrawerClose asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Close message trace"
+              >
+                <IconX />
+              </Button>
+            </DrawerClose>
+          </div>
+          <DrawerDescription>
+            Inspect the request and its recorded provider attempts.
+          </DrawerDescription>
+        </DrawerHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+          {result?.error ? (
+            <TraceEmpty
+              error
+              title="Unable to load this trace"
+              description={result.error}
+              action={
+                <Button onClick={() => setTick((value) => value + 1)}>
+                  Try again
+                </Button>
+              }
+            />
+          ) : trace ? (
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="min-w-0 text-lg font-medium break-all">
+                  {requestModel(trace.request)}
+                </h2>
+                <TraceStatusBadge status={trace.status} />
+              </div>
+              <TraceSummary trace={trace} />
+              <TraceInspectorTabs key={trace.id} trace={trace} />
+            </div>
+          ) : (
+            <div
+              className="flex flex-col gap-4"
+              role="status"
+              aria-label="Loading message trace"
+            >
+              <Skeleton className="h-8 w-2/3" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-52 w-full" />
+            </div>
+          )}
+        </div>
+        <DrawerFooter className="border-t pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {traceId ? (
+              <CopyButton value={traceId} label="Copy trace ID" />
+            ) : null}
+            <Button variant="outline" asChild>
+              <a
+                href={`/dashboard/traces/detail?id=${encodeURIComponent(traceId ?? "")}`}
+              >
+                Full trace
+                <IconArrowUpRight data-icon="inline-end" />
+              </a>
+            </Button>
+          </div>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  )
+}
+function TraceInspectorTabs({ trace }: { trace: MessageTraceDetail }) {
+  return (
+    <Tabs defaultValue="attempts" className="min-w-0 gap-5">
+      <TabsList>
+        <TabsTrigger value="attempts">
+          Attempts ({trace.calls.length})
+        </TabsTrigger>
+        <TabsTrigger value="request">Request</TabsTrigger>
+        <TabsTrigger value="identity">Metadata</TabsTrigger>
+      </TabsList>
+      <TabsContent value="attempts">
+        <div className="mb-4 flex flex-col gap-1">
+          <h3 className="text-sm font-medium">Provider execution</h3>
+          <p className="text-xs leading-5 text-muted-foreground">
+            In recorded order. Expand an attempt for timing and token usage.
+          </p>
+        </div>
+        <AttemptTimeline calls={trace.calls} />
+      </TabsContent>
+      <TabsContent value="request">
+        <RequestBlock request={trace.request} />
+        <p className="mt-3 text-xs leading-5 text-muted-foreground">
+          Secrets are redacted before storage. Large payloads may be truncated.
+        </p>
+      </TabsContent>
+      <TabsContent value="identity">
+        <TraceIdentity trace={trace} />
+      </TabsContent>
+    </Tabs>
+  )
+}
+export function CallTraceDrawer({
+  call,
+  onClose,
+}: {
+  call: CallTraceItem | null
+  onClose: () => void
+}) {
+  const isMobile = useIsMobile()
+  const focusProps = useDrawerFocus()
+  return (
+    <Drawer
+      autoFocus
+      direction={isMobile ? "bottom" : "right"}
+      open={call !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DrawerContent
+        {...focusProps}
+        className="data-[vaul-drawer-direction=bottom]:max-h-[92dvh] data-[vaul-drawer-direction=right]:w-full data-[vaul-drawer-direction=right]:sm:max-w-xl"
+      >
+        <DrawerHeader className="border-b">
+          <div className="flex items-center justify-between gap-3">
+            <DrawerTitle>Provider attempt</DrawerTitle>
+            <DrawerClose asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Close provider attempt"
+              >
+                <IconX />
+              </Button>
+            </DrawerClose>
+          </div>
+          <DrawerDescription>
+            Timing and provider-reported usage for one recorded call.
+          </DrawerDescription>
+        </DrawerHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+          {call ? (
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <h2 className="text-lg font-medium break-all">
+                    {call.provider_model?.model_id ?? "Unresolved provider"}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {call.provider_model?.provider_name ??
+                      "No provider recorded"}
+                  </p>
+                </div>
+                <TraceStatusBadge status={call.status} />
+              </div>
+              <dl className="grid grid-cols-2 gap-4 rounded-lg border bg-muted/20 p-4">
+                <TraceField label="Duration">
+                  {formatMs(call.latency_ms)}
+                </TraceField>
+                <TraceField label="Message ID" mono>
+                  {call.message_id ?? "—"}
+                </TraceField>
+              </dl>
+              <CallFacts call={call} />
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <Button variant="outline" className="w-full">
+                    <IconCode data-icon="inline-start" />
+                    Sanitized request
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-3">
+                  <RequestBlock request={call.request} />
+                </CollapsibleContent>
+              </Collapsible>
+              <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <TraceField label="User ID" mono>
+                  {call.user_id}
+                </TraceField>
+                <TraceField label="API key ID" mono>
+                  {call.api_key_id ?? "—"}
+                </TraceField>
+              </dl>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Token counts are provider-reported; — means unreported. The
+                sanitized request is inherited from the message trace. These are
+                operational records; see Credits for billing.
+              </p>
+            </div>
+          ) : null}
+        </div>
+        <DrawerFooter className="border-t pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {call ? <CopyButton value={call.id} label="Copy call ID" /> : null}
+            <Button variant="outline" asChild>
+              <a
+                href={`/dashboard/traces/detail?id=${encodeURIComponent(call?.message_trace_id ?? "")}`}
+              >
+                View message
+                <IconArrowUpRight data-icon="inline-end" />
+              </a>
+            </Button>
+          </div>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  )
+}
+export function TraceDetailContent() {
+  const [traceId] = React.useState(() =>
+    new URLSearchParams(window.location.search).get("id")
+  )
+  const [tick, setTick] = React.useState(0)
+  const result = useTraceDetail(traceId, tick)
+  const trace = result?.trace
+  return (
+    <PageContent>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Button asChild variant="ghost" size="sm">
+            <a href="/dashboard/traces">
+              <IconArrowLeft data-icon="inline-start" />
+              All traces
+            </a>
+          </Button>
+          {traceId ? (
+            <Button
+              variant="outline"
+              disabled={!result}
+              onClick={() => setTick((value) => value + 1)}
+            >
+              <IconRefresh data-icon="inline-start" />
+              Refresh
+            </Button>
+          ) : null}
+        </div>
+        {!traceId ? (
+          <TraceEmpty
+            title="No trace selected"
+            description="Open a message from Request traces to inspect its provider attempts."
+          />
+        ) : result?.error ? (
+          <TraceEmpty
+            error
+            title="Unable to load the trace"
+            description={result.error}
+            action={
+              <Button onClick={() => setTick((value) => value + 1)}>
+                Try again
+              </Button>
+            }
+          />
+        ) : trace ? (
+          <>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-col gap-2">
+                <h1 className="text-2xl font-semibold tracking-tight break-all">
+                  {requestModel(trace.request)}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  {formatDateTime(trace.created_at)}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <TraceStatusBadge status={trace.status} />
+                <CopyButton value={trace.id} label="Copy trace ID" />
+              </div>
+            </div>
+            <TraceSummary trace={trace} />
+            <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+              <Card className="min-w-0">
+                <CardHeader>
+                  <CardTitle>Request inspection</CardTitle>
+                  <CardDescription>
+                    Follow provider execution or inspect the sanitized request.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <TraceInspectorTabs trace={trace} />
+                </CardContent>
+              </Card>
+              <Card className="min-w-0 self-start">
+                <CardHeader>
+                  <CardTitle>Trace metadata</CardTitle>
+                  <CardDescription>
+                    Identifiers and provider-reported cache usage.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <TraceIdentity trace={trace} />
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        ) : (
+          <div
+            className="flex flex-col gap-5"
+            role="status"
+            aria-label="Loading trace"
+          >
+            <Skeleton className="h-12 w-2/3" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-80 w-full" />
+          </div>
+        )}
       </div>
-
-      <CallTraceDrawer call={drawerCall} onClose={() => setDrawerCall(null)} />
-    </>
+    </PageContent>
   )
 }

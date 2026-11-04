@@ -1,6 +1,4 @@
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatCompletionRequest(BaseModel):
@@ -8,6 +6,10 @@ class ChatCompletionRequest(BaseModel):
 
     model: str
     stream: bool = False
+    max_tokens: int | None = Field(default=None, gt=0, le=1_000_000, strict=True)
+    max_completion_tokens: int | None = Field(
+        default=None, gt=0, le=1_000_000, strict=True
+    )
 
 
 class ChatCompletionResponse(BaseModel):

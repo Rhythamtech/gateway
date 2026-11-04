@@ -1,13 +1,11 @@
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AnthropicMessageRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     model: str
-    max_tokens: int
+    max_tokens: int = Field(gt=0, le=1_000_000, strict=True)
     stream: bool = False
 
 

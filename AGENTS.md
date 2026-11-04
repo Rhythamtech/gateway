@@ -7,7 +7,7 @@ FastAPI LLM gateway (Python 3.11, uv) with an Astro/React dashboard in `frontend
 Backend — run from repo root (settings load `.env` relative to CWD):
 
 - Run API: `uv run uvicorn backend.main:app --reload` → docs at `/docs`, OpenAPI at `/openapi.json`
-- Tests: `uv run pytest` — runs the test suite (`test_routing_strategies.py`, `test_credit_removal.py`).
+- Tests: `uv run pytest` — runs routing, legacy-removal, and usage-credit tests.
 - Bootstrap: the first user registered via `POST /auth/register` is automatically a Superuser.
 
 Frontend — run in `frontend/`, Node >= 22.12:
@@ -24,7 +24,7 @@ Frontend — run in `frontend/`, Node >= 22.12:
 - DB (`backend/core/database.py`): two SQLAlchemy engines over one SQLite file — `engine` for reads (deferred transactions) and `write_engine` for writes (BEGIN IMMEDIATE). `get_db` yields a read session; use `SessionLocal` for writes.
 - New SQLAlchemy model modules must be imported in `backend/main.py` (pattern: `models as ...  # noqa: F401`) or their tables are never mapped/created.
 - Schema migrations live in `backend/core/migrations.py`: `create_all()` won't alter existing tables, so schema changes get a new append-only idempotent entry in `MIGRATIONS` — never edit applied migrations. `create_all` + migrations run at import time.
-- Billing/wallet: fully removed (migration 0012 dropped all wallet, credit, capacity, and billing-daily tables, leaving operational token/latency tracing intact). No cap, no balance restrictions.
+- Usage credits: `backend/credits/` charges users and providers at one versioned provider-model rate. Migration 0013 creates the new credit tables after the legacy wallet teardown in 0012. Both balances must fund an atomic reservation before inference; missing rates or credits block dispatch. Credit recording is mandatory and independent of optional tracing. See `docs/credits.md`.
 
 ## Frontend structure
 

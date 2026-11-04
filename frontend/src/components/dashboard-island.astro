@@ -1,0 +1,16 @@
+---
+import { Dashboard } from "@/components/dashboard"
+import { DashboardLoading } from "@/components/dashboard-loading"
+interface Props {
+  currentPath?: string
+}
+const { currentPath = "/dashboard" } = Astro.props
+---
+
+<Dashboard
+  client:only="react"
+  currentPath={currentPath}
+  transition:persist="gateway-dashboard"
+>
+  <DashboardLoading slot="fallback" />
+</Dashboard>

@@ -9,14 +9,28 @@ import {
 import {
   ApiError,
   getProvider,
+  getProviderCredits,
+  listProviderCreditHistory,
   listProviderModels,
   syncProviderModels,
   updateProvider,
+  type CreditBalance,
+  type CreditEntry,
+  type ModelCreditRate,
   type Provider,
   type ProviderModel,
   type ProviderSyncResult,
 } from "@/lib/auth"
+import { formatCredits, isZeroCredits } from "@/lib/credits"
 import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
+import {
+  CreditFundingDrawer,
+  ModelRateDrawer,
+} from "@/components/credit-drawers"
+import {
+  CreditPaginationBar,
+  HistoryRecords,
+} from "@/components/credit-tracking"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,6 +47,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -50,7 +66,14 @@ type DrawerState =
   | { mode: "form"; provider: Provider }
   | { mode: "disable"; provider: Provider }
   | { mode: "delete"; provider: Provider }
+  | { mode: "fund"; provider: Provider }
+  | { mode: "rate"; provider: Provider; model: ProviderModel }
   | null
+
+type ModelRateState =
+  { status: "missing" } | { status: "loaded"; rate: ModelCreditRate }
+
+const CREDIT_HISTORY_PAGE_SIZE = 20
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Never"
@@ -75,6 +98,19 @@ export function ProviderDetailContent() {
   const [syncError, setSyncError] = React.useState<string | null>(null)
   const [drawerState, setDrawerState] = React.useState<DrawerState>(null)
   const [actionError, setActionError] = React.useState<string | null>(null)
+  const [balance, setBalance] = React.useState<CreditBalance | null>(null)
+  const [balanceError, setBalanceError] = React.useState<string | null>(null)
+  const [balanceTick, setBalanceTick] = React.useState(0)
+  const [rateStates, setRateStates] = React.useState<
+    Record<string, ModelRateState>
+  >({})
+  const [historyPage, setHistoryPage] = React.useState(1)
+  const [historyData, setHistoryData] = React.useState<{
+    items: CreditEntry[]
+    total: number
+  } | null>(null)
+  const [historyError, setHistoryError] = React.useState<string | null>(null)
+  const [historyTick, setHistoryTick] = React.useState(0)
 
   React.useEffect(() => {
     if (!providerId) return
@@ -122,12 +158,72 @@ export function ProviderDetailContent() {
     }
   }, [providerId, modelsTick])
 
+  React.useEffect(() => {
+    if (!providerId) return
+    let cancelled = false
+
+    getProviderCredits(providerId)
+      .then((result) => {
+        if (cancelled) return
+        setBalance(result)
+        setBalanceError(null)
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setBalanceError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load provider credits."
+        )
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [providerId, balanceTick])
+
+  React.useEffect(() => {
+    if (!providerId) return
+    let cancelled = false
+
+    listProviderCreditHistory(providerId, {
+      page: historyPage,
+      pageSize: CREDIT_HISTORY_PAGE_SIZE,
+    })
+      .then((result) => {
+        if (cancelled) return
+        setHistoryData({ items: result.items, total: result.total })
+        setHistoryError(null)
+        const lastPage = Math.max(1, Math.ceil(result.total / result.page_size))
+        if (result.items.length === 0 && historyPage > lastPage)
+          setHistoryPage(lastPage)
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setHistoryError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load credit history."
+        )
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [providerId, historyPage, historyTick])
+
   function refreshProvider() {
     setProviderTick((tick) => tick + 1)
   }
 
   function refreshModels() {
     setModelsTick((tick) => tick + 1)
+  }
+
+  function rateLabel(modelId: string): string {
+    const state = rateStates[modelId]
+    if (!state) return "Credit rate"
+    return state.status === "missing" ? "Configure rate" : "Edit rate"
   }
 
   async function handleSync() {
@@ -333,6 +429,86 @@ export function ProviderDetailContent() {
             </div>
           </CardContent>
         </Card>
+        {balanceError !== null ? (
+          <Card>
+            <CardContent className="flex flex-col items-start gap-2">
+              <p className="text-sm text-destructive">{balanceError}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBalanceTick((tick) => tick + 1)}
+              >
+                Try again
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="flex flex-col gap-1">
+                  <CardTitle className="text-base">Credits</CardTitle>
+                  <CardDescription>
+                    Provider credits fund inference routed to this provider.
+                    They are not synchronized from the upstream account.
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setActionError(null)
+                    setDrawerState({ mode: "fund", provider })
+                  }}
+                >
+                  Add credits
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-1.5">
+              {balance ? (
+                <>
+                  <CardDescription>Available credits</CardDescription>
+                  <CardTitle className="text-[32px] leading-10 font-semibold tabular-nums md:text-[40px] md:leading-12">
+                    {formatCredits(balance.available_credits)}
+                  </CardTitle>
+                  <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
+                    <span className="flex items-baseline gap-2">
+                      <span className="text-muted-foreground">In use</span>
+                      <span className="font-medium tabular-nums">
+                        {formatCredits(balance.reserved_credits)}
+                      </span>
+                    </span>
+                    <Separator
+                      orientation="vertical"
+                      className="hidden h-4 self-center sm:block"
+                    />
+                    <span className="flex items-baseline gap-2">
+                      <span className="text-muted-foreground">Remaining</span>
+                      <span className="font-medium tabular-nums">
+                        {formatCredits(balance.remaining_credits)}
+                      </span>
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    In use = credits temporarily held by unfinished requests.
+                    Available = remaining minus in use. A request reserves its
+                    full maximum allowance before dispatch, so a hold can exceed
+                    the final charge; the difference is released when the
+                    request settles.
+                  </p>
+                  {isZeroCredits(balance.available_credits) ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Requests are rejected while this provider has no available
+                      credits. Add credits to fund inference.
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <Skeleton className="h-10 w-48" />
+              )}
+            </CardContent>
+          </Card>
+        )}
         {actionError !== null ? (
           <p className="text-sm text-destructive" role="alert">
             {actionError}
@@ -395,13 +571,14 @@ export function ProviderDetailContent() {
                 <TableHead>Availability</TableHead>
                 <TableHead>Last seen</TableHead>
                 <TableHead>Updated</TableHead>
+                <TableHead>Credit rate</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {models === null ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={6}
                     className="h-24 text-center text-muted-foreground"
                   >
                     Loading models…
@@ -410,7 +587,7 @@ export function ProviderDetailContent() {
               ) : models.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={6}
                     className="h-24 text-center text-muted-foreground"
                   >
                     No synced models. Run a sync to import them from the
@@ -449,12 +626,74 @@ export function ProviderDetailContent() {
                     <TableCell className="text-muted-foreground">
                       {formatDateTime(model.updated_at)}
                     </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setActionError(null)
+                          setDrawerState({ mode: "rate", provider, model })
+                        }}
+                      >
+                        {rateLabel(model.id)}
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
             </TableBody>
           </Table>
         </div>
+      </div>
+
+      <div className="px-4 lg:px-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Credit history</CardTitle>
+            <CardDescription>
+              Additions and charges recorded against this provider&apos;s
+              balance, newest first.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="min-w-0">
+            {historyError !== null ? (
+              <div className="flex flex-col items-start gap-2 py-2">
+                <p className="text-sm text-destructive">{historyError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setHistoryTick((tick) => tick + 1)}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : historyData === null ? (
+              <div className="flex flex-col gap-3.5 py-2">
+                <Skeleton className="h-4 w-56" />
+                <Skeleton className="h-4 w-44" />
+                <Skeleton className="h-4 w-52" />
+              </div>
+            ) : historyData.items.length === 0 ? (
+              <div className="flex flex-col items-start gap-1.5 py-4">
+                <p className="text-sm font-medium">No credit history yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  Credit additions and request charges appear here as they are
+                  recorded.
+                </p>
+              </div>
+            ) : (
+              <div className="@container/credits flex flex-col gap-4">
+                <HistoryRecords items={historyData.items} />
+                <CreditPaginationBar
+                  page={historyPage}
+                  pageSize={CREDIT_HISTORY_PAGE_SIZE}
+                  total={historyData.total}
+                  onPage={setHistoryPage}
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {drawerState?.mode === "form" ? (
@@ -479,6 +718,38 @@ export function ProviderDetailContent() {
           onDone={() => {
             setDrawerState(null)
             refreshProvider()
+          }}
+        />
+      ) : null}
+      {drawerState?.mode === "fund" ? (
+        <CreditFundingDrawer
+          key={`fund-${drawerState.provider.id}`}
+          target={{
+            kind: "provider",
+            id: drawerState.provider.id,
+            name: drawerState.provider.name,
+          }}
+          balance={balance}
+          onClose={() => setDrawerState(null)}
+          onFunded={() => {
+            setDrawerState(null)
+            setBalanceTick((tick) => tick + 1)
+            setHistoryPage(1)
+            setHistoryTick((tick) => tick + 1)
+          }}
+        />
+      ) : null}
+      {drawerState?.mode === "rate" ? (
+        <ModelRateDrawer
+          key={drawerState.model.id}
+          model={drawerState.model}
+          onClose={() => setDrawerState(null)}
+          onSaved={(rate) => {
+            setDrawerState(null)
+            setRateStates((prev) => ({
+              ...prev,
+              [rate.provider_model_id]: { status: "loaded", rate },
+            }))
           }}
         />
       ) : null}

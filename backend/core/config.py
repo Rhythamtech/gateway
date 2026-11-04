@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     ROUTER_MODEL_ROUTES: dict[str, str] = {}
     ROUTER_MODEL_CACHE_TTL: int = 300
 
+    CREDITS_RECONCILE_INTERVAL_SECONDS: int = Field(default=30, ge=1)
+    CREDITS_REVIEW_AFTER_SECONDS: int = Field(default=900, ge=60)
+
     # Provider management
     # Fernet key used to encrypt provider credentials at rest. If unset, a key
     # is derived from JWT_SECRET_KEY so development setups keep working. Set an

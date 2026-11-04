@@ -12,6 +12,7 @@ import {
   type ProviderProtocol,
   type ProviderUpdate,
 } from "@/lib/auth"
+import { validateCreditAmount } from "@/lib/credits"
 import { IconPlus, IconX } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -63,6 +64,7 @@ export function ProviderFormDrawer({
   const [name, setName] = React.useState(() => provider?.name ?? "")
   const [alias, setAlias] = React.useState(() => provider?.aliases ?? "")
   const [baseUrl, setBaseUrl] = React.useState(() => provider?.base_url ?? "")
+  const [initialCredits, setInitialCredits] = React.useState("")
   const [protocol, setProtocol] = React.useState<ProviderProtocol>(
     () => provider?.protocol ?? "openai"
   )
@@ -114,6 +116,13 @@ export function ProviderFormDrawer({
       setError("Enter a base URL.")
       return
     }
+    if (!isEdit && initialCredits.trim() !== "") {
+      const validatedCredits = validateCreditAmount(initialCredits)
+      if (!validatedCredits.valid) {
+        setError(validatedCredits.error)
+        return
+      }
+    }
     if (!nextApiKey) {
       setError("Enter an API key.")
       return
@@ -163,6 +172,13 @@ export function ProviderFormDrawer({
         base_url: nextBaseUrl,
         protocol,
         api_key: nextApiKey,
+      }
+
+      if (initialCredits.trim() !== "") {
+        const validatedCredits = validateCreditAmount(initialCredits)
+        if (validatedCredits.valid) {
+          input.initial_credits = validatedCredits.normalized
+        }
       }
 
       if (filledHeaders.length > 0) {
@@ -265,6 +281,23 @@ export function ProviderFormDrawer({
               required
             />
           </div>
+          {!isEdit ? (
+            <div className="flex flex-col gap-3">
+              <Label htmlFor="provider-initial-credits">Initial credits</Label>
+              <Input
+                id="provider-initial-credits"
+                inputMode="decimal"
+                value={initialCredits}
+                onChange={(event) => setInitialCredits(event.target.value)}
+                placeholder="0"
+              />
+              <p className="text-xs text-muted-foreground">
+                Optional credits granted to this provider&apos;s balance when it
+                is created. Syncing models and configuring rates remain separate
+                steps.
+              </p>
+            </div>
+          ) : null}
           <Separator />
           <div className="flex flex-col gap-3">
             <Label htmlFor="provider-api-key">
@@ -408,6 +441,7 @@ export function ProviderActionDrawer({
   const isMobile = useIsMobile()
   const [error, setError] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
+  const [deleteConflict, setDeleteConflict] = React.useState(false)
 
   async function handleConfirm() {
     setPending(true)
@@ -421,10 +455,35 @@ export function ProviderActionDrawer({
       }
       onDone()
     } catch (requestError) {
+      if (
+        action === "delete" &&
+        requestError instanceof ApiError &&
+        requestError.status === 409
+      ) {
+        setDeleteConflict(true)
+      }
       setError(
         requestError instanceof ApiError
           ? requestError.message
           : "Unable to complete the action."
+      )
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function handleDisableInstead() {
+    setPending(true)
+    setError(null)
+
+    try {
+      await disableProvider(provider.id)
+      onDone()
+    } catch (requestError) {
+      setError(
+        requestError instanceof ApiError
+          ? requestError.message
+          : "Unable to disable the provider."
       )
     } finally {
       setPending(false)
@@ -457,21 +516,38 @@ export function ProviderActionDrawer({
             {error}
           </p>
         ) : null}
+        {deleteConflict ? (
+          <p className="px-4 text-xs text-muted-foreground">
+            The provider keeps its credit history and configured rates, so it
+            cannot be deleted. Disabling stops its models from resolving for
+            inference while preserving the record.
+          </p>
+        ) : null}
         <DrawerFooter>
-          <Button
-            type="button"
-            variant={action === "delete" ? "destructive" : "default"}
-            onClick={handleConfirm}
-            disabled={pending}
-          >
-            {pending
-              ? action === "disable"
-                ? "Disabling…"
-                : "Deleting…"
-              : action === "disable"
-                ? "Disable provider"
-                : "Delete provider"}
-          </Button>
+          {deleteConflict ? (
+            <Button
+              type="button"
+              onClick={handleDisableInstead}
+              disabled={pending}
+            >
+              {pending ? "Disabling…" : "Disable provider instead"}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant={action === "delete" ? "destructive" : "default"}
+              onClick={handleConfirm}
+              disabled={pending}
+            >
+              {pending
+                ? action === "disable"
+                  ? "Disabling…"
+                  : "Deleting…"
+                : action === "disable"
+                  ? "Disable provider"
+                  : "Delete provider"}
+            </Button>
+          )}
           <DrawerClose asChild>
             <Button type="button" variant="outline">
               Cancel
