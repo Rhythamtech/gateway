@@ -16,6 +16,7 @@ import {
   type ProviderModel,
   type ProviderSyncResult,
 } from "@/lib/auth"
+import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -53,8 +54,8 @@ type DrawerState =
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Never"
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  const date = parseApiTimestamp(value)
+  return date === null ? value : formatTimestampInDeviceZone(date)
 }
 
 export function ProviderDetailContent() {

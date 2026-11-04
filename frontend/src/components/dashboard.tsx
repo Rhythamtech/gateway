@@ -8,6 +8,7 @@ import { ModelGroupDetailContent } from "@/components/model-group-detail"
 import { ModelGroupsContent } from "@/components/model-groups"
 import { UsersContent } from "@/components/users"
 import { TracesContent, TraceDetailContent } from "@/components/traces"
+import { SettingsContent } from "@/components/settings"
 import { AuthGate } from "@/components/auth-gate"
 import { DashboardShell } from "@/components/dashboard-shell"
 import { SectionCards } from "@/components/section-cards"
@@ -51,7 +52,9 @@ export function Dashboard({
                       ? "LLM Traces"
                       : currentPath.startsWith("/dashboard/users")
                         ? "Users"
-                        : "Dashboard"
+                        : currentPath.startsWith("/dashboard/settings")
+                          ? "Settings"
+                          : "Dashboard"
 
   const requiresSuperuser = [
     "/dashboard/providers",
@@ -90,6 +93,8 @@ export function Dashboard({
                   <TraceDetailContent />
                 ) : currentPath.startsWith("/dashboard/traces") ? (
                   <TracesContent />
+                ) : currentPath.startsWith("/dashboard/settings") ? (
+                  <SettingsContent user={user} />
                 ) : (
                   <DashboardOverview />
                 )}

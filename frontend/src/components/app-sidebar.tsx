@@ -7,6 +7,7 @@ import {
   Gauge,
   KeyRound,
   Server,
+  Settings,
   Sparkles,
   UsersRound,
 } from "lucide-react"
@@ -52,6 +53,7 @@ const navigation = [
     icon: Activity,
     superuserOnly: true,
   },
+  { title: "Settings", url: "/dashboard/settings", icon: Settings },
 ]
 
 export function AppSidebar({

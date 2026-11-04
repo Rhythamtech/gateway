@@ -11,6 +11,8 @@ export type CurrentUser = {
   is_active: boolean
   // Persisted /traces recording opt-in (superuser-managed).
   tracing_enabled: boolean
+  // OpenTelemetry span opt-in (self-service).
+  telemetry_enabled: boolean
 }
 
 type ErrorPayload = {
@@ -538,6 +540,31 @@ export function updateUserActive(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ is_active: isActive }),
+  })
+}
+
+// PATCH /users/me/preferences is self-service for every signed-in user; it
+// toggles only the caller's own OpenTelemetry span opt-in.
+export function updateMyPreferences(
+  telemetryEnabled: boolean
+): Promise<CurrentUser> {
+  return authenticatedRequest<CurrentUser>("/users/me/preferences", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ telemetry_enabled: telemetryEnabled }),
+  })
+}
+
+// PATCH /users/{user_id} is superuser-only; tracing_enabled decides whether
+// that user's inference traffic is persisted to the /traces pages.
+export function updateUserTracing(
+  userId: string,
+  tracingEnabled: boolean
+): Promise<CurrentUser> {
+  return authenticatedRequest<CurrentUser>(`/users/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tracing_enabled: tracingEnabled }),
   })
 }
 

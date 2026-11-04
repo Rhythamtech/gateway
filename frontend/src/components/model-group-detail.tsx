@@ -17,6 +17,7 @@ import {
   type ModelGroup,
   type ModelGroupMember,
 } from "@/lib/auth"
+import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -58,8 +59,8 @@ type DrawerState =
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Never"
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  const date = parseApiTimestamp(value)
+  return date === null ? value : formatTimestampInDeviceZone(date)
 }
 
 function StrategyBadge({ strategy }: { strategy: string }) {

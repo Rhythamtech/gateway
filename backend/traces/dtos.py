@@ -1,15 +1,17 @@
 """Versioned JSON response schemas for the LLM tracing API.
 
-All identifiers are UUIDs, timestamps are UTC ISO 8601, token counts and
+All identifiers are UUIDs, timestamps are UTC ISO 8601 with a trailing "Z"
+(`backend/core/datetime_safety.py` enforces the zone), token counts and
 latency values are integers >= 0 (nullable where unavailable), and field
 names are snake_case.
 """
 
-from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel
+
+from backend.core.datetime_safety import UTCDateTime
 
 SubjectType = Literal["api_key", "gateway_model", "user"]
 TraceStatus = Literal["pending", "success", "failed", "timeout"]
@@ -29,8 +31,8 @@ class MessageTraceItem(BaseModel):
     output_tokens: int | None
     cache_tokens: int | None
     total_latency_ms: int | None
-    created_at: datetime
-    finished_at: datetime | None
+    created_at: UTCDateTime
+    finished_at: UTCDateTime | None
 
 
 class MessageTraceDetail(MessageTraceItem):
@@ -76,8 +78,8 @@ class CallTraceItem(BaseModel):
     latency_ms: int | None
     status: TraceStatus
     error_code: str | None
-    created_at: datetime
-    finished_at: datetime | None
+    created_at: UTCDateTime
+    finished_at: UTCDateTime | None
 
 
 class CallsPage(BaseModel):

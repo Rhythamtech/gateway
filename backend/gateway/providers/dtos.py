@@ -1,7 +1,8 @@
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from backend.core.datetime_safety import UTCDateTime
 
 ProviderProtocol = Literal["openai", "anthropic"]
 
@@ -34,8 +35,8 @@ class ProviderResponse(BaseModel):
     is_enabled: bool
     has_api_key: bool
     has_custom_header: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
 
 class ProviderDeleteResponse(BaseModel):

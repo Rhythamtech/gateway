@@ -1,6 +1,6 @@
-from datetime import datetime
-
 from pydantic import BaseModel
+
+from backend.core.datetime_safety import UTCDateTime
 
 
 class ProviderModelResponse(BaseModel):
@@ -9,9 +9,9 @@ class ProviderModelResponse(BaseModel):
     model_name: str
     model_id: str
     is_available: bool
-    last_seen_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    last_seen_at: UTCDateTime | None
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
 
 class SyncedModel(BaseModel):

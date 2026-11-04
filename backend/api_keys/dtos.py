@@ -1,6 +1,6 @@
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, Field
+
+from backend.core.datetime_safety import UTCDateTime
 
 
 class APIKeyCreate(BaseModel):
@@ -14,10 +14,10 @@ class APIKeyCreated(BaseModel):
     api_key: str
     key_prefix: str
     owner_id: str
-    created_at: datetime
-    last_used_at: datetime | None
+    created_at: UTCDateTime
+    last_used_at: UTCDateTime | None
     revoked: bool
-    revoked_at: datetime | None
+    revoked_at: UTCDateTime | None
 
 
 class APIKeyItem(BaseModel):
@@ -26,10 +26,10 @@ class APIKeyItem(BaseModel):
     name: str
     key_prefix: str
     owner_id: str
-    created_at: datetime
-    last_used_at: datetime | None
+    created_at: UTCDateTime
+    last_used_at: UTCDateTime | None
     revoked: bool
-    revoked_at: datetime | None
+    revoked_at: UTCDateTime | None
 
 
 class APIKeyList(BaseModel):
@@ -43,4 +43,4 @@ class APIKeyRevoked(BaseModel):
     key_prefix: str
     owner_id: str
     revoked: bool
-    revoked_at: datetime
+    revoked_at: UTCDateTime

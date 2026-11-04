@@ -16,6 +16,7 @@ import {
   revokeApiKey,
   type ApiKeyItem,
 } from "@/lib/auth"
+import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
 import { UsageAnalyticsDrawer } from "@/components/usage-drawers"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -67,8 +68,8 @@ type DrawerState =
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Never"
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  const date = parseApiTimestamp(value)
+  return date === null ? value : formatTimestampInDeviceZone(date)
 }
 
 export function ApiKeysContent({ user }: ApiKeysContentProps) {

@@ -1,9 +1,10 @@
 import re
-from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from backend.core.datetime_safety import UTCDateTime
 
 RoutingStrategy = Literal["round_robin", "weighted_round_robin", "priority"]
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/\S+$")
@@ -113,8 +114,8 @@ class ModelGroupResponse(BaseModel):
     members: list[ModelGroupMemberResponse]
     member_count: int
     created_by: UUID
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
 
 class ModelGroupListResponse(BaseModel):

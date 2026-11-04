@@ -17,6 +17,7 @@ import {
   type MessageTraceItem,
   type MessagesPage,
 } from "@/lib/auth"
+import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -59,8 +60,8 @@ type TabKey = "messages" | "calls"
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "—"
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  const date = parseApiTimestamp(value)
+  return date === null ? value : formatTimestampInDeviceZone(date)
 }
 
 // null ("not reported by the provider") renders as an em dash and stays
