@@ -1,11 +1,11 @@
 """Transactional recording and querying of LLM usage traces.
 
-Write side (``record_attempt``): a call trace row plus the four daily
-aggregate rows are written in one transaction, so counts and token totals
-stay consistent even under concurrent gateway traffic. Every actual upstream
-attempt — including retries and routing decisions — is recorded once; token
-and latency totals therefore measure operational workload per attempt, not
-end-user billing.
+Write side (``record_attempt`` / ``start_pending_attempt`` /
+``finish_pending_attempt``): a call trace row plus the daily aggregate rows
+are written in one transaction, so counts and token totals stay consistent
+even under concurrent gateway traffic. Every actual upstream attempt,
+including retries and routing decisions, is recorded once; token and latency
+totals measure operational workload per attempt.
 
 Read side: normalized table helpers behind the trace API. Analytics read the
 indexed daily aggregate tables rather than scanning the call table.
@@ -147,6 +147,9 @@ def record_attempt(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
     cache_tokens: int | None = None,
+    uncached_input_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
+    cache_write_tokens: int | None = None,
     latency_ms: int | None = None,
     status: str = STATUS_FAILED,
     error_code: str | None = None,
@@ -207,6 +210,9 @@ def record_attempt(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cache_tokens=cache_tokens,
+                uncached_input_tokens=uncached_input_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
                 latency_ms=latency_ms,
                 status=status,
                 error_code=error_code,
@@ -270,59 +276,151 @@ def aggregate_targets(
 
 
 def start_pending_attempt(
-    db: Session,
     *,
     user_id: str,
     api_key_id: str | None = None,
     request_json: str | None = None,
-    message_id: str | None = None,
     message_trace_id: str | None = None,
     gateway_model_id: str | None = None,
     provider_model_id: str | None = None,
-    credit_multiplier_ppm: int | None = None,
     created_at: datetime | None = None,
-) -> tuple[LLMMessageTrace, LLMCallTrace]:
+) -> tuple[str, str]:
     """Insert the message context and a ``pending`` call row pre-dispatch.
 
-    The wallet reservation references the call row, so both are created in
-    the same transaction as the reservation itself. ``request_json`` is the
-    caller's already-sanitized payload and is only populated for users that
-    opted into persistence (billing metadata is always recorded). A call
-    trace row is appended for every attempt; retries share one message trace.
+    Owns its write transaction so the capture layer never touches a session.
+    ``request_json`` is the caller's already-sanitized payload and is only
+    populated for users that opted into persistence. A pending call trace row
+    is appended for every attempt; retries share one message trace.
+
+    Returns ``(message_trace_id, call_trace_id)``.
     """
 
     started_at = created_at or datetime.now(timezone.utc)
 
-    if message_trace_id is None:
-        message = LLMMessageTrace(
+    db = SessionLocal()
+    try:
+        if message_trace_id is None:
+            message = LLMMessageTrace(
+                user_id=user_id,
+                request_json=request_json,
+                created_at=started_at,
+            )
+            db.add(message)
+            db.flush()
+            message_trace_id = message.id
+        else:
+            message = db.get(LLMMessageTrace, message_trace_id)
+            if message is None:
+                raise ValueError(f"Unknown message trace id: {message_trace_id}")
+            if message.request_json is None and request_json:
+                message.request_json = request_json
+
+        call = LLMCallTrace(
+            message_trace_id=message.id,
             user_id=user_id,
-            message_id=message_id,
-            request_json=request_json,
+            api_key_id=api_key_id,
+            gateway_model_id=gateway_model_id,
+            provider_model_id=provider_model_id,
+            status=STATUS_PENDING,
             created_at=started_at,
         )
-        db.add(message)
+        db.add(call)
         db.flush()
-    else:
-        message = db.get(LLMMessageTrace, message_trace_id)
-        if message is None:
-            raise ValueError(f"Unknown message trace id: {message_trace_id}")
-        if message.request_json is None and request_json:
-            message.request_json = request_json
 
-    call = LLMCallTrace(
-        message_trace_id=message.id,
-        user_id=user_id,
-        api_key_id=api_key_id,
-        gateway_model_id=gateway_model_id,
-        provider_model_id=provider_model_id,
-        status=STATUS_PENDING,
-        user_credits_charged=0,
-        credit_multiplier_ppm=credit_multiplier_ppm,
-        created_at=started_at,
-    )
-    db.add(call)
-    db.flush()
-    return message, call
+        message_id = message.id
+        call_id = call.id
+        db.commit()
+        return message_id, call_id
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def finish_pending_attempt(
+    *,
+    call_trace_id: str,
+    status: str,
+    error_code: str | None = None,
+    latency_ms: int | None = None,
+    message_id: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    cache_tokens: int | None = None,
+    uncached_input_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
+    cache_write_tokens: int | None = None,
+    finished_at: datetime | None = None,
+) -> None:
+    """Finalize one ``pending`` call row after its upstream attempt.
+
+    Context (user, key, models) was fixed when the row was created; only the
+    outcome is written here. The attempt outcome and the daily aggregate bump
+    are idempotent: the first finalize decides them, and any repeated finalize
+    is a no-op so a bug can never double-count usage.
+
+    Raises ``ValueError`` when the call trace id is unknown.
+    """
+
+    status = normalize_status(status)
+    finished = finished_at or datetime.now(timezone.utc)
+
+    db = SessionLocal()
+    try:
+        call = db.get(LLMCallTrace, call_trace_id)
+        if call is None:
+            raise ValueError(f"Unknown call trace id: {call_trace_id}")
+
+        if call.status != STATUS_PENDING:
+            # Already finalized: the recorded outcome stands.
+            db.commit()
+            return
+
+        call.status = status
+        call.error_code = error_code
+        call.latency_ms = latency_ms
+        call.input_tokens = input_tokens
+        call.output_tokens = output_tokens
+        call.cache_tokens = cache_tokens
+        call.uncached_input_tokens = uncached_input_tokens
+        call.cache_read_tokens = cache_read_tokens
+        call.cache_write_tokens = cache_write_tokens
+        call.finished_at = finished
+
+        message = db.get(LLMMessageTrace, call.message_trace_id)
+        if message is not None:
+            if message.message_id is None and message_id:
+                message.message_id = message_id
+            existing_finished = as_utc(message.finished_at)
+            if existing_finished is None or as_utc(finished) > existing_finished:
+                message.finished_at = finished
+
+        # First finalize: fold this attempt into the daily aggregates.
+        usage_date = utc_date_for(as_utc(call.created_at))
+        for table, pk_columns in aggregate_targets(
+            user_id=call.user_id,
+            api_key_id=call.api_key_id,
+            gateway_model_id=call.gateway_model_id,
+        ):
+            bump_daily_usage(
+                db,
+                table,
+                pk_columns,
+                usage_date,
+                status,
+                input_tokens,
+                output_tokens,
+                cache_tokens,
+                latency_ms,
+            )
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -370,8 +468,8 @@ def message_status_from_counts(
         return STATUS_FAILED
     if successful > 0:
         return STATUS_SUCCESS
-    # ``failed`` already includes timeouts; attempts that are reserved but
-    # not yet settled remain pending, so the message is still in flight.
+    # Attempts opened pre-dispatch but not yet finalized remain pending, so
+    # the message is still in flight.
     if successful + failed < call_count:
         return STATUS_PENDING
     if timeout > 0:
@@ -483,13 +581,6 @@ def _call_row_data(row: Any) -> dict[str, Any]:
         "uncached_input_tokens": call.uncached_input_tokens,
         "cache_read_tokens": call.cache_read_tokens,
         "cache_write_tokens": call.cache_write_tokens,
-        "billable_token_units": call.billable_token_units,
-        "token_usage_source": call.token_usage_source,
-        "user_credits_charged": call.user_credits_charged,
-        "credit_multiplier_ppm": call.credit_multiplier_ppm,
-        "provider_budget_credits_consumed": call.provider_budget_credits_consumed,
-        "provider_cost_nanos": call.provider_cost_nanos,
-        "currency_code": call.currency_code,
         "latency_ms": call.latency_ms,
         "status": call.status,
         "error_code": call.error_code,

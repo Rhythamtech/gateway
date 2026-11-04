@@ -79,33 +79,12 @@ class LLMCallTrace(Base):
             name="ck_llm_call_traces_cache_write_tokens_nonneg",
         ),
         CheckConstraint(
-            "billable_token_units IS NULL OR billable_token_units >= 0",
-            name="ck_llm_call_traces_billable_tokens_nonneg",
-        ),
-        CheckConstraint(
-            "user_credits_charged >= 0",
-            name="ck_llm_call_traces_user_credits_nonneg",
-        ),
-        CheckConstraint(
-            "provider_budget_credits_consumed >= 0",
-            name="ck_llm_call_traces_provider_credits_nonneg",
-        ),
-        CheckConstraint(
-            "provider_cost_nanos >= 0",
-            name="ck_llm_call_traces_provider_cost_nonneg",
-        ),
-        CheckConstraint(
             "latency_ms IS NULL OR latency_ms >= 0",
             name="ck_llm_call_traces_latency_ms_nonneg",
         ),
         CheckConstraint(
             "status IN ('pending','success','failed','timeout')",
             name="ck_llm_call_traces_status",
-        ),
-        CheckConstraint(
-            ("token_usage_source IS NULL "
-             "OR token_usage_source IN ('reported','estimated','unavailable')"),
-            name="ck_llm_call_traces_token_usage_source",
         ),
         Index("ix_llm_call_traces_user_created", "user_id", "created_at"),
         Index("ix_llm_call_traces_api_key_created", "api_key_id", "created_at"),
@@ -132,10 +111,9 @@ class LLMCallTrace(Base):
         ForeignKey("provider_models.id", ondelete="CASCADE"), nullable=True
     )
 
-    # Provider-reported token usage. Legacy columns (input/output/cache) keep
-    # their operational analytics meaning: ``input_tokens`` is the canonical
-    # total input (uncached + cache read + cache write), ``cache_tokens`` is
-    # total cache traffic (read + write).
+    # Provider-reported token usage. ``input_tokens`` is the canonical total
+    # input (uncached + cache read + cache write) and ``cache_tokens`` is
+    # total cache traffic (read + write); analytics sum these columns.
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cache_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -146,32 +124,9 @@ class LLMCallTrace(Base):
     cache_read_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cache_write_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Normalized billable units: uncached_input + cache_read + cache_write
-    # + output. One unit is one base user credit before the multiplier.
-    billable_token_units: Mapped[int | None] = mapped_column(Integer, nullable=True)
-
-    # Where usage came from: provider-reported, estimated (no provider
-    # usage, estimation policy applied) or unavailable (nothing billable).
-    token_usage_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
-
-    # Accounting charges for this attempt. user_credits_charged uses the
-    # group multiplier snapshotted below; provider_budget_credits_consumed
-    # is in normalized token units without the multiplier.
-    user_credits_charged: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    credit_multiplier_ppm: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    provider_budget_credits_consumed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-
-    # Estimated upstream financial cost snapshot (independent of credits).
-    provider_cost_nanos: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    currency_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
-    # Original sanitized provider usage and applicable rate snapshot for
-    # auditing charge calculations later.
-    provider_usage_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    provider_rate_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # pending: reservation created before dispatch, awaiting settlement.
+    # pending: attempt opened before dispatch, awaiting its outcome.
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
 

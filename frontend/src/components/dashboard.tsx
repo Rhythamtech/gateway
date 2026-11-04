@@ -8,7 +8,6 @@ import { ModelGroupDetailContent } from "@/components/model-group-detail"
 import { ModelGroupsContent } from "@/components/model-groups"
 import { UsersContent } from "@/components/users"
 import { TracesContent, TraceDetailContent } from "@/components/traces"
-import { WalletContent } from "@/components/wallet"
 import { AuthGate } from "@/components/auth-gate"
 import { DashboardShell } from "@/components/dashboard-shell"
 import { SectionCards } from "@/components/section-cards"
@@ -50,11 +49,9 @@ export function Dashboard({
                     ? "Trace details"
                     : currentPath.startsWith("/dashboard/traces")
                       ? "LLM Traces"
-                      : currentPath.startsWith("/dashboard/wallet")
-                        ? "Wallet"
-                        : currentPath.startsWith("/dashboard/users")
-                          ? "Users"
-                          : "Dashboard"
+                      : currentPath.startsWith("/dashboard/users")
+                        ? "Users"
+                        : "Dashboard"
 
   const requiresSuperuser = [
     "/dashboard/providers",
@@ -83,8 +80,6 @@ export function Dashboard({
                   <ProviderDetailContent />
                 ) : currentPath.startsWith("/dashboard/api-keys") ? (
                   <ApiKeysContent user={user} />
-                ) : currentPath.startsWith("/dashboard/wallet") ? (
-                  <WalletContent />
                 ) : currentPath === "/dashboard/model-groups" ? (
                   <ModelGroupsContent />
                 ) : currentPath.startsWith("/dashboard/model-groups/") ? (

@@ -33,7 +33,6 @@ from backend.gateway.providers.models import (
     ProviderAuditLog,
     ProviderProtocol,
 )
-from backend.wallet import service as wallet_service
 
 logger = logging.getLogger(__name__)
 
@@ -413,17 +412,6 @@ def create_provider(
     db.add(provider)
     db.flush()
 
-    if data.initial_budget_credits is not None:
-        # Optional initial allocation inside the same creation transaction;
-        # uses the standalone allocation checks/ledger, and fails the whole
-        # creation when the system budget cannot fund it.
-        wallet_service.allocate_initial_provider_budget(
-            db,
-            provider_id=provider.id,
-            amount_credits=data.initial_budget_credits,
-            actor_user_id=actor_id,
-        )
-
     _audit(
         db,
         provider_id=provider.id,
@@ -545,6 +533,57 @@ def delete_provider(
 ) -> None:
     provider = get_provider_or_404(db, provider_id)
 
+    from backend.gateway.model_groups.models import ModelGroup, ModelGroupMember
+    from backend.traces.models import LLMCallTrace
+
+    # Check and clean up provider models
+    models = (
+        db.query(ProviderModel)
+        .filter(ProviderModel.provider_id == provider.id)
+        .all()
+    )
+    model_ids = [m.id for m in models]
+
+    if model_ids:
+        # Check if any model is actively used in model groups
+        member = (
+            db.query(ModelGroupMember)
+            .filter(ModelGroupMember.provider_model_id.in_(model_ids))
+            .first()
+        )
+        if member is not None:
+            group = (
+                db.query(ModelGroup)
+                .filter(ModelGroup.id == member.model_group_id)
+                .first()
+            )
+            group_name = group.name if group else member.model_group_id
+            referenced_model = next(
+                (m.model_id for m in models if m.id == member.provider_model_id),
+                member.provider_model_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Provider model '{referenced_model}' is used in model group '{group_name}'. Remove it from the group first.",
+            )
+
+        # Check if any model has historical call traces
+        trace = (
+            db.query(LLMCallTrace)
+            .filter(LLMCallTrace.provider_model_id.in_(model_ids))
+            .first()
+        )
+        if trace is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Provider has historical call traces and cannot be deleted. Disable the provider instead.",
+            )
+
+        # Delete provider models cleanly
+        for model in models:
+            db.delete(model)
+        db.flush()
+
     _audit(
         db,
         provider_id=provider.id,
@@ -553,9 +592,7 @@ def delete_provider(
         details={
             "name": provider.name,
             "aliases": provider.aliases,
-            "models": db.query(ProviderModel)
-            .filter(ProviderModel.provider_id == provider.id)
-            .count(),
+            "models": len(models),
         },
     )
 
@@ -563,11 +600,11 @@ def delete_provider(
 
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Provider is referenced by other records and cannot be deleted",
+            detail=f"Provider is referenced by other records and cannot be deleted: {exc}",
         ) from None
 
 
@@ -697,8 +734,7 @@ async def call_provider(
         )
         response = await get_client().send(request, stream=stream)
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.WriteError) as error:
-        # Connection-stage failure: nothing reached the provider, so billing
-        # releases the reservation instead of settling estimated usage.
+        # Connection-stage failure: nothing reached the provider.
         raise GatewayError(
             502, "dispatch_failed", "Provider request could not be dispatched"
         ) from error

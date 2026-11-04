@@ -188,12 +188,18 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
           const groupList = await listModelGroups({ isEnabled: true, pageSize: 100 })
           if (!cancelled && groupList.items) {
             for (const g of groupList.items) {
+              const strategyLabel =
+                g.routing_strategy === "priority"
+                  ? "Priority Failover"
+                  : g.routing_strategy === "weighted_round_robin"
+                  ? "Weighted Round-Robin"
+                  : "Round-Robin"
               choices.push({
                 id: g.model_id,
                 label: g.name,
                 category: "model-group",
                 strategy: g.routing_strategy,
-                detail: `${g.routing_strategy === "weighted_round_robin" ? "Weighted Round-Robin" : "Failover"} · ${g.member_count} member(s)`,
+                detail: `${strategyLabel} · ${g.member_count} member(s)`,
               })
             }
           }
@@ -428,10 +434,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
 
         if (response.status === 401) {
           errMessage = "Authentication failed: The API key is invalid or deactivated."
-        } else if (response.status === 402) {
-          errMessage = "Payment required: Insufficient wallet balance for this request."
         } else if (response.status === 429) {
-          errMessage = "Rate limit or member budget reached: No available member can serve this request."
+          errMessage = "Rate limit reached: The request exceeded the allowed rate."
         }
 
         setMessages((prev) =>
@@ -845,7 +849,11 @@ console.log(data.choices[0].message.content);`
                 {isSuperuser ? (
                   activeModelChoice?.category === "model-group" ? (
                     <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground">
-                      {activeModelChoice.strategy === "weighted_round_robin" ? "WRR" : "Group"}
+                      {activeModelChoice.strategy === "priority"
+                        ? "Priority"
+                        : activeModelChoice.strategy === "weighted_round_robin"
+                        ? "WRR"
+                        : "Group"}
                     </Badge>
                   ) : activeModelChoice?.category === "provider-model" ? (
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal text-muted-foreground">
@@ -984,7 +992,13 @@ console.log(data.choices[0].message.content);`
                             variant={m.category === "model-group" ? "secondary" : "outline"}
                             className="shrink-0 text-[10px] px-1.5 py-0 font-normal text-muted-foreground"
                           >
-                            {m.category === "model-group" ? "Group" : "Direct"}
+                            {m.category === "model-group"
+                              ? m.strategy === "priority"
+                                ? "Priority"
+                                : m.strategy === "weighted_round_robin"
+                                ? "Weighted"
+                                : "Round Robin"
+                              : "Direct"}
                           </Badge>
                         ) : null}
                       </button>

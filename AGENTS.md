@@ -7,7 +7,7 @@ FastAPI LLM gateway (Python 3.11, uv) with an Astro/React dashboard in `frontend
 Backend — run from repo root (settings load `.env` relative to CWD):
 
 - Run API: `uv run uvicorn backend.main:app --reload` → docs at `/docs`, OpenAPI at `/openapi.json`
-- Tests: `uv run pytest` — **no test files exist yet** (pyproject points at `tests/`, which is empty); a clean run collects 0 items, that is not a config error. No Python linter/typechecker is configured.
+- Tests: `uv run pytest` — runs the test suite (`test_routing_strategies.py`, `test_credit_removal.py`).
 - Bootstrap: the first user registered via `POST /auth/register` is automatically a Superuser.
 
 Frontend — run in `frontend/`, Node >= 22.12:
@@ -24,7 +24,7 @@ Frontend — run in `frontend/`, Node >= 22.12:
 - DB (`backend/core/database.py`): two SQLAlchemy engines over one SQLite file — `engine` for reads (deferred transactions) and `write_engine` for writes (BEGIN IMMEDIATE). `get_db` yields a read session; use `SessionLocal` for writes.
 - New SQLAlchemy model modules must be imported in `backend/main.py` (pattern: `models as ...  # noqa: F401`) or their tables are never mapped/created.
 - Schema migrations live in `backend/core/migrations.py`: `create_all()` won't alter existing tables, so schema changes get a new append-only idempotent entry in `MIGRATIONS` — never edit applied migrations. `create_all` + migrations run at import time.
-- Billing/wallet semantics: integer credits with ppm multipliers and reserve→settle→release; never derive currency amounts or rates (`docs/wallet.md`).
+- Billing/wallet: fully removed (migration 0012 dropped all wallet, credit, capacity, and billing-daily tables, leaving operational token/latency tracing intact). No cap, no balance restrictions.
 
 ## Frontend structure
 
@@ -37,5 +37,5 @@ Frontend — run in `frontend/`, Node >= 22.12:
 ## Working conventions
 
 - `TODOs.md` is the phased work log: work one phase at a time, and record findings + verification results there before starting the next phase.
-- Backend contract docs: `docs/tracing.md`, `docs/wallet.md`, `docs/diagrams.md` (incl. backend behavior notes).
-- Path duality is real: provider CRUD lives under `/provider/...` (singular), provider budgets under `/providers/{id}/budget(/top-ups)` (plural).
+- Backend contract docs: `docs/tracing.md`, `docs/diagrams.md` (incl. backend behavior notes).
+- Provider CRUD lives under `/provider/...` (singular).

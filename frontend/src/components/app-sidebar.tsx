@@ -9,7 +9,6 @@ import {
   Server,
   Sparkles,
   UsersRound,
-  Wallet,
 } from "lucide-react"
 
 import { BrandLockup } from "@/components/brand"
@@ -29,7 +28,6 @@ const navigation = [
   { title: "Dashboard", url: "/dashboard", icon: Gauge },
   { title: "Playground", url: "/dashboard/playground", icon: Sparkles },
   { title: "API Keys", url: "/dashboard/api-keys", icon: KeyRound },
-  { title: "Wallet", url: "/dashboard/wallet", icon: Wallet },
   {
     title: "Providers",
     url: "/dashboard/providers",

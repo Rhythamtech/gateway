@@ -14,10 +14,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.core.database import Base
 
-# One normalized token unit is one base user credit; the multiplier scales
-# it in parts per million (1x = 1_000_000, 10x = 10_000_000).
-DEFAULT_MULTIPLIER_PPM = 1_000_000
-
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -28,8 +24,6 @@ class ModelGroup(Base):
     __table_args__ = (
         CheckConstraint("length(trim(name)) > 0", name="ck_model_groups_name_not_empty"),
         CheckConstraint("length(trim(model_id)) > 0", name="ck_model_groups_id_not_empty"),
-        # Integer pricing only; multipliers are parts per million, never float.
-        CheckConstraint("credit_multiplier_ppm > 0", name="ck_model_groups_multiplier_positive"),
         UniqueConstraint("model_id", name="uq_model_groups_model_id"),
     )
 
@@ -38,11 +32,6 @@ class ModelGroup(Base):
     model_id: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
     routing_strategy: Mapped[str] = mapped_column(String(32), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    # User credit multiplier for this group; snapshotted per attempt so later
-    # configuration changes never alter historical charges.
-    credit_multiplier_ppm: Mapped[int] = mapped_column(Integer, nullable=False, default=DEFAULT_MULTIPLIER_PPM)
-    # Version of the pricing configuration at charge time; also snapshotted.
-    pricing_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1")
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)

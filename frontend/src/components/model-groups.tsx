@@ -4,6 +4,9 @@ import {
   IconCircleCheckFilled,
   IconDotsVertical,
   IconPlus,
+  IconRefresh,
+  IconRoute,
+  IconScale,
 } from "@tabler/icons-react"
 
 import {
@@ -57,6 +60,37 @@ function formatDateTime(value: string | null | undefined) {
   if (!value) return "Never"
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+export function StrategyBadge({ strategy }: { strategy: string }) {
+  if (strategy === "priority") {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 border-sky-500/40 px-1.5 text-sky-600 dark:text-sky-400"
+      >
+        <IconRoute className="size-3" />
+        Priority (Failover)
+      </Badge>
+    )
+  }
+  if (strategy === "weighted_round_robin") {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 border-amber-500/40 px-1.5 text-amber-600 dark:text-amber-400"
+      >
+        <IconScale className="size-3" />
+        Weighted
+      </Badge>
+    )
+  }
+  return (
+    <Badge variant="outline" className="gap-1 px-1.5 text-muted-foreground">
+      <IconRefresh className="size-3" />
+      Round robin
+    </Badge>
+  )
 }
 
 // Groups are listed for superusers; the page is superuser-gated before this
@@ -230,14 +264,7 @@ export function ModelGroupsContent() {
                           </code>
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            variant="outline"
-                            className="px-1.5 text-muted-foreground"
-                          >
-                            {group.routing_strategy === "round_robin"
-                              ? "Round robin"
-                              : "Weighted round robin"}
-                          </Badge>
+                          <StrategyBadge strategy={group.routing_strategy} />
                         </TableCell>
                         <TableCell>
                           <Badge

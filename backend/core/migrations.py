@@ -14,16 +14,47 @@ Rules for migrations:
   change, so every migration body stays idempotent,
 * migration bodies receive a live ``Connection`` inside an explicit
   transaction together with their version bookkeeping.
+* destructive schema changes that must disarm foreign key enforcement list
+  their version in ``_FOREIGN_KEYS_OFF_MIGRATIONS``; ``run_pending_migrations``
+  then runs them on a dedicated checkout with FKs off at checkout time
+  (``PRAGMA foreign_keys`` is a no-op inside a transaction, so the state is
+  applied by a checkout listener, not in the migration body).
 """
 
 import logging
 from collections.abc import Callable
 
-from sqlalchemy import Connection, Engine, text
+from sqlalchemy import Connection, Engine, event, text
 
 logger = logging.getLogger(__name__)
 
 _TRACKING_TABLE = "schema_migrations"
+
+# Versions run with foreign key enforcement disabled. Rebuild-based teardowns
+# (for example the wallet removal in 0012) require this: with FKs armed, a
+# DROP TABLE fires ON DELETE actions on referencing rows (SQLite simulates
+# dropping with an implicit DELETE), which would silently cascade-delete live
+# child rows such as model group members.
+_FOREIGN_KEYS_OFF_MIGRATIONS: set[str] = {"0012_remove_wallet_credit_schema"}
+
+_foreign_keys_guard = {"off": False}
+
+
+def _foreign_keys_state_on_checkout(
+    dbapi_connection, connection_record, connection_proxy
+) -> None:
+    """Checkout-time SQLite FK state for guarded migrations.
+
+    ``PRAGMA foreign_keys`` is a no-op inside a transaction, so the state is
+    applied when a connection is checked out: the connect-time handler in
+    ``backend/core/database.py`` enables FKs on fresh connections, and this
+    listener re-asserts the state for every checkout, which also restores
+    enforcement for pooled connections opened during the FK-off window.
+    """
+
+    dbapi_connection.execute(
+        "PRAGMA foreign_keys=OFF" if _foreign_keys_guard["off"] else "PRAGMA foreign_keys=ON"
+    )
 
 
 def _sqlite_columns(connection: Connection, table: str) -> set[str]:
@@ -227,64 +258,251 @@ def _migration_0004_model_groups_pricing(connection: Connection) -> None:
 
 
 def _migration_0005_wallet_budget_schema(connection: Connection) -> None:
-    """Creates wallet, budget, reservation, rate and daily billing tables."""
+    """No-op: the wallet/budget schema was removed by migration 0012.
 
-    from backend.core.database import Base
-    from backend.wallet import models as _wallet_models  # noqa: F401 (registers)
-
-    wallet_table_names = (
-        "user_wallets",
-        "wallet_ledger_entries",
-        "wallet_reservations",
-        "system_budget_accounts",
-        "system_budget_ledger",
-        "provider_budget_accounts",
-        "provider_budget_ledger",
-        "provider_model_rates",
-        "user_usage_daily",
-        "api_key_usage_daily",
-        "gateway_model_usage_daily",
-        "provider_model_usage_daily",
-        "provider_usage_daily",
-        "system_usage_daily",
-    )
-    tables = [Base.metadata.tables[name] for name in wallet_table_names]
-    # Idempotent: existing tables are skipped, fresh ones created here.
-    Base.metadata.create_all(bind=connection, tables=tables)
+    The version stays recorded so applied databases keep a complete history
+    and ordering of later versions is preserved. Fresh databases jump
+    straight to the 0012 teardown.
+    """
+    return
 
 
 def _migration_0006_provider_capacity(connection: Connection) -> None:
-    """Creates provider_capacity_accounts and provider_capacity_ledger tables.
+    """No-op: provider token capacity tables were removed by migration 0012."""
+    return
 
-    Also backfills ``wallet_reservations.capacity_reserved_tokens`` on
-    databases that have the reservations table without the new column.
+
+def _migration_0007_token_credit_billing(connection: Connection) -> None:
+    """No-op: token-to-credit billing was removed by migration 0012."""
+    return
+
+
+def _migration_0008_drop_legacy_reservations(connection: Connection) -> None:
+    """Final idempotent cleanup for databases that recreated the old table."""
+    connection.execute(text("DROP TABLE IF EXISTS wallet_reservations"))
+
+
+def _migration_0009_remove_credit_pools(connection: Connection) -> None:
+    """Retire system/provider credit pools; user wallets are the sole billing ledger."""
+    for table in (
+        "provider_budget_ledger",
+        "provider_budget_accounts",
+        "system_budget_ledger",
+        "system_budget_accounts",
+    ):
+        connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
+
+
+def _migration_0010_retry_estimate_policy(connection: Connection) -> None:
+    columns = _sqlite_columns(connection, "usage_billing_retries")
+    if columns and "estimate_allowed" not in columns:
+        connection.execute(text(
+            "ALTER TABLE usage_billing_retries ADD COLUMN estimate_allowed BOOLEAN NOT NULL DEFAULT 1"
+        ))
+
+
+def _migration_0011_soft_capacity_accounting(connection: Connection) -> None:
+    """No-op: provider soft-capacity accounting was removed by migration 0012."""
+    return
+
+
+_WALLET_SCHEMA_TABLES = (
+    # Wallets, ledgers and reservations
+    "user_wallets",
+    "wallet_ledger_entries",
+    "wallet_credit_ledger",
+    "wallet_reservations",
+    # Budget pools
+    "system_budget_accounts",
+    "system_budget_ledger",
+    "provider_budget_accounts",
+    "provider_budget_ledger",
+    # Per-model rates
+    "provider_model_rates",
+    "provider_model_credit_rates",
+    # Provider capacity
+    "provider_capacity_accounts",
+    "provider_capacity_ledger",
+    # Billing retry queue
+    "usage_billing_retries",
+    # Wallet-side daily billing aggregates (operational analytics live in the
+    # ``llm_*_usage_daily`` tables, which are NOT dropped here).
+    "user_usage_daily",
+    "api_key_usage_daily",
+    "gateway_model_usage_daily",
+    "provider_model_usage_daily",
+    "provider_usage_daily",
+    "system_usage_daily",
+)
+
+
+def _migration_0012_remove_wallet_credit_schema(connection: Connection) -> None:
+    """Drops the wallet/credit/billing/capacity schema and rebuilds the two
+    tables whose shape was entangled with billing.
+
+    * every wallet, ledger, reservation, budget, capacity, rate and
+      billing-daily table is dropped (``IF EXISTS``; fresh databases have
+      none),
+    * ``model_groups`` is rebuilt without ``credit_multiplier_ppm`` /
+      ``pricing_version``,
+    * ``llm_call_traces`` is rebuilt without its twelve billing columns,
+      keeping the operational analytics columns (tokens, latency, status).
+
+    Table rebuilds are required because SQLite cannot drop columns referenced
+    by CHECK constraints. With foreign keys armed, ``DROP TABLE`` fires ``ON
+    DELETE`` actions on referencing rows — e.g. ``model_group_members`` would
+    be cascade-deleted — so this migration runs with foreign keys OFF (see
+    ``run_pending_migrations``) and every FK set is validated via
+    ``PRAGMA foreign_key_check`` before commit.
     """
 
-    from backend.core.database import Base
-    from backend.wallet import models as _wallet_models  # noqa: F401
+    for table in _WALLET_SCHEMA_TABLES:
+        connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
 
-    capacity_table_names = (
-        "provider_capacity_accounts",
-        "provider_capacity_ledger",
-    )
-    tables = [Base.metadata.tables[name] for name in capacity_table_names]
-    Base.metadata.create_all(bind=connection, tables=tables)
-
-    # Backfill the new column on existing wallet_reservations rows.
-    if "wallet_reservations" in {
-        row[0]
-        for row in connection.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table'")
-        )
-    }:
-        cols = _sqlite_columns(connection, "wallet_reservations")
-        if "capacity_reserved_tokens" not in cols:
-            connection.execute(
-                text(
-                    "ALTER TABLE wallet_reservations ADD COLUMN "
-                    "capacity_reserved_tokens INTEGER NOT NULL DEFAULT 0"
+    group_columns = _sqlite_columns(connection, "model_groups")
+    if group_columns & {"credit_multiplier_ppm", "pricing_version"}:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE model_groups__remove_billing (
+                    id VARCHAR(36) NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    model_id VARCHAR(320) NOT NULL,
+                    routing_strategy VARCHAR(32) NOT NULL,
+                    is_enabled BOOLEAN NOT NULL,
+                    created_by VARCHAR(36) NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(created_by) REFERENCES users (id) ON DELETE CASCADE,
+                    UNIQUE (model_id),
+                    CHECK (length(trim(name)) > 0),
+                    CHECK (length(trim(model_id)) > 0)
                 )
+                """
             )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO model_groups__remove_billing
+                    (id, name, model_id, routing_strategy, is_enabled,
+                     created_by, created_at, updated_at)
+                SELECT id, name, model_id, routing_strategy, is_enabled,
+                       created_by, created_at, updated_at
+                FROM model_groups
+                """
+            )
+        )
+        connection.execute(text("DROP TABLE model_groups"))
+        connection.execute(
+            text("ALTER TABLE model_groups__remove_billing RENAME TO model_groups")
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_model_groups_model_id "
+                "ON model_groups (model_id)"
+            )
+        )
+
+    removed_trace_columns = {
+        "billable_token_units",
+        "token_usage_source",
+        "user_credits_charged",
+        "credit_multiplier_ppm",
+        "tokens_per_credit",
+        "credits_charged",
+        "billing_status",
+        "provider_budget_credits_consumed",
+        "provider_cost_nanos",
+        "currency_code",
+        "provider_usage_json",
+        "provider_rate_snapshot_json",
+    }
+    trace_columns = _sqlite_columns(connection, "llm_call_traces")
+    if trace_columns & removed_trace_columns:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE llm_call_traces__remove_billing (
+                    id VARCHAR(36) NOT NULL,
+                    message_trace_id VARCHAR(36) NOT NULL,
+                    user_id VARCHAR(36) NOT NULL,
+                    api_key_id VARCHAR(36),
+                    gateway_model_id VARCHAR(36),
+                    provider_model_id VARCHAR(36),
+                    input_tokens INTEGER,
+                    output_tokens INTEGER,
+                    cache_tokens INTEGER,
+                    uncached_input_tokens INTEGER,
+                    cache_read_tokens INTEGER,
+                    cache_write_tokens INTEGER,
+                    latency_ms INTEGER,
+                    status VARCHAR(16) NOT NULL,
+                    error_code VARCHAR(64),
+                    created_at TIMESTAMP NOT NULL,
+                    finished_at TIMESTAMP,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(message_trace_id) REFERENCES llm_message_traces (id) ON DELETE CASCADE,
+                    FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE,
+                    FOREIGN KEY(api_key_id) REFERENCES api_keys (id) ON DELETE CASCADE,
+                    FOREIGN KEY(gateway_model_id) REFERENCES model_groups (id) ON DELETE CASCADE,
+                    FOREIGN KEY(provider_model_id) REFERENCES provider_models (id) ON DELETE CASCADE,
+                    CHECK (input_tokens IS NULL OR input_tokens >= 0),
+                    CHECK (output_tokens IS NULL OR output_tokens >= 0),
+                    CHECK (cache_tokens IS NULL OR cache_tokens >= 0),
+                    CHECK (uncached_input_tokens IS NULL OR uncached_input_tokens >= 0),
+                    CHECK (cache_read_tokens IS NULL OR cache_read_tokens >= 0),
+                    CHECK (cache_write_tokens IS NULL OR cache_write_tokens >= 0),
+                    CHECK (latency_ms IS NULL OR latency_ms >= 0),
+                    CHECK (status IN ('pending','success','failed','timeout'))
+                )
+                """
+            )
+        )
+
+        # Explicit column list keeps the copy to the operational analytics
+        # schema; billing columns vanish, and pre-rebuild layouts that lack a
+        # component column simply skip it.
+        trace_copy_columns = (
+            "id", "message_trace_id", "user_id", "api_key_id",
+            "gateway_model_id", "provider_model_id",
+            "input_tokens", "output_tokens", "cache_tokens",
+            "uncached_input_tokens", "cache_read_tokens", "cache_write_tokens",
+            "latency_ms", "status", "error_code", "created_at", "finished_at",
+        )
+        shared = ", ".join(c for c in trace_copy_columns if c in trace_columns)
+        connection.execute(
+            text(
+                f"INSERT INTO llm_call_traces__remove_billing ({shared}) "
+                f"SELECT {shared} FROM llm_call_traces"
+            )
+        )
+        connection.execute(text("DROP TABLE llm_call_traces"))
+        connection.execute(
+            text("ALTER TABLE llm_call_traces__remove_billing RENAME TO llm_call_traces")
+        )
+
+        for index_sql in (
+            ("CREATE INDEX IF NOT EXISTS ix_llm_call_traces_message_trace_id "
+             "ON llm_call_traces (message_trace_id)"),
+            ("CREATE INDEX IF NOT EXISTS ix_llm_call_traces_user_created "
+             "ON llm_call_traces (user_id, created_at)"),
+            ("CREATE INDEX IF NOT EXISTS ix_llm_call_traces_api_key_created "
+             "ON llm_call_traces (api_key_id, created_at)"),
+            ("CREATE INDEX IF NOT EXISTS ix_llm_call_traces_gateway_model_created "
+             "ON llm_call_traces (gateway_model_id, created_at)"),
+            ("CREATE INDEX IF NOT EXISTS ix_llm_call_traces_provider_model_created "
+             "ON llm_call_traces (provider_model_id, created_at)"),
+        ):
+            connection.execute(text(index_sql))
+
+    violations = connection.execute(text("PRAGMA foreign_key_check")).fetchall()
+    if violations:
+        raise RuntimeError(
+            "Migration 0012 detected foreign key violations after teardown: "
+            f"{[tuple(row) for row in violations[:10]]}"
+        )
 
 
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
@@ -297,6 +515,15 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0004_model_groups_pricing", _migration_0004_model_groups_pricing),
     ("0005_wallet_budget_schema", _migration_0005_wallet_budget_schema),
     ("0006_provider_capacity", _migration_0006_provider_capacity),
+    ("0007_token_credit_billing", _migration_0007_token_credit_billing),
+    ("0008_drop_legacy_reservations", _migration_0008_drop_legacy_reservations),
+    ("0009_remove_credit_pools", _migration_0009_remove_credit_pools),
+    ("0010_retry_estimate_policy", _migration_0010_retry_estimate_policy),
+    ("0011_soft_capacity_accounting", _migration_0011_soft_capacity_accounting),
+    (
+        "0012_remove_wallet_credit_schema",
+        _migration_0012_remove_wallet_credit_schema,
+    ),
 ]
 
 
@@ -311,6 +538,9 @@ def run_pending_migrations(engine: Engine) -> list[str]:
     if not engine.url.get_backend_name().startswith("sqlite"):
         logger.warning("Schema migrations are SQLite-only; skipped for %s", engine.url)
         return []
+
+    if not event.contains(engine, "checkout", _foreign_keys_state_on_checkout):
+        event.listen(engine, "checkout", _foreign_keys_state_on_checkout)
 
     applied_now: list[str] = []
 
@@ -335,12 +565,32 @@ def run_pending_migrations(engine: Engine) -> list[str]:
                 continue
 
             logger.info("Applying schema migration %s", version)
-            with connection.begin():
-                migrate(connection)
-                connection.execute(
-                    text(f"INSERT INTO {_TRACKING_TABLE} (version) VALUES (:version)"),
-                    {"version": version},
-                )
+
+            if version in _FOREIGN_KEYS_OFF_MIGRATIONS:
+                # FKs are toggled at checkout time (a PRAGMA inside a
+                # transaction would be a no-op), so guarded migrations run on
+                # their own connection while the guard is armed.
+                _foreign_keys_guard["off"] = True
+                guarded = engine.connect()
+                try:
+                    with guarded.begin():
+                        migrate(guarded)
+                        guarded.execute(
+                            text(
+                                f"INSERT INTO {_TRACKING_TABLE} (version) VALUES (:version)"
+                            ),
+                            {"version": version},
+                        )
+                finally:
+                    _foreign_keys_guard["off"] = False
+                    guarded.close()
+            else:
+                with connection.begin():
+                    migrate(connection)
+                    connection.execute(
+                        text(f"INSERT INTO {_TRACKING_TABLE} (version) VALUES (:version)"),
+                        {"version": version},
+                    )
 
             applied_now.append(version)
 

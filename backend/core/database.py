@@ -41,8 +41,8 @@ def _sqlite_engine() -> Engine:
 # Two connection pools over the same database file implement the WAL
 # concurrency model: readers run plain deferred transactions (readers never
 # block the writer), while every write transaction starts BEGIN IMMEDIATE
-# (the write lock is taken up front, so balance-changing work serializes
-# cleanly instead of deadlocking on deferred lock upgrade).
+# (the write lock is taken up front, so writes serialize cleanly instead of
+# deadlocking on deferred lock upgrade).
 engine = _sqlite_engine()
 write_engine = _sqlite_engine()
 
@@ -86,7 +86,7 @@ SessionLocal = sessionmaker(
 
 # Request-scoped sessions (auth, CRUD, analytics reads) never run BEGIN
 # IMMEDIATE: deferred transactions let concurrent requests read freely while
-# wallet-service writes hold the single write lock.
+# write transactions hold the single write lock.
 ReadSessionLocal = sessionmaker(
     bind=engine,
     autocommit=False,

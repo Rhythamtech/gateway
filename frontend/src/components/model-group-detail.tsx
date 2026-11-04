@@ -1,9 +1,13 @@
 import * as React from "react"
 import {
+  IconArrowRight,
   IconBan,
   IconCircleCheckFilled,
   IconDotsVertical,
   IconPlus,
+  IconRefresh,
+  IconRoute,
+  IconScale,
 } from "@tabler/icons-react"
 
 import {
@@ -58,10 +62,380 @@ function formatDateTime(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
-export function ModelGroupDetailContent() {
-  const [groupId] = React.useState(() =>
-    new URLSearchParams(window.location.search).get("id")
+function StrategyBadge({ strategy }: { strategy: string }) {
+  if (strategy === "priority") {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 border-sky-500/40 px-1.5 text-sky-600 dark:text-sky-400"
+      >
+        <IconRoute className="size-3" />
+        Priority (Failover)
+      </Badge>
+    )
+  }
+  if (strategy === "weighted_round_robin") {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 border-amber-500/40 px-1.5 text-amber-600 dark:text-amber-400"
+      >
+        <IconScale className="size-3" />
+        Weighted
+      </Badge>
+    )
+  }
+  return (
+    <Badge variant="outline" className="gap-1 px-1.5 text-muted-foreground">
+      <IconRefresh className="size-3" />
+      Round robin
+    </Badge>
   )
+}
+
+function RoutingPipelineVisualizer({ group }: { group: ModelGroup }) {
+  const members = group.members ?? []
+
+  if (members.length === 0) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center justify-center gap-1.5 py-6 text-center text-xs text-muted-foreground">
+          <IconRoute className="size-5 text-muted-foreground/60" />
+          <span className="font-medium text-foreground">
+            No routing pipeline configured
+          </span>
+          <p>
+            Add provider model members to construct the routing and failover
+            chain.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (group.routing_strategy === "priority") {
+    // Priority order: priority ASC, weight DESC
+    const sorted = [...members].sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority
+      return b.weight - a.weight
+    })
+
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-sm font-semibold">
+                Sequential Failover Pipeline
+              </CardTitle>
+              <Badge
+                variant="outline"
+                className="border-sky-500/40 font-mono text-xs text-sky-600 dark:text-sky-400"
+              >
+                <IconRoute className="mr-1 size-3" />
+                Priority Routing
+              </Badge>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {sorted.length}{" "}
+              {sorted.length === 1
+                ? "candidate route"
+                : "sequential route steps"}
+            </span>
+          </div>
+          <CardDescription className="text-xs">
+            Requests always target the Primary candidate first. If a candidate
+            becomes unavailable or disabled, traffic fails over sequentially to
+            the next priority step without client errors.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-2 overflow-x-auto pt-1 pb-2">
+            <div className="flex min-w-max items-center gap-2">
+              {sorted.map((member, idx) => {
+                const isPrimary = idx === 0
+                return (
+                  <React.Fragment key={member.id}>
+                    <div
+                      className={`flex max-w-[260px] min-w-[200px] flex-col gap-2 rounded-lg border p-3 text-xs shadow-xs transition-all ${
+                        member.is_available
+                          ? isPrimary
+                            ? "border-sky-500/60 bg-sky-500/5 dark:bg-sky-950/20"
+                            : "border-border bg-card"
+                          : "border-border/60 bg-muted/40 opacity-70"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <Badge
+                          variant="outline"
+                          className={
+                            isPrimary
+                              ? "border-sky-500/50 bg-sky-500/10 font-medium text-sky-600 dark:text-sky-400"
+                              : "text-muted-foreground"
+                          }
+                        >
+                          {isPrimary
+                            ? "1. Primary Route"
+                            : `${idx + 1}. Fallback #${idx}`}
+                        </Badge>
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          P:{member.priority} W:{member.weight}
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <code
+                          className="truncate font-mono text-xs font-semibold text-foreground"
+                          title={member.provider_model_id_public}
+                        >
+                          {member.provider_model_id_public}
+                        </code>
+                        <span className="truncate text-[11px] text-muted-foreground">
+                          {member.provider_name} ({member.provider_alias})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-1 text-[11px]">
+                        {member.is_available ? (
+                          <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                            <IconCircleCheckFilled className="size-3" />
+                            Eligible & Active
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                            <IconBan className="size-3" />
+                            Provider Unavailable
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {idx < sorted.length - 1 ? (
+                      <div className="flex flex-col items-center gap-1 px-1">
+                        <span className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">
+                          failover
+                        </span>
+                        <IconArrowRight className="size-4 text-muted-foreground" />
+                      </div>
+                    ) : null}
+                  </React.Fragment>
+                )
+              })}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (group.routing_strategy === "weighted_round_robin") {
+    const totalWeight = members.reduce((sum, m) => sum + (m.weight || 0), 0)
+    const colors = [
+      "bg-primary",
+      "bg-sky-500",
+      "bg-amber-500",
+      "bg-emerald-500",
+      "bg-indigo-500",
+      "bg-rose-500",
+      "bg-teal-500",
+    ]
+
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-sm font-semibold">
+                Traffic Distribution Breakdown
+              </CardTitle>
+              <Badge
+                variant="outline"
+                className="border-amber-500/40 font-mono text-xs text-amber-600 dark:text-amber-400"
+              >
+                <IconScale className="mr-1 size-3" />
+                Weighted Round Robin
+              </Badge>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              Total weight: {totalWeight}
+            </span>
+          </div>
+          <CardDescription className="text-xs">
+            Inbound traffic is split across candidates proportional to weight.
+            If a candidate encounters exhaustion, traffic falls over to the
+            remaining routes.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+            {members.map((member, i) => {
+              const pct =
+                totalWeight > 0 ? (member.weight / totalWeight) * 100 : 0
+              if (pct <= 0) return null
+              const color = colors[i % colors.length]
+              return (
+                <div
+                  key={member.id}
+                  className={`${color} transition-all`}
+                  style={{ width: `${pct}%` }}
+                  title={`${member.provider_model_id_public}: ${pct.toFixed(1)}%`}
+                />
+              )
+            })}
+          </div>
+          <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2 lg:grid-cols-3">
+            {members.map((member, i) => {
+              const pct =
+                totalWeight > 0 ? (member.weight / totalWeight) * 100 : 0
+              const color = colors[i % colors.length]
+              return (
+                <div
+                  key={member.id}
+                  className="flex items-center justify-between rounded-md border bg-muted/30 p-2 text-xs"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={`size-2.5 shrink-0 rounded-full ${color}`}
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate font-mono font-medium text-foreground">
+                        {member.provider_model_id_public}
+                      </p>
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        {member.provider_name}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pl-2 text-right">
+                    <span className="font-mono font-semibold text-foreground tabular-nums">
+                      {pct.toFixed(1)}%
+                    </span>
+                    <p className="text-[10px] text-muted-foreground">
+                      weight {member.weight}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // round_robin
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-sm font-semibold">
+              Cyclic Load-Balancing Pipeline
+            </CardTitle>
+            <Badge
+              variant="outline"
+              className="font-mono text-xs text-muted-foreground"
+            >
+              <IconRefresh className="mr-1 size-3" />
+              Round Robin
+            </Badge>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {members.length}{" "}
+            {members.length === 1 ? "route member" : "rotating members"}
+          </span>
+        </div>
+        <CardDescription className="text-xs">
+          Requests rotate cyclically across all eligible candidate models. If a
+          candidate is exhausted, traffic automatically advances to the next
+          member.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2">
+          {members.map((member, i) => (
+            <div
+              key={member.id}
+              className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs"
+            >
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-[11px] font-semibold text-primary">
+                {i + 1}
+              </span>
+              <div className="flex flex-col">
+                <code className="font-mono font-medium">
+                  {member.provider_model_id_public}
+                </code>
+                <span className="text-[11px] text-muted-foreground">
+                  {member.provider_name}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+class DetailErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col gap-4 px-4 lg:px-6">
+          <a
+            className="text-sm text-muted-foreground underline-offset-2 hover:underline"
+            href="/dashboard/model-groups"
+          >
+            Back to model groups
+          </a>
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>Error displaying model group</CardTitle>
+              <CardDescription>
+                {this.state.error?.message ??
+                  "An unexpected rendering error occurred."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => window.location.reload()}>
+                Reload page
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+function ModelGroupDetailInner() {
+  const [groupId, setGroupId] = React.useState<string | null>(() => {
+    if (typeof window === "undefined") return null
+    return new URLSearchParams(window.location.search).get("id")
+  })
+
+  React.useEffect(() => {
+    function syncId() {
+      const id = new URLSearchParams(window.location.search).get("id")
+      setGroupId((prev) => (prev !== id ? id : prev))
+    }
+    window.addEventListener("popstate", syncId)
+    document.addEventListener("astro:page-load", syncId)
+    syncId()
+    return () => {
+      window.removeEventListener("popstate", syncId)
+      document.removeEventListener("astro:page-load", syncId)
+    }
+  }, [])
   const [group, setGroup] = React.useState<ModelGroup | null>(null)
   const [groupError, setGroupError] = React.useState<string | null>(null)
   const [groupTick, setGroupTick] = React.useState(0)
@@ -110,6 +484,10 @@ export function ModelGroupDetailContent() {
       )
     }
   }
+
+  const totalMemberWeight = React.useMemo(() => {
+    return (group?.members ?? []).reduce((sum, m) => sum + (m.weight || 0), 0)
+  }, [group?.members])
 
   if (!groupId) {
     return (
@@ -161,7 +539,9 @@ export function ModelGroupDetailContent() {
     )
   }
 
-  const hasEligibleMember = group.members.some((member) => member.is_available)
+  const hasEligibleMember = (group.members ?? []).some(
+    (member) => member.is_available
+  )
 
   return (
     <>
@@ -178,14 +558,7 @@ export function ModelGroupDetailContent() {
               <div className="flex flex-col gap-2">
                 <CardTitle className="text-lg">{group.name}</CardTitle>
                 <CardDescription className="flex flex-wrap items-center gap-1.5">
-                  <Badge
-                    variant="outline"
-                    className="px-1.5 text-muted-foreground"
-                  >
-                    {group.routing_strategy === "round_robin"
-                      ? "Round robin"
-                      : "Weighted round robin"}
-                  </Badge>
+                  <StrategyBadge strategy={group.routing_strategy} />
                   <Badge
                     variant="outline"
                     className="px-1.5 text-muted-foreground"
@@ -268,6 +641,7 @@ export function ModelGroupDetailContent() {
             </div>
           </CardContent>
         </Card>
+        <RoutingPipelineVisualizer group={group} />
         {actionError !== null ? (
           <p className="text-sm text-destructive" role="alert">
             {actionError}
@@ -315,7 +689,7 @@ export function ModelGroupDetailContent() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {group.members.length === 0 ? (
+              {(group.members ?? []).length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={6}
@@ -325,12 +699,28 @@ export function ModelGroupDetailContent() {
                   </TableCell>
                 </TableRow>
               ) : (
-                group.members.map((member) => (
+                (group.members ?? []).map((member) => (
                   <TableRow key={member.id}>
                     <TableCell>
-                      <span className="font-mono text-xs">
-                        {member.priority}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-xs font-semibold">
+                          {member.priority}
+                        </span>
+                        {group.routing_strategy === "priority" ? (
+                          <Badge
+                            variant="outline"
+                            className={
+                              member.priority === 1
+                                ? "border-sky-500/50 bg-sky-500/10 px-1 py-0 text-[10px] font-medium text-sky-600 dark:text-sky-400"
+                                : "px-1 py-0 text-[10px] text-muted-foreground"
+                            }
+                          >
+                            {member.priority === 1
+                              ? "Primary"
+                              : `Fallback #${member.priority - 1}`}
+                          </Badge>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <code className="font-mono text-xs">
@@ -342,7 +732,17 @@ export function ModelGroupDetailContent() {
                       <span className="text-xs">({member.provider_alias})</span>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {member.weight}
+                      <span className="font-mono text-xs">{member.weight}</span>
+                      {group.routing_strategy === "weighted_round_robin" &&
+                      totalMemberWeight > 0 ? (
+                        <span className="ml-1.5 font-mono text-[11px] text-primary">
+                          (
+                          {((member.weight / totalMemberWeight) * 100).toFixed(
+                            0
+                          )}
+                          %)
+                        </span>
+                      ) : null}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -463,5 +863,13 @@ export function ModelGroupDetailContent() {
         />
       ) : null}
     </>
+  )
+}
+
+export function ModelGroupDetailContent() {
+  return (
+    <DetailErrorBoundary>
+      <ModelGroupDetailInner />
+    </DetailErrorBoundary>
   )
 }

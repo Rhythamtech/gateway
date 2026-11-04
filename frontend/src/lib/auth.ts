@@ -376,7 +376,8 @@ export function syncProviderModels(
   )
 }
 
-export type RoutingStrategy = "round_robin" | "weighted_round_robin"
+export type RoutingStrategy =
+  "round_robin" | "weighted_round_robin" | "priority"
 
 export type ModelGroupMember = {
   id: string
@@ -540,185 +541,6 @@ export function updateUserActive(
   })
 }
 
-// --- Own wallet (all authenticated users) ---
-
-export type WalletBalance = {
-  user_id: string
-  available_credits: number
-  reserved_credits: number
-  debt_credits: number
-  lifetime_credited_credits: number
-  lifetime_spent_credits: number
-  status: "active" | "debt" | "blocked"
-  version: number
-  created_at: string
-  updated_at: string
-}
-
-export type WalletEntryType = "top_up" | "reserve" | "settle" | "release"
-
-export type WalletTransaction = {
-  id: string
-  wallet_id: string
-  user_id: string
-  entry_type: WalletEntryType
-  available_delta_credits: number
-  reserved_delta_credits: number
-  charged_credits: number
-  debt_delta_credits: number
-  balance_after_credits: number
-  reserved_after_credits: number
-  debt_after_credits: number
-  source_call_trace_id: string | null
-  idempotency_key: string
-  reason: string
-  actor_user_id: string | null
-  created_at: string
-}
-
-export type WalletTransactionPage = {
-  items: WalletTransaction[]
-  page: number
-  page_size: number
-  total: number
-}
-
-// GET /wallet provisioned lazily on first read by the backend.
-export function getMyWallet(): Promise<WalletBalance> {
-  return authenticatedRequest<WalletBalance>("/wallet")
-}
-
-export function listMyWalletTransactions(
-  options: { page?: number; pageSize?: number } = {}
-): Promise<WalletTransactionPage> {
-  const params = new URLSearchParams()
-  if (options.page !== undefined) params.set("page", String(options.page))
-  if (options.pageSize !== undefined)
-    params.set("page_size", String(options.pageSize))
-  const query = params.toString()
-  return authenticatedRequest<WalletTransactionPage>(
-    `/wallet/transactions${query ? `?${query}` : ""}`
-  )
-}
-
-// --- Superuser wallet administration (budgets and top-ups) ---
-
-// GET /system-budget — the system pool: funding creates credits here
-// (unallocated), provider allocation moves them out of it, settled calls
-// consume them. Available for allocation is reported by the backend
-// alongside unallocated; both are shown as returned.
-export type SystemBudget = {
-  unallocated_credits: number
-  allocated_credits: number
-  consumed_credits: number
-  lifetime_funded_credits: number
-  available_for_allocation_credits: number
-  updated_at: string
-}
-
-export type SystemBudgetTopUpCreated = {
-  transaction_id: string
-  amount_credits: number
-  unallocated_credits: number
-  allocated_credits: number
-  consumed_credits: number
-  actor_user_id: string | null
-  reason: string
-  created_at: string
-}
-
-// GET /providers/{provider_id}/budget — a provider's allocation. Note the
-// plural base path; provider management itself lives under /provider.
-export type ProviderBudget = {
-  provider_id: string
-  provider_name: string
-  available_credits: number
-  reserved_credits: number
-  consumed_credits: number
-  lifetime_allocated_credits: number
-  updated_at: string
-}
-
-export type ProviderBudgetTopUpCreated = {
-  transaction_id: string
-  provider_id: string
-  amount_credits: number
-  provider_available_credits: number
-  system_unallocated_credits: number
-  actor_user_id: string | null
-  reason: string
-  created_at: string
-}
-
-export type WalletTopUpCreated = {
-  transaction_id: string
-  user_id: string
-  amount_credits: number
-  available_credits: number
-  reserved_credits: number
-  reason: string
-  actor_user_id: string | null
-  created_at: string
-}
-
-// Shared request body of all three top-up operations: positive integer
-// credits, nonblank reason (≤255), unique idempotency key (8–128). Duplicate
-// keys and insufficient system funds return 409; missing subjects 404.
-export type CreditTopUpInput = {
-  amount_credits: number
-  reason: string
-  idempotency_key: string
-}
-
-export function getSystemBudget(): Promise<SystemBudget> {
-  return authenticatedRequest<SystemBudget>("/system-budget")
-}
-
-export function createSystemBudgetTopUp(
-  input: CreditTopUpInput
-): Promise<SystemBudgetTopUpCreated> {
-  return authenticatedRequest<SystemBudgetTopUpCreated>(
-    "/system-budget/top-ups",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    }
-  )
-}
-
-export function getProviderBudget(providerId: string): Promise<ProviderBudget> {
-  return authenticatedRequest<ProviderBudget>(`/providers/${providerId}/budget`)
-}
-
-export function createProviderBudgetTopUp(
-  providerId: string,
-  input: CreditTopUpInput
-): Promise<ProviderBudgetTopUpCreated> {
-  return authenticatedRequest<ProviderBudgetTopUpCreated>(
-    `/providers/${providerId}/budget/top-ups`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    }
-  )
-}
-
-export function createUserWalletTopUp(
-  userId: string,
-  input: CreditTopUpInput
-): Promise<WalletTopUpCreated> {
-  return authenticatedRequest<WalletTopUpCreated>(
-    `/users/${userId}/wallet/top-ups`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    }
-  )
-}
-
 // --- LLM usage analytics (role scoping enforced by the backend) ---
 
 // Operational usage of actual gateway/provider attempts, including retries —
@@ -849,8 +671,7 @@ export type MessageTraceDetail = MessageTraceItem & {
 }
 
 // One exact call record (shared by list, detail, and message's calls[]).
-// Tokens are provider-reported (null when unavailable); credit fields come
-// from the wallet service for settled attempts.
+// Tokens are provider-reported (null when unavailable).
 export type CallTraceItem = {
   id: string
   message_trace_id: string
@@ -866,13 +687,6 @@ export type CallTraceItem = {
   uncached_input_tokens: number | null
   cache_read_tokens: number | null
   cache_write_tokens: number | null
-  billable_token_units: number | null
-  token_usage_source: string | null
-  user_credits_charged: number
-  credit_multiplier_ppm: number | null
-  provider_budget_credits_consumed: number
-  provider_cost_nanos: number
-  currency_code: string | null
   latency_ms: number | null
   status: string
   error_code: string | null

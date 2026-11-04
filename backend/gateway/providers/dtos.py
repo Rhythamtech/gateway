@@ -13,10 +13,6 @@ class ProviderCreateRequest(BaseModel):
     api_key: str | None = None
     custom_header: str | dict[str, str] | None = None
     protocol: ProviderProtocol = "openai"
-    # Optional initial provider budget allocation (integer token-equivalent
-    # credits), applied in the same creation transaction with the same
-    # checks and ledger entries as the standalone allocation endpoint.
-    initial_budget_credits: int | None = Field(default=None, gt=0, strict=True)
 
 
 class ProviderUpdateRequest(BaseModel):

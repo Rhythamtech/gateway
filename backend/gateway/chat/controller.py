@@ -14,11 +14,6 @@ from backend.gateway.providers.service import call_provider, read_sse_data
 from backend.gateway.routing import plan
 from backend.gateway.streaming import sse
 from backend.traces.capture import monitor_stream, start_capture
-from backend.wallet.service import (
-    NoAvailableMemberError,
-    ProviderBudgetInsufficientError,
-    ProviderCapacityInsufficientError,
-)
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
@@ -37,27 +32,15 @@ async def forward_chat(request: Request, payload: dict[str, Any]) -> Any:
     provider = None
     for candidate in candidates:
         try:
-            # Resolves the runtime provider, validates wallet/availability
-            # and reserves credits plus provider budget before dispatch.
-            # Budget-hold failures skip to the next member per the routing
-            # strategy; other errors are recorded and abort the request.
+            # Resolves the runtime provider and validates that it can serve
+            # this request before dispatch. Provider errors abort dispatch.
             provider = capture.begin_attempt(candidate, payload, stream=stream)
             break
-        except (ProviderBudgetInsufficientError, ProviderCapacityInsufficientError):
-            continue  # skip to the next member per the routing strategy
         except GatewayError as exc:
             capture.failure(exc)
             raise
     else:
-        capture.failure(
-            GatewayError(
-                429,
-                "no_available_member",
-                "No available member can serve this request within "
-                "wallet, provider budget, and provider capacity limits",
-            )
-        )
-        raise NoAvailableMemberError()
+        raise GatewayError(503, "no_available_member", "No available member can serve this request")
 
     upstream_payload = dict(payload)
     upstream_payload["model"] = candidate.upstream_model

@@ -95,6 +95,13 @@ export function ModelGroupFormDrawer({
   >({})
   const nextKey = React.useRef(1)
 
+  const totalWeight = React.useMemo(() => {
+    return memberRows.reduce((sum, entry) => {
+      const w = parsePositiveInt(entry.row.weight)
+      return sum + (w ?? 0)
+    }, 0)
+  }, [memberRows])
+
   React.useEffect(() => {
     let cancelled = false
 
@@ -413,12 +420,37 @@ export function ModelGroupFormDrawer({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="round_robin">Round robin</SelectItem>
+                <SelectItem value="round_robin">
+                  Round robin (Cyclic rotation)
+                </SelectItem>
                 <SelectItem value="weighted_round_robin">
-                  Weighted round robin
+                  Weighted round robin (Traffic share)
+                </SelectItem>
+                <SelectItem value="priority">
+                  Priority (Sequential failover)
                 </SelectItem>
               </SelectContent>
             </Select>
+            {strategy === "priority" ? (
+              <p className="text-xs text-muted-foreground">
+                Inbound requests attempt the lowest priority number first (1 =
+                Primary, 2 = Fallback 1). If a candidate becomes unavailable,
+                traffic automatically falls over to the next priority candidate.
+                Weight breaks ties between equal priorities.
+              </p>
+            ) : strategy === "weighted_round_robin" ? (
+              <p className="text-xs text-muted-foreground">
+                Traffic is distributed probabilistically across eligible members
+                proportional to their weight. If the chosen candidate is
+                unavailable, routing falls over to the remaining candidates.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Requests rotate cyclically across eligible members in
+                round-robin order, advancing to the next candidate if one is
+                unavailable.
+              </p>
+            )}
           </div>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
@@ -513,19 +545,67 @@ export function ModelGroupFormDrawer({
                       </div>
                       <div
                         className={
-                          strategy === "weighted_round_robin"
-                            ? "grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2"
-                            : "grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2"
+                          strategy === "round_robin"
+                            ? "grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2"
+                            : "grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2"
                         }
                       >
-                        {strategy === "weighted_round_robin" ? (
-                          <div className="flex flex-col gap-1">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between">
                             <Label
                               className="text-xs text-muted-foreground"
-                              htmlFor={`member-weight-${entry.key}`}
+                              htmlFor={`member-priority-${entry.key}`}
                             >
-                              Weight
+                              Priority
                             </Label>
+                            {strategy === "priority" &&
+                            parsePositiveInt(entry.row.priority) !== null ? (
+                              <span className="font-mono text-[10px] text-sky-600 dark:text-sky-400">
+                                {parsePositiveInt(entry.row.priority) === 1
+                                  ? "#1 Primary"
+                                  : `#${entry.row.priority} Fallback`}
+                              </span>
+                            ) : null}
+                          </div>
+                          <Input
+                            id={`member-priority-${entry.key}`}
+                            type="number"
+                            min={1}
+                            step={1}
+                            className="h-8"
+                            value={entry.row.priority}
+                            onChange={(event) =>
+                              setRow(entry.key, {
+                                priority: event.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                        {strategy === "weighted_round_robin" ||
+                        strategy === "priority" ? (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center justify-between">
+                              <Label
+                                className="text-xs text-muted-foreground"
+                                htmlFor={`member-weight-${entry.key}`}
+                              >
+                                {strategy === "priority"
+                                  ? "Tie-break weight"
+                                  : "Weight"}
+                              </Label>
+                              {strategy === "weighted_round_robin" &&
+                              totalWeight > 0 &&
+                              parsePositiveInt(entry.row.weight) !== null ? (
+                                <span className="font-mono text-[10px] text-primary">
+                                  {(
+                                    ((parsePositiveInt(entry.row.weight) ?? 0) /
+                                      totalWeight) *
+                                    100
+                                  ).toFixed(0)}
+                                  % traffic
+                                </span>
+                              ) : null}
+                            </div>
                             <Input
                               id={`member-weight-${entry.key}`}
                               type="number"
@@ -541,27 +621,6 @@ export function ModelGroupFormDrawer({
                             />
                           </div>
                         ) : null}
-                        <div className="flex flex-col gap-1">
-                          <Label
-                            className="text-xs text-muted-foreground"
-                            htmlFor={`member-priority-${entry.key}`}
-                          >
-                            Priority
-                          </Label>
-                          <Input
-                            id={`member-priority-${entry.key}`}
-                            type="number"
-                            min={1}
-                            step={1}
-                            className="h-8"
-                            value={entry.row.priority}
-                            onChange={(event) =>
-                              setRow(entry.key, {
-                                priority: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
                         <Button
                           type="button"
                           variant="ghost"
@@ -953,8 +1012,8 @@ export function ModelGroupMemberFormDrawer({
               required
             />
             <p className="text-xs text-muted-foreground">
-              Failover tries members in ascending priority order — lower numbers
-              first.
+              Failover tries members in ascending priority order: 1 is Primary,
+              2 is Fallback 1, etc.
             </p>
           </div>
           {error ? (

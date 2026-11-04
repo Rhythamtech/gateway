@@ -3,9 +3,7 @@
 A requested model first resolves against enabled model groups; when one
 matches, its members are enumerated per the configured routing strategy as
 ordered dispatch candidates. Members whose provider is disabled or whose
-model is unavailable are skipped here; members whose provider budget or
-capacity cannot cover the reservation fail at hold time — the controller
-catches that and continues with the next candidate.
+model is unavailable are skipped here.
 
 Routing strategies
 ------------------
@@ -24,19 +22,17 @@ priority
     The highest-priority available member handles every request; lower-priority
     members act as fallbacks. Ties broken by weight (desc) then id (asc).
 
-Requests that do not match any model group keep the legacy configuration-
-based routing (``resolve_model``); they charge with the default multiplier
-(1x) and the configured default pricing version.
+Requests that do not match any model group keep the configuration-based
+routing (``resolve_model``).
 """
 
 import itertools
 import random
 from dataclasses import dataclass
 
-from backend.core.config import settings
 from backend.core.database import SessionLocal
 from backend.core.errors import GatewayError
-from backend.gateway.model_groups.models import DEFAULT_MULTIPLIER_PPM, ModelGroup, ModelGroupMember
+from backend.gateway.model_groups.models import ModelGroup, ModelGroupMember
 from backend.gateway.provider_models.models import ProviderModel
 from backend.gateway.providers.models import Provider
 from backend.gateway.providers.service import resolve_model
@@ -55,8 +51,6 @@ class RouteCandidate:
     upstream_model: str
     provider_model_id: str | None
     gateway_model_id: str | None
-    multiplier_ppm: int
-    pricing_version: str
     protocol: str
     requested_model: str | None = None
 
@@ -111,8 +105,8 @@ def _order_by_strategy(
     if routing_strategy == "weighted_round_robin":
         return _weighted_order(eligible)
 
-    # "priority" and any unknown strategy: priority-sorted order as-is.
-    return eligible
+    # "priority" and any unknown strategy use deterministic priority ordering.
+    return sorted(eligible, key=lambda item: (item[3], -item[2], item[0].id))
 
 
 def _weighted_order(
@@ -170,9 +164,6 @@ def plan_with_db(db: Session, model: str) -> list[RouteCandidate]:
         for model_row, provider, _weight, _priority in _order_by_strategy(
             _sorted_members(db, group), group.routing_strategy
         ):
-            # Enabled/available check is done in _eligible() above; budget and
-            # capacity checks run at reservation time inside begin_attempt so
-            # the check is against live account state, not a stale snapshot.
             candidates.append(
                 RouteCandidate(
                     provider_alias=provider.aliases,
@@ -180,15 +171,18 @@ def plan_with_db(db: Session, model: str) -> list[RouteCandidate]:
                     upstream_model=model_row.model_name,
                     provider_model_id=model_row.id,
                     gateway_model_id=group.id,
-                    multiplier_ppm=group.credit_multiplier_ppm,
-                    pricing_version=group.pricing_version,
                     protocol=str(provider.protocol),
                     requested_model=model,
                 )
             )
+        if not candidates:
+            raise GatewayError(
+                503, "no_route_available",
+                "No enabled group member is available for this model",
+            )
         return candidates
 
-    # Legacy configuration-based routing: a single fixed candidate.
+    # Configuration-based routing: a single fixed candidate.
     provider_alias, upstream_model = resolve_model(model, db)
     row = db.query(Provider).filter(Provider.aliases == provider_alias).first()
     if row is None:
@@ -196,15 +190,28 @@ def plan_with_db(db: Session, model: str) -> list[RouteCandidate]:
             400, "invalid_request_error", f"Unknown provider: {provider_alias}"
         )
 
+    provider_model = (
+        db.query(ProviderModel)
+        .filter(
+            ProviderModel.provider_id == row.id,
+            ProviderModel.model_name == upstream_model,
+            ProviderModel.is_available.is_(True),
+        )
+        .first()
+    )
+    if provider_model is None:
+        raise GatewayError(
+            503, "model_not_available",
+            "Model must be synced for this provider before dispatch",
+        )
+
     return [
         RouteCandidate(
             provider_alias=row.aliases,
             provider_id=row.id,
             upstream_model=upstream_model,
-            provider_model_id=None,
+            provider_model_id=provider_model.id,
             gateway_model_id=None,
-            multiplier_ppm=DEFAULT_MULTIPLIER_PPM,
-            pricing_version=settings.BILLING_PRICING_VERSION,
             protocol=str(row.protocol),
             requested_model=model,
         )

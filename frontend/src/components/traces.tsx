@@ -930,49 +930,6 @@ export function CallTraceDrawer({
 
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Recorded accounting — wallet fields exactly as returned;
-                  credits are operational, not currency, and no rates are
-                  derived
-                </p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <TracesChip
-                    label="User credits charged"
-                    value={formatInt(call.user_credits_charged)}
-                  />
-                  <TracesChip
-                    label="Billable token units"
-                    value={formatInt(call.billable_token_units)}
-                  />
-                  <TracesChip
-                    label="Usage source"
-                    value={
-                      <span className="font-mono text-xs break-words">
-                        {call.token_usage_source ?? "—"}
-                      </span>
-                    }
-                  />
-                  <TracesChip
-                    label="Credit multiplier (ppm)"
-                    value={formatInt(call.credit_multiplier_ppm)}
-                  />
-                  <TracesChip
-                    label="Provider budget credits consumed"
-                    value={formatInt(call.provider_budget_credits_consumed)}
-                  />
-                  <TracesChip
-                    label="Provider cost (nanos)"
-                    value={
-                      <span className="font-mono text-xs break-words tabular-nums">
-                        {call.provider_cost_nanos.toLocaleString("en-US")}
-                        {call.currency_code ? ` ${call.currency_code}` : ""}
-                      </span>
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <p className="text-xs font-medium text-muted-foreground">
                   Sanitized request — inherited from the message trace; secrets
                   were redacted before storage and large payloads are truncated
                 </p>

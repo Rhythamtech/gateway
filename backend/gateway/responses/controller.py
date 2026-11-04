@@ -12,11 +12,6 @@ from backend.gateway.responses.models import chat_to_responses, responses_to_cha
 from backend.gateway.routing import plan
 from backend.gateway.streaming import sse
 from backend.traces.capture import monitor_stream, start_capture
-from backend.wallet.service import (
-    NoAvailableMemberError,
-    ProviderBudgetInsufficientError,
-    ProviderCapacityInsufficientError,
-)
 
 router = APIRouter(prefix="/v1", tags=["Gateway"])
 
@@ -43,27 +38,14 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
     provider = None
     for candidate in candidates:
         try:
-            # Resolves the runtime provider, validates wallet/availability
-            # and reserves credits plus provider budget before dispatch.
-            # Budget-hold failures skip to the next member per the routing
-            # strategy; other errors are recorded and abort the request.
+            # Resolves provider and validates it can serve this request.
             provider = capture.begin_attempt(candidate, chat_payload, stream=stream)
             break
-        except (ProviderBudgetInsufficientError, ProviderCapacityInsufficientError):
-            continue  # skip to the next member per the routing strategy
         except GatewayError as exc:
             capture.failure(exc)
             raise
     else:
-        capture.failure(
-            GatewayError(
-                429,
-                "no_available_member",
-                "No available member can serve this request within "
-                "wallet, provider budget, and provider capacity limits",
-            )
-        )
-        raise NoAvailableMemberError()
+        raise GatewayError(503, "no_available_member", "No available member can serve this request")
 
     chat_payload["model"] = candidate.upstream_model
 

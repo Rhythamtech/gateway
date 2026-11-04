@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -38,8 +39,6 @@ from backend.telemetry import setup as setup_telemetry, shutdown as shutdown_tel
 from backend.traces import models as trace_models  # noqa: F401
 from backend.traces.controller import router as traces_router
 from backend.users.controller import router as users_router
-from backend.wallet import models as wallet_models  # noqa: F401
-from backend.wallet.controller import router as wallet_router
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +99,6 @@ app.include_router(models_gateway_router)
 app.include_router(providers_router)
 app.include_router(provider_models_router)
 app.include_router(traces_router)
-app.include_router(wallet_router)
 
 
 # ---------------------------------------------------------------------------
