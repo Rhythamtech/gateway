@@ -21,7 +21,7 @@ async def create_message(request: Request, data: AnthropicMessageRequest) -> Any
     payload = data.model_dump(exclude_none=True)
     capture = start_capture(request, payload)
     try:
-        execution = admit_request(request, payload, capture)
+        execution = admit_request(request, payload, capture, input_protocol="anthropic")
     except GatewayError as exc:
         capture.failure(exc)
         raise

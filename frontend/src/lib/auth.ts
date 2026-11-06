@@ -545,14 +545,25 @@ export function updateUserActive(
 }
 
 // PATCH /users/me/preferences is self-service for every signed-in user; it
-// toggles only the caller's own OpenTelemetry span opt-in.
+// toggles the caller's own OpenTelemetry span and usage tracing opt-in.
 export function updateMyPreferences(
-  telemetryEnabled: boolean
+  input: boolean | { telemetryEnabled?: boolean; tracingEnabled?: boolean }
 ): Promise<CurrentUser> {
+  const body: { telemetry_enabled?: boolean; tracing_enabled?: boolean } = {}
+  if (typeof input === "boolean") {
+    body.telemetry_enabled = input
+  } else {
+    if (input.telemetryEnabled !== undefined) {
+      body.telemetry_enabled = input.telemetryEnabled
+    }
+    if (input.tracingEnabled !== undefined) {
+      body.tracing_enabled = input.tracingEnabled
+    }
+  }
   return authenticatedRequest<CurrentUser>("/users/me/preferences", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ telemetry_enabled: telemetryEnabled }),
+    body: JSON.stringify(body),
   })
 }
 
@@ -606,6 +617,13 @@ export type UsageAnalytics = {
   to_date: string
   totals: UsageTotals
   daily: DailyUsageEntry[]
+  hourly?:
+    | {
+        hour: number
+        successful_call_count: number
+        failed_call_count: number
+      }[]
+    | null
 }
 
 export type UsageRange = {
@@ -615,13 +633,28 @@ export type UsageRange = {
   to?: string
 }
 
+export type LogRetention = "24h" | "7d" | "30d" | "never"
+
+export function getLogRetention(): Promise<{ log_retention: LogRetention }> {
+  return authenticatedRequest("/traces/retention")
+}
+
+export function updateLogRetention(logRetention: LogRetention): Promise<{ log_retention: LogRetention }> {
+  return authenticatedRequest("/traces/retention", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ log_retention: logRetention }),
+  })
+}
+
 // GET /traces/usage/api-keys/{key_id} — owner or superuser.
 export function getApiKeyUsage(
   keyId: string,
-  range: UsageRange = {}
+  range: UsageRange = {},
+  includeHourly = false
 ): Promise<UsageAnalytics> {
   return authenticatedRequest<UsageAnalytics>(
-    `/traces/usage/api-keys/${keyId}${buildUsageRangeQuery(range)}`
+    `/traces/usage/api-keys/${keyId}${buildUsageRangeQuery(range, includeHourly)}`
   )
 }
 
@@ -640,17 +673,29 @@ export function getGatewayModelUsage(
 // GET /traces/usage/users/{user_id} — superuser only.
 export function getUserUsage(
   userId: string,
-  range: UsageRange = {}
+  range: UsageRange = {},
+  includeHourly = false
 ): Promise<UsageAnalytics> {
   return authenticatedRequest<UsageAnalytics>(
-    `/traces/usage/users/${userId}${buildUsageRangeQuery(range)}`
+    `/traces/usage/users/${userId}${buildUsageRangeQuery(range, includeHourly)}`
   )
 }
 
-function buildUsageRangeQuery(range: UsageRange) {
+// GET /traces/usage/me — authenticated user's own account-wide usage.
+export function getMyUsage(
+  range: UsageRange = {},
+  includeHourly = false
+): Promise<UsageAnalytics> {
+  return authenticatedRequest<UsageAnalytics>(
+    `/traces/usage/me${buildUsageRangeQuery(range, includeHourly)}`
+  )
+}
+
+function buildUsageRangeQuery(range: UsageRange, includeHourly = false) {
   const params = new URLSearchParams()
   if (range.from) params.set("from", range.from)
   if (range.to) params.set("to", range.to)
+  if (includeHourly) params.set("include_hourly", "true")
   const query = params.toString()
   return query ? `?${query}` : ""
 }
@@ -867,13 +912,13 @@ export type ModelCreditRate = {
   provider_model_id: string
   version: number
   tokens_per_credit: string
-  max_request_tokens: number
+  max_request_tokens: number | null
   created_at: string
 }
 
 export type ModelRateUpdate = {
   tokens_per_credit: string
-  max_request_tokens: number
+  max_request_tokens?: number | null
 }
 
 export type UsageResolution = {

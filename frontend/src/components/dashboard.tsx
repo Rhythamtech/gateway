@@ -129,7 +129,8 @@ export function Dashboard({
   const usesPageContent =
     path === "/dashboard" ||
     path === "/dashboard/credits" ||
-    path === "/dashboard/credit-review"
+    path === "/dashboard/credit-review" ||
+    path === "/dashboard/settings"
   return (
     <AuthGate
       requiresSuperuser={isSuperuserDashboardRoute(path)}

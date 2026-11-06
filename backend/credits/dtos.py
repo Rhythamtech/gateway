@@ -47,7 +47,7 @@ class ModelRateUpdate(BaseModel):
     tokens_per_credit: Annotated[
         Decimal, Field(gt=0, le=1_000_000_000, max_digits=16, decimal_places=6)
     ]
-    max_request_tokens: int = Field(gt=0, le=10_000_000, strict=True)
+    max_request_tokens: int | None = Field(default=None, gt=0, le=10_000_000, strict=True)
 
 
 class ModelRateResponse(BaseModel):
@@ -55,7 +55,7 @@ class ModelRateResponse(BaseModel):
     provider_model_id: str
     version: int
     tokens_per_credit: str
-    max_request_tokens: int
+    max_request_tokens: int | None
     created_at: UTCDateTime
 
 

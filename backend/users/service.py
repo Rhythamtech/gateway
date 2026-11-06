@@ -24,8 +24,16 @@ def update_own_preferences(
 ) -> User:
     """Self-service preference update; the caller is always the user itself."""
 
-    if user.telemetry_enabled != data.telemetry_enabled:
+    changed = False
+    if data.telemetry_enabled is not None and user.telemetry_enabled != data.telemetry_enabled:
         user.telemetry_enabled = bool(data.telemetry_enabled)
+        changed = True
+
+    if data.tracing_enabled is not None and user.tracing_enabled != data.tracing_enabled:
+        user.tracing_enabled = bool(data.tracing_enabled)
+        changed = True
+
+    if changed:
         db.commit()
         db.refresh(user)
 

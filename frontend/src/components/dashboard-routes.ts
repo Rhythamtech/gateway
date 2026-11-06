@@ -58,14 +58,14 @@ const routes = [
       import("@/components/traces").then((m) => ({
         default: m.TraceDetailContent,
       })),
-    true
+    false
   ),
   route(
     "/dashboard/traces",
-    "LLM Traces",
+    "Request traces",
     () =>
       import("@/components/traces").then((m) => ({ default: m.TracesContent })),
-    true
+    false
   ),
   route("/dashboard/playground", "Playground", () =>
     import("@/components/playground").then((m) => ({

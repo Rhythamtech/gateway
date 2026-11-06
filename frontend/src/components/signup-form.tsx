@@ -2,7 +2,7 @@ import * as React from "react"
 import { cn } from "cn"
 
 import { BrandMark } from "@/components/brand"
-import { ApiError, register } from "@/lib/auth"
+import { ApiError, login, register } from "@/lib/auth"
 import { APP_NAME } from "@/lib/site"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -19,7 +19,10 @@ export function SignupForm({
   ...props
 }: React.ComponentProps<"div">) {
   const [error, setError] = React.useState<string | null>(null)
-  const [success, setSuccess] = React.useState(false)
+  const [retryCredentials, setRetryCredentials] = React.useState<{
+    email: string
+    password: string
+  } | null>(null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
 
   async function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
@@ -37,14 +40,40 @@ export function SignupForm({
 
     setIsSubmitting(true)
     try {
-      await register(String(formData.get("email") ?? ""), password)
-      form.reset()
-      setSuccess(true)
+      const email = String(formData.get("email") ?? "")
+      await register(email, password)
+      try {
+        await login(email, password)
+        window.location.replace("/dashboard")
+      } catch {
+        setRetryCredentials({ email, password })
+        setError("Account created. Try signing in again.")
+        form.reset()
+      }
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
           ? requestError.message
           : "Unable to create your account. Please try again."
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  async function retryLogin() {
+    if (!retryCredentials) return
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      await login(retryCredentials.email, retryCredentials.password)
+      setRetryCredentials(null)
+      window.location.replace("/dashboard")
+    } catch (requestError) {
+      setError(
+        requestError instanceof ApiError
+          ? requestError.message
+          : "Unable to sign in. Please try again."
       )
     } finally {
       setIsSubmitting(false)
@@ -114,15 +143,26 @@ export function SignupForm({
                   {error}
                 </p>
               ) : null}
-              {success ? (
-                <p className="text-sm text-green-700" role="status">
-                  Account created. You can now <a href="/login">sign in</a>.
+              {retryCredentials ? (
+                <p className="text-sm" role="status">
+                  Account created. <a href="/login">Sign in</a> if the automatic
+                  retry continues to fail.
                 </p>
               ) : null}
               <Field>
-                <Button type="submit" disabled={isSubmitting || success}>
-                  {isSubmitting ? "Creating account…" : "Create Account"}
-                </Button>
+                {retryCredentials ? (
+                  <Button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={retryLogin}
+                  >
+                    {isSubmitting ? "Signing in…" : "Retry sign in"}
+                  </Button>
+                ) : (
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? "Creating account…" : "Create Account"}
+                  </Button>
+                )}
               </Field>
               <FieldDescription className="text-center">
                 Already have an account? <a href="/login">Sign in</a>

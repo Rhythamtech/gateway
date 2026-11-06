@@ -1,282 +1,307 @@
 import * as React from "react"
-import { IconCircleCheckFilled, IconBan } from "@tabler/icons-react"
-
-import {
-  ApiError,
-  cacheUser,
-  updateMyPreferences,
-  updateUserTracing,
-  type CurrentUser,
-} from "@/lib/auth"
+import { ArrowUpRight, UserRound } from "lucide-react"
 import { toast } from "sonner"
-import { cn } from "cn"
+
+import { cacheUser, getLogRetention, updateLogRetention, updateMyPreferences, type CurrentUser, type LogRetention } from "@/lib/auth"
+import { useTheme } from "@/hooks/use-theme"
+import type { Theme } from "@/lib/theme"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
-type PendingField = "tracing" | "telemetry" | null
-
-// Self-contained switch control (no matching primitive exists in ui/); a
-// native button keeps keyboard and screen-reader semantics without a new
-// dependency.
-function ToggleSwitch({
-  checked,
-  disabled,
-  label,
-  onToggle,
-}: {
-  checked: boolean
-  disabled: boolean
-  label: string
-  onToggle: () => void
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onToggle}
-      className={cn(
-        "inline-flex h-[1.15rem] w-8 shrink-0 items-center rounded-full border border-transparent shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
-        checked ? "bg-primary" : "bg-input dark:bg-input/60"
-      )}
-    >
-      <span
-        className={cn(
-          "pointer-events-none block size-4 rounded-full bg-background shadow-sm ring-0 transition-transform",
-          checked ? "translate-x-[calc(100%-2px)]" : "translate-x-0"
-        )}
-      />
-    </button>
-  )
-}
-
-type SettingRowProps = {
-  title: string
-  description: React.ReactNode
-  checked: boolean
-  disabled: boolean
-  badge?: React.ReactNode
-  pending: boolean
-  statusLabel: string
-  label: string
-  onToggle: () => void
-}
-
-function SettingRow({
+function PreferenceRow({
   title,
   description,
   checked,
   disabled,
-  badge,
-  pending,
-  statusLabel,
-  label,
   onToggle,
-}: SettingRowProps) {
+}: {
+  title: string
+  description: string
+  checked: boolean
+  disabled: boolean
+  onToggle: () => void
+}) {
+  const id = React.useId()
+
   return (
-    <div className="flex items-start justify-between gap-4 py-4 first:pt-0 last:pb-0">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium">{title}</p>
-          {badge}
-        </div>
-        <div className="max-w-prose text-xs text-muted-foreground">
+    <div className="flex min-w-0 items-start justify-between gap-4 px-4 py-4 sm:px-5">
+      <div className="min-w-0">
+        <p id={id} className="text-sm font-medium">
+          {title}
+        </p>
+        <p
+          id={`${id}-description`}
+          className="mt-1 text-sm leading-5 text-muted-foreground"
+        >
           {description}
-        </div>
+        </p>
       </div>
-      <div className="flex flex-col items-end gap-1">
-        <ToggleSwitch
-          checked={checked}
-          disabled={disabled}
-          label={label}
-          onToggle={onToggle}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-labelledby={id}
+        aria-describedby={`${id}-description`}
+        disabled={disabled}
+        onClick={onToggle}
+        className={cn(
+          "relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50",
+          checked ? "bg-primary" : "bg-input"
+        )}
+      >
+        <span
+          className={cn(
+            "pointer-events-none absolute left-0.5 size-4 rounded-full bg-background shadow-sm motion-safe:transition-transform",
+            checked && "translate-x-4"
+          )}
         />
-        <span className="text-xs text-muted-foreground" aria-live="polite">
-          {pending ? "Saving…" : statusLabel}
-        </span>
-      </div>
+      </button>
     </div>
   )
 }
 
-function OnOffBadge({ on }: { on: boolean }) {
-  if (on) {
-    return (
-      <Badge variant="outline" className="gap-1 px-1.5 text-xs">
-        <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
-        On
-      </Badge>
-    )
-  }
-  return (
-    <Badge
-      variant="outline"
-      className="gap-1 px-1.5 text-xs text-muted-foreground"
-    >
-      <IconBan className="size-3" />
-      Off
-    </Badge>
-  )
-}
-
 export function SettingsContent({ user }: { user: CurrentUser }) {
-  // Local profile starts from the AuthGate-validated user and is refreshed
-  // after each successful toggle; cacheUser keeps instant paints on other
-  // pages consistent until their next /users/me revalidation.
-  const [profile, setProfile] = React.useState<CurrentUser>(user)
-  const [pending, setPending] = React.useState<PendingField>(null)
-  const [actionError, setActionError] = React.useState<string | null>(null)
+  const { theme, setTheme } = useTheme()
+  const [profile, setProfile] = React.useState(user)
+  const [tracing, setTracing] = React.useState(user.tracing_enabled)
+  const [telemetry, setTelemetry] = React.useState(user.telemetry_enabled)
+  const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [retention, setRetention] = React.useState<LogRetention>("never")
+  const [retentionDraft, setRetentionDraft] = React.useState<LogRetention>("never")
+  const [retentionSaving, setRetentionSaving] = React.useState(false)
+  const tracingChanged = tracing !== profile.tracing_enabled
+  const telemetryChanged = telemetry !== profile.telemetry_enabled
+  const dirty = tracingChanged || telemetryChanged
+  React.useEffect(() => {
+    getLogRetention().then(({ log_retention }) => {
+      setRetention(log_retention)
+      setRetentionDraft(log_retention)
+    }).catch(() => {})
+  }, [])
 
-  const isSuperuser = profile.role === "superuser"
-
-  async function toggleTelemetry() {
-    if (profile.telemetry_enabled === undefined) return
-    setPending("telemetry")
-    setActionError(null)
-
+  async function saveRetention() {
+    setRetentionSaving(true)
     try {
-      const updated = await updateMyPreferences(!profile.telemetry_enabled)
-      setProfile(updated)
-      cacheUser(updated)
-      toast.success(
-        updated.telemetry_enabled
-          ? "OpenTelemetry spans enabled for your traffic."
-          : "OpenTelemetry spans disabled for your traffic."
-      )
-    } catch (error) {
-      setActionError(
-        error instanceof ApiError
-          ? error.message
-          : "Unable to update your telemetry preference."
-      )
+      const result = await updateLogRetention(retentionDraft)
+      setRetention(result.log_retention)
+      setRetentionDraft(result.log_retention)
+      toast.success("Log retention policy saved.")
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Unable to save log retention.")
     } finally {
-      setPending(null)
+      setRetentionSaving(false)
     }
   }
 
-  async function toggleTracing() {
-    if (!isSuperuser) return
-    setPending("tracing")
-    setActionError(null)
+  function discardChanges() {
+    setTracing(profile.tracing_enabled)
+    setTelemetry(profile.telemetry_enabled)
+    setError(null)
+  }
 
+  async function savePreferences(event: React.SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!dirty || saving) return
+    setSaving(true)
+    setError(null)
     try {
-      const updated = await updateUserTracing(
-        profile.id,
-        !profile.tracing_enabled
-      )
-      setProfile(updated)
+      const updated = await updateMyPreferences({
+        tracingEnabled: tracingChanged ? tracing : undefined,
+        telemetryEnabled: telemetryChanged ? telemetry : undefined,
+      })
       cacheUser(updated)
-      toast.success(
-        updated.tracing_enabled
-          ? "Usage tracing enabled — recorded requests will appear in LLM Traces."
-          : "Usage tracing disabled — no new trace rows will be recorded."
-      )
-    } catch (error) {
-      setActionError(
-        error instanceof ApiError
-          ? error.message
-          : "Unable to update usage tracing."
+      setProfile(updated)
+      setTracing(updated.tracing_enabled)
+      setTelemetry(updated.telemetry_enabled)
+      toast.success("Observability preferences saved.")
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to save your preferences."
       )
     } finally {
-      setPending(null)
+      setSaving(false)
     }
   }
 
   return (
-    <>
-      <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
-        <p className="text-sm text-muted-foreground">
-          Observability controls for your own API traffic. Turning these off
-          never blocks inference; it only stops what gets recorded or exported.
+    <div className="@container/settings flex w-full max-w-4xl min-w-0 flex-col gap-7">
+      <header>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          Account settings
+        </h2>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Manage your account preferences and how Gateway records your traffic.
         </p>
-      </div>
-      <div className="px-4 lg:px-6">
-        {actionError !== null ? (
-          <p className="mb-2 text-sm text-destructive" role="alert">
-            {actionError}
+      </header>
+
+      <section
+        aria-labelledby="settings-account"
+        className="grid min-w-0 gap-4 @min-[680px]/settings:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
+      >
+        <div>
+          <h3 id="settings-account" className="text-sm font-semibold">
+            Account
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Your signed-in identity and API access.
           </p>
-        ) : null}
-        <div className="grid grid-cols-1 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Observability</CardTitle>
-              <CardDescription>
-                Trace recording feeds the LLM Traces pages. OpenTelemetry spans
-                feed operational trace exporters and are emitted only when the
-                server&rsquo;s telemetry exporter is enabled as well.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col">
-              <SettingRow
-                title="Usage tracing"
-                description={
-                  <span>
-                    Persist your requests and provider call attempts to{" "}
-                    <span className="font-mono text-[11px]">/traces</span>. When
-                    off, no trace rows or usage aggregates are recorded for your
-                    traffic.
-                    {isSuperuser ? null : " Managed by a superuser."}
-                  </span>
-                }
-                badge={
-                  <>
-                    <OnOffBadge on={profile.tracing_enabled} />
-                    {isSuperuser ? null : (
-                      <Badge
-                        variant="secondary"
-                        className="px-1.5 text-[11px] text-muted-foreground"
-                      >
-                        Superuser-managed
-                      </Badge>
-                    )}
-                  </>
-                }
-                checked={profile.tracing_enabled}
-                disabled={!isSuperuser || pending !== null}
-                pending={pending === "tracing"}
-                statusLabel={
-                  profile.tracing_enabled
-                    ? "Requests are recorded"
-                    : "Requests are not recorded"
-                }
-                label="Toggle usage tracing"
-                onToggle={toggleTracing}
-              />
-              <Separator />
-              <SettingRow
-                title="OpenTelemetry spans"
-                description={
-                  <span>
-                    Export OpenTelemetry spans for gateway and provider attempts
-                    from your traffic. This is an operational telemetry opt-out,
-                    independent of trace recording.
-                  </span>
-                }
-                badge={<OnOffBadge on={profile.telemetry_enabled} />}
-                checked={profile.telemetry_enabled}
-                disabled={pending !== null}
-                pending={pending === "telemetry"}
-                statusLabel={
-                  profile.telemetry_enabled
-                    ? "Spans are exported"
-                    : "Spans are not exported"
-                }
-                label="Toggle OpenTelemetry spans"
-                onToggle={toggleTelemetry}
-              />
-            </CardContent>
-          </Card>
         </div>
-      </div>
-    </>
+        <div className="min-w-0 divide-y rounded-xl border bg-card">
+          <div className="flex min-w-0 items-center gap-3 p-4 sm:px-5">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+              <UserRound className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Signed in as</p>
+              <p className="text-sm font-medium break-all">{profile.email}</p>
+            </div>
+            <Badge variant="secondary" className="ml-auto shrink-0">
+              {profile.role === "superuser" ? "Superuser" : "User"}
+            </Badge>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 p-4 sm:px-5">
+            <p className="text-sm font-medium">API keys</p>
+            <Button asChild variant="outline" size="sm">
+              <a href="/dashboard/api-keys">
+                Manage keys <ArrowUpRight data-icon="inline-end" />
+              </a>
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="settings-appearance"
+        className="grid min-w-0 gap-4 border-t pt-6 @min-[680px]/settings:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
+      >
+        <div>
+          <h3 id="settings-appearance" className="text-sm font-semibold">
+            Appearance
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Personalize the dashboard on this browser.
+          </p>
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 sm:px-5">
+          <div>
+            <label htmlFor="settings-theme" className="text-sm font-medium">
+              Theme
+            </label>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Changes apply immediately.
+            </p>
+          </div>
+          <Select
+            value={theme}
+            onValueChange={(value) => setTheme(value as Theme)}
+          >
+            <SelectTrigger id="settings-theme" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="system">System</SelectItem>
+                <SelectItem value="light">Light</SelectItem>
+                <SelectItem value="dark">Dark</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="settings-observability"
+        className="grid min-w-0 gap-4 border-t pt-6 @min-[680px]/settings:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
+      >
+        <div>
+          <h3 id="settings-observability" className="text-sm font-semibold">
+            Observability
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Choose what Gateway records or exports for your future requests.
+          </p>
+        </div>
+        <form
+          onSubmit={savePreferences}
+          className="min-w-0 divide-y rounded-xl border bg-card"
+        >
+          <PreferenceRow
+            title="Request tracing"
+            description="Store request traces and usage metrics for your traffic. Turning this off stops new recordings."
+            checked={tracing}
+            disabled={saving}
+            onToggle={() => setTracing((value) => !value)}
+          />
+          <PreferenceRow
+            title="OpenTelemetry export"
+            description="Allow operational spans for your traffic to be sent to the gateway’s configured telemetry collector."
+            checked={telemetry}
+            disabled={saving}
+            onToggle={() => setTelemetry((value) => !value)}
+          />
+          <div className="flex flex-col gap-3 px-4 py-4 sm:px-5">
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p role="status" className="text-xs text-muted-foreground">
+                {saving
+                  ? "Saving preferences…"
+                  : dirty
+                    ? "Unsaved changes"
+                    : "Preferences saved"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {dirty && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={saving}
+                    onClick={discardChanges}
+                  >
+                    Discard
+                  </Button>
+                )}
+                <Button type="submit" size="sm" disabled={!dirty || saving}>
+                  Save changes
+                </Button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </section>
+      {profile.role === "superuser" && (
+        <section aria-labelledby="settings-retention" className="grid min-w-0 gap-4 border-t pt-6 @min-[680px]/settings:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <div><h3 id="settings-retention" className="text-sm font-semibold">Data retention</h3></div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 sm:px-5">
+            <label htmlFor="settings-retention-policy" className="text-sm font-medium">Automatic log deletion</label>
+            <div className="flex items-center gap-2">
+              <Select value={retentionDraft} onValueChange={(value) => setRetentionDraft(value as LogRetention)}>
+                <SelectTrigger id="settings-retention-policy" className="w-36"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectGroup>
+                  <SelectItem value="never">Never</SelectItem><SelectItem value="24h">24 hours</SelectItem><SelectItem value="7d">7 days</SelectItem><SelectItem value="30d">30 days</SelectItem>
+                </SelectGroup></SelectContent>
+              </Select>
+              <Button size="sm" disabled={retentionDraft === retention || retentionSaving} onClick={saveRetention}>{retentionSaving ? "Saving…" : "Save"}</Button>
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
   )
 }

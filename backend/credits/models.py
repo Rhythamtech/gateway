@@ -66,7 +66,7 @@ class ModelCreditRate(Base):
     )
     version: Mapped[int]
     tokens_per_credit_micros: Mapped[int] = mapped_column(BigInteger)
-    max_request_tokens: Mapped[int]
+    max_request_tokens: Mapped[int | None]
     actor_id: Mapped[str] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow

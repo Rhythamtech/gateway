@@ -35,7 +35,10 @@ _TRACKING_TABLE = "schema_migrations"
 # DROP TABLE fires ON DELETE actions on referencing rows (SQLite simulates
 # dropping with an implicit DELETE), which would silently cascade-delete live
 # child rows such as model group members.
-_FOREIGN_KEYS_OFF_MIGRATIONS: set[str] = {"0012_remove_wallet_credit_schema"}
+_FOREIGN_KEYS_OFF_MIGRATIONS: set[str] = {
+    "0012_remove_wallet_credit_schema",
+    "0016_optional_model_token_ceiling",
+}
 
 _foreign_keys_guard = {"off": False}
 
@@ -602,6 +605,53 @@ def _migration_0015_remove_max_output_tokens(connection: Connection) -> None:
         connection.execute(text("ALTER TABLE credit_usage DROP COLUMN max_output_tokens"))
 
 
+def _migration_0016_optional_model_token_ceiling(connection: Connection) -> None:
+    columns = connection.execute(text("PRAGMA table_info(credit_model_rates)")).all()
+    if not any(row[1] == "max_request_tokens" and row[3] for row in columns):
+        return
+
+    connection.execute(text("""
+        CREATE TABLE credit_model_rates__v16 (
+            id VARCHAR(36) NOT NULL PRIMARY KEY,
+            provider_model_id VARCHAR(36) NOT NULL,
+            version INTEGER NOT NULL,
+            tokens_per_credit_micros BIGINT NOT NULL CHECK (tokens_per_credit_micros > 0),
+            max_request_tokens INTEGER CHECK (max_request_tokens > 0),
+            actor_id VARCHAR(36) NOT NULL,
+            created_at TIMESTAMP NOT NULL,
+            UNIQUE (provider_model_id, version),
+            FOREIGN KEY(provider_model_id) REFERENCES provider_models (id) ON DELETE RESTRICT
+        )
+    """))
+    connection.execute(text("""
+        INSERT INTO credit_model_rates__v16 (
+            id, provider_model_id, version, tokens_per_credit_micros,
+            max_request_tokens, actor_id, created_at
+        )
+        SELECT id, provider_model_id, version, tokens_per_credit_micros,
+               max_request_tokens, actor_id, created_at
+        FROM credit_model_rates
+    """))
+    connection.execute(text("DROP TABLE credit_model_rates"))
+    connection.execute(text("ALTER TABLE credit_model_rates__v16 RENAME TO credit_model_rates"))
+    connection.execute(text(
+        "CREATE INDEX ix_credit_model_rates_provider_model_id "
+        "ON credit_model_rates (provider_model_id)"
+    ))
+
+
+def _migration_0017_gateway_log_retention(connection: Connection) -> None:
+    connection.execute(text(
+        "CREATE TABLE IF NOT EXISTS gateway_settings ("
+        "id INTEGER PRIMARY KEY CHECK (id = 1), "
+        "log_retention VARCHAR(8) NOT NULL DEFAULT 'never' "
+        "CHECK (log_retention IN ('24h','7d','30d','never')))"
+    ))
+    connection.execute(text(
+        "INSERT OR IGNORE INTO gateway_settings (id, log_retention) VALUES (1, 'never')"
+    ))
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -624,6 +674,8 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0013_usage_credits", _migration_0013_usage_credits),
     ("0014_credit_micros_rename", _migration_0014_credit_micros_rename),
     ("0015_remove_max_output_tokens", _migration_0015_remove_max_output_tokens),
+    ("0016_optional_model_token_ceiling", _migration_0016_optional_model_token_ceiling),
+    ("0017_gateway_log_retention", _migration_0017_gateway_log_retention),
 ]
 
 

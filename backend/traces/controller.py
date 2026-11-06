@@ -11,15 +11,18 @@ Access rules (see docs/tracing.md):
 
 import json
 from datetime import date
+from enum import Enum
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.api_keys.models import APIKey
 from backend.auth.models import User, UserRole
-from backend.core.database import get_db
+from backend.core.database import SessionLocal, get_db, write_engine
 from backend.dependencies import get_current_user
 from backend.gateway.model_groups.models import ModelGroup
 from backend.traces import service
@@ -28,6 +31,7 @@ from backend.traces.dtos import (
     CallsPage,
     DailyUsageEntry,
     GatewayModelRef,
+    HourlyCallActivity,
     MessageTraceDetail,
     MessageTraceItem,
     MessagesPage,
@@ -37,11 +41,41 @@ from backend.traces.dtos import (
 )
 from backend.traces.models import (
     LLMAPIKeyUsageDaily,
+    LLMCallTrace,
     LLMGatewayModelUsageDaily,
     LLMUserUsageDaily,
 )
 
 router = APIRouter(prefix="/traces", tags=["LLM Traces"])
+
+
+class LogRetention(str, Enum):
+    day = "24h"
+    week = "7d"
+    month = "30d"
+    never = "never"
+
+
+class LogRetentionUpdate(BaseModel):
+    log_retention: LogRetention
+
+
+@router.get("/retention")
+def get_log_retention(user: User = Depends(get_current_user)):
+    with write_engine.connect() as connection:
+        value = connection.execute(text("SELECT log_retention FROM gateway_settings WHERE id=1")).scalar_one()
+    return {"log_retention": value}
+
+
+@router.patch("/retention")
+def update_log_retention(
+    data: LogRetentionUpdate,
+    user: User = Depends(get_current_user),
+):
+    _ensure_superuser(user)
+    with SessionLocal.begin() as db:
+        db.execute(text("UPDATE gateway_settings SET log_retention=:value WHERE id=1"), {"value": data.log_retention.value})
+    return {"log_retention": data.log_retention.value}
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +219,7 @@ def _call_item(call: dict[str, Any]) -> CallTraceItem:
 
 
 # ---------------------------------------------------------------------------
-# Message traces (superuser only)
+# Message traces
 # ---------------------------------------------------------------------------
 
 
@@ -193,12 +227,13 @@ def _call_item(call: dict[str, Any]) -> CallTraceItem:
 def list_messages(
     page: int = Query(default=1),
     page_size: int = Query(default=20),
+    user_id: UUID | None = Query(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _ensure_superuser(user)
     page, page_size = _ensure_page(page, page_size)
-    items, total = service.list_message_rows(db, page, page_size)
+    scoped_user_id = user.id if user.role != UserRole.SUPERUSER else (str(user_id) if user_id else None)
+    items, total = service.list_message_rows(db, page, page_size, user_id=scoped_user_id)
 
     return MessagesPage(
         items=[_message_item(item) for item in items],
@@ -214,13 +249,18 @@ def get_message_trace(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _ensure_superuser(user)
     message = service.get_message_row(db, str(trace_id))
     if message is None:
         raise _error(
             status.HTTP_404_NOT_FOUND,
             "TRACE_NOT_FOUND",
             "The requested trace was not found.",
+        )
+    if user.role != UserRole.SUPERUSER and message.get("user_id") != user.id:
+        raise _error(
+            status.HTTP_403_FORBIDDEN,
+            "FORBIDDEN",
+            "You do not have access to this trace data.",
         )
 
     calls = [_call_item(call) for call in service.list_call_rows_by_message(db, str(trace_id))]
@@ -233,7 +273,7 @@ def get_message_trace(
 
 
 # ---------------------------------------------------------------------------
-# Call traces (superuser only)
+# Call traces
 # ---------------------------------------------------------------------------
 
 
@@ -252,16 +292,17 @@ def list_calls(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _ensure_superuser(user)
     page, page_size = _ensure_page(page, page_size)
     status = _ensure_status(status)
     from_date, to_date = _ensure_dates(from_param, to_param)
+
+    scoped_user_id = user.id if user.role != UserRole.SUPERUSER else (str(user_id) if user_id else None)
 
     items, total = service.list_calls(
         db,
         page,
         page_size,
-        user_id=str(user_id) if user_id else None,
+        user_id=scoped_user_id,
         message_id=message_id,
         api_key_id=str(api_key_id) if api_key_id else None,
         gateway_model_id=str(gateway_model_id) if gateway_model_id else None,
@@ -285,7 +326,6 @@ def get_call_trace(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _ensure_superuser(user)
     item = service.get_call(db, str(call_id))
     if item is None:
         raise _error(
@@ -293,7 +333,12 @@ def get_call_trace(
             "TRACE_NOT_FOUND",
             "The requested trace was not found.",
         )
-
+    if user.role != UserRole.SUPERUSER and item.get("user_id") != user.id:
+        raise _error(
+            status.HTTP_403_FORBIDDEN,
+            "FORBIDDEN",
+            "You do not have access to this trace data.",
+        )
     return _call_item(item)
 
 
@@ -311,6 +356,7 @@ def _usage_response(
     *,
     default_from: date,
     default_to: date,
+    hourly: list[dict[str, int]] | None = None,
 ) -> UsageAnalytics:
     return UsageAnalytics(
         subject_type=subject_type,
@@ -319,6 +365,7 @@ def _usage_response(
         to_date=(to_date or default_to).isoformat(),
         totals=UsageTotals(**data["totals"]),
         daily=[DailyUsageEntry(**entry) for entry in data["daily"]],
+        hourly=[HourlyCallActivity(**entry) for entry in hourly] if hourly is not None else None,
     )
 
 
@@ -327,6 +374,7 @@ def api_key_usage(
     key_id: UUID,
     from_param: str | None = Query(default=None, alias="from"),
     to_param: str | None = Query(default=None, alias="to"),
+    include_hourly: bool = False,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -346,6 +394,13 @@ def api_key_usage(
         db, LLMAPIKeyUsageDaily, "api_key_id", key.id, from_date, to_date
     )
     defaults = service.usage_date_bounds(key.created_at)
+    hourly = (
+        service.hourly_call_activity(
+            db, LLMCallTrace.api_key_id, key.id, from_date or defaults[0], to_date or defaults[1]
+        )
+        if include_hourly
+        else None
+    )
     return _usage_response(
         subject_type="api_key",
         subject_id=key_id,
@@ -354,6 +409,7 @@ def api_key_usage(
         data=data,
         default_from=defaults[0],
         default_to=defaults[1],
+        hourly=hourly,
     )
 
 
@@ -404,6 +460,7 @@ def user_usage(
     user_id: UUID,
     from_param: str | None = Query(default=None, alias="from"),
     to_param: str | None = Query(default=None, alias="to"),
+    include_hourly: bool = False,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -421,7 +478,47 @@ def user_usage(
     data = service.usage_for_subject(
         db, LLMUserUsageDaily, "user_id", subject.id, from_date, to_date
     )
+
+
+@router.get("/usage/me", response_model=UsageAnalytics)
+def my_usage(
+    from_param: str | None = Query(default=None, alias="from"),
+    to_param: str | None = Query(default=None, alias="to"),
+    include_hourly: bool = False,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return account-wide usage for the authenticated user only."""
+    from_date, to_date = _ensure_dates(from_param, to_param)
+    data = service.usage_for_subject(
+        db, LLMUserUsageDaily, "user_id", user.id, from_date, to_date
+    )
+    defaults = service.usage_date_bounds(user.created_at)
+    hourly = (
+        service.hourly_call_activity(
+            db, LLMCallTrace.user_id, user.id, from_date or defaults[0], to_date or defaults[1]
+        )
+        if include_hourly
+        else None
+    )
+    return _usage_response(
+        subject_type="user",
+        subject_id=UUID(user.id),
+        from_date=from_date,
+        to_date=to_date,
+        data=data,
+        default_from=defaults[0],
+        default_to=defaults[1],
+        hourly=hourly,
+    )
     defaults = service.usage_date_bounds(subject.created_at)
+    hourly = (
+        service.hourly_call_activity(
+            db, LLMCallTrace.user_id, subject.id, from_date or defaults[0], to_date or defaults[1]
+        )
+        if include_hourly
+        else None
+    )
     return _usage_response(
         subject_type="user",
         subject_id=user_id,
@@ -430,4 +527,5 @@ def user_usage(
         data=data,
         default_from=defaults[0],
         default_to=defaults[1],
+        hourly=hourly,
     )

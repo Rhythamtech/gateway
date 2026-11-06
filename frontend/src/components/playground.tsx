@@ -3,28 +3,22 @@
 import * as React from "react"
 import {
   ArrowRight,
-  ArrowUp,
-  Bot,
   Check,
-  ChevronDown,
-  ChevronUp,
   ChevronsUpDown,
+  ChevronRight,
   Code,
-  Coins,
   Copy,
   Cpu,
   KeyRound,
+  PanelRight,
   Plus,
-  RotateCcw,
   Search,
   Send,
   SlidersHorizontal,
   Sparkles,
   Square,
   Terminal,
-  User,
   X,
-  Zap,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -41,11 +35,56 @@ import {
   type CreditBalance,
   type CurrentUser,
 } from "@/lib/auth"
+import {
+  conversationHistory,
+  requestSnippet,
+  type ChatPayload,
+} from "@/lib/playground-request"
+import { readChatResponse, type RunSnapshot } from "@/lib/playground-stream"
 import { formatCredits } from "@/lib/credits"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetClose,
+} from "@/components/ui/sheet"
+import {
+  InputGroup,
+  InputGroupTextarea,
+  InputGroupAddon,
+  InputGroupButton,
+} from "@/components/ui/input-group"
+import {
+  Message,
+  MessageHeader,
+  MessageContent,
+  MessageFooter,
+} from "@/components/ui/message"
+import { Bubble, BubbleContent } from "@/components/ui/bubble"
+import {
+  MessageScrollerProvider,
+  MessageScroller,
+  MessageScrollerViewport,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerButton,
+} from "@/components/ui/message-scroller"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { useIsMobile } from "@/hooks/use-mobile"
+import type { InspectorProps } from "@/components/playground-inspector"
+const PlaygroundInspector = React.lazy(
+  () => import("@/components/playground-inspector")
+)
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogClose,
@@ -64,7 +103,7 @@ import {
 } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "cn"
 
@@ -76,16 +115,138 @@ export type ChatMessage = {
   id: string
   role: "user" | "assistant" | "system"
   content: string
+  reasoning?: string
   timestamp: Date
+  modelId?: string
   tokens?: number
   latencyMs?: number
   isStreaming?: boolean
+  includeInHistory?: boolean
+  runStatus?: string
   error?: boolean
   errorAction?: {
     label: string
     href: string
   }
 }
+
+function copyMessageContent(text: string) {
+  void navigator.clipboard.writeText(text)
+  toast.success("Copied to clipboard.")
+}
+
+const PlaygroundMessage = React.memo(function PlaygroundMessage({
+  message,
+  modelId,
+  onRetry,
+}: {
+  message: ChatMessage
+  modelId: string
+  onRetry?: () => void
+}) {
+  const isUser = message.role === "user"
+  return (
+    <Message
+      align={isUser ? "end" : "start"}
+      role="article"
+      aria-label={isUser ? "Your message" : "Assistant response"}
+    >
+      <MessageContent>
+        <MessageHeader className="gap-3">
+          <span className="min-w-0 [overflow-wrap:anywhere]">
+            {isUser ? "You" : message.modelId || modelId || "Assistant"}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={isUser ? "Copy your message" : "Copy answer"}
+            disabled={!message.content}
+            onClick={() => copyMessageContent(message.content)}
+          >
+            <Copy />
+          </Button>
+        </MessageHeader>
+        {!isUser && message.reasoning?.trim() ? (
+          <Collapsible className="min-w-0 rounded-lg border bg-muted/20">
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                className="group h-auto min-h-10 w-full justify-start gap-2 px-3 py-2 text-muted-foreground"
+              >
+                <ChevronRight className="transition-transform group-data-[state=open]:rotate-90 motion-reduce:transition-none" />
+                <Sparkles />
+                <span>
+                  {message.isStreaming && message.runStatus === "Thinking"
+                    ? "Thinking…"
+                    : "Thinking"}
+                </span>
+                <span className="ml-auto text-xs font-normal">
+                  Provider reasoning
+                </span>
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="border-t px-3 py-3">
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Reasoning text returned by the provider, separate from the
+                  answer.
+                </p>
+                <div
+                  role="region"
+                  aria-label="Provider reasoning"
+                  tabIndex={0}
+                  className="max-h-72 overflow-y-auto rounded-sm text-sm leading-6 [overflow-wrap:anywhere] whitespace-pre-wrap text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  {message.reasoning}
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        ) : null}
+        {message.content ? (
+          <Bubble
+            align={isUser ? "end" : "start"}
+            variant={message.error ? "destructive" : isUser ? "muted" : "ghost"}
+          >
+            <BubbleContent className="[overflow-wrap:anywhere] whitespace-pre-wrap">
+              {message.content}
+            </BubbleContent>
+          </Bubble>
+        ) : null}
+        <MessageFooter className="flex-col items-start gap-2">
+          {message.runStatus || (message.isStreaming && !message.content) ? (
+            <p
+              className={cn(
+                "text-xs [overflow-wrap:anywhere]",
+                message.error && "text-destructive"
+              )}
+            >
+              {message.runStatus || "Waiting for response…"}
+            </p>
+          ) : null}
+          {onRetry ? (
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Retry exact request
+            </Button>
+          ) : null}
+          {message.runStatus === "Stopped" ||
+          (message.error && message.content) ? (
+            <p>Partial answer excluded from follow-up history.</p>
+          ) : null}
+          {message.errorAction ? (
+            <a
+              href={message.errorAction.href}
+              className="inline-flex items-center gap-1 underline underline-offset-4"
+            >
+              {message.errorAction.label}
+              <ArrowRight className="size-4" />
+            </a>
+          ) : null}
+        </MessageFooter>
+      </MessageContent>
+    </Message>
+  )
+})
 
 type ModelChoice = {
   id: string
@@ -121,7 +282,7 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
   const [customModel, setCustomModel] = React.useState<string>("")
   const [customModelInput, setCustomModelInput] = React.useState<string>("")
   const [isCustomMode, setIsCustomMode] = React.useState<boolean>(false)
-  const [isLoadingModels, setIsLoadingModels] = React.useState(false)
+  const [isLoadingModels, setIsLoadingModels] = React.useState(true)
 
   // Model Picker Popover UX
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false)
@@ -139,7 +300,56 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
   const [inputPrompt, setInputPrompt] = React.useState("")
   const [isGenerating, setIsGenerating] = React.useState(false)
   const abortControllerRef = React.useRef<AbortController | null>(null)
-  const messagesEndRef = React.useRef<HTMLDivElement | null>(null)
+  const workspaceRef = React.useRef<HTMLDivElement | null>(null)
+  const [conversationKey, setConversationKey] = React.useState(0)
+  const [inspectorOpen, setInspectorOpen] = React.useState(false)
+  const [canSplit, setCanSplit] = React.useState(false)
+  const detailsButtonRef = React.useRef<HTMLButtonElement | null>(null)
+  const isMobile = useIsMobile()
+
+  React.useEffect(() => {
+    const workspace = workspaceRef.current
+    if (!workspace) return
+    const measure = () => {
+      const viewport = window.visualViewport
+      const bottom = viewport
+        ? viewport.height + viewport.offsetTop
+        : window.innerHeight
+      const outerPadding =
+        Number.parseFloat(
+          getComputedStyle(workspace.parentElement!).paddingBottom
+        ) || 16
+      const inset = workspace.closest('[data-slot="sidebar-inset"]')
+      const outerMargin = inset
+        ? Number.parseFloat(getComputedStyle(inset).marginBottom) || 0
+        : 0
+      const height = Math.max(
+        200,
+        bottom -
+          workspace.getBoundingClientRect().top -
+          outerPadding -
+          outerMargin
+      )
+      workspace.style.setProperty("--playground-height", `${height}px`)
+      workspace.dataset.compact =
+        viewport && viewport.height < window.innerHeight * 0.75
+          ? "true"
+          : "false"
+      setCanSplit(workspace.clientWidth >= 1008)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(workspace)
+    window.addEventListener("resize", measure)
+    window.visualViewport?.addEventListener("resize", measure)
+    window.visualViewport?.addEventListener("scroll", measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", measure)
+      window.visualViewport?.removeEventListener("resize", measure)
+      window.visualViewport?.removeEventListener("scroll", measure)
+    }
+  }, [])
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
 
   // Auto-resize modern composer textarea
@@ -157,29 +367,29 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
   const [stream, setStream] = React.useState<boolean>(true)
 
   // Metrics state
-  const [ttftMs, setTtftMs] = React.useState<number | null>(null)
   const [totalLatencyMs, setTotalLatencyMs] = React.useState<number | null>(
     null
   )
   const [tokensPerSec, setTokensPerSec] = React.useState<number | null>(null)
-  const [usageStats, setUsageStats] = React.useState<{
-    promptTokens: number
-    completionTokens: number
-    totalTokens: number
-  } | null>(null)
   const [finishReason, setFinishReason] = React.useState<string | null>(null)
+
+  const [runDiagnostics, setRunDiagnostics] =
+    React.useState<RunSnapshot | null>(null)
+
+  React.useEffect(() => () => abortControllerRef.current?.abort(), [])
 
   // Code export & Inspector
   const [codeDrawerOpen, setCodeDrawerOpen] = React.useState(false)
   const [codeLang, setCodeLang] = React.useState<
     "curl" | "python" | "typescript"
   >("curl")
+  const [exportDraft, setExportDraft] = React.useState(false)
+  const [lastPayload, setLastPayload] = React.useState<ChatPayload | null>(null)
+  const retryHistoryRef = React.useRef<ChatMessage[]>([])
+  const sendingRef = React.useRef(false)
+  const runIdRef = React.useRef(0)
   const [lastRawRequest, setLastRawRequest] = React.useState<string>("")
   const [lastRawResponse, setLastRawResponse] = React.useState<string>("")
-  const [activeTab, setActiveTab] = React.useState<
-    "chat" | "request" | "response"
-  >("chat")
-  const [copiedCode, setCopiedCode] = React.useState(false)
 
   // Mobile parameters drawer toggle
   const [paramsDrawerOpen, setParamsDrawerOpen] = React.useState(false)
@@ -240,39 +450,42 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
   // Load models on mount or when API key / role changes
   React.useEffect(() => {
     let cancelled = false
-    setIsLoadingModels(true)
 
     async function fetchAvailableModels() {
+      setIsLoadingModels(true)
       const choices: ModelChoice[] = []
 
-      // 1. Superusers can test both Model Groups and Direct Provider models
-      if (isSuperuser) {
-        try {
-          const groupList = await listModelGroups({
-            isEnabled: true,
-            pageSize: 100,
-          })
-          if (!cancelled && groupList.items) {
-            for (const g of groupList.items) {
-              const strategyLabel =
-                g.routing_strategy === "priority"
-                  ? "Priority Failover"
-                  : g.routing_strategy === "weighted_round_robin"
-                    ? "Weighted Round-Robin"
-                    : "Round-Robin"
-              choices.push({
-                id: g.model_id,
-                label: g.name,
-                category: "model-group",
-                strategy: g.routing_strategy,
-                detail: `${strategyLabel} · ${g.member_count} member(s)`,
-              })
-            }
+      // 1. Fetch enabled Model Groups (Gateway models) for all authenticated users
+      try {
+        const groupList = await listModelGroups({
+          isEnabled: true,
+          pageSize: 100,
+        })
+        if (!cancelled && groupList.items) {
+          for (const g of groupList.items) {
+            const strategyLabel =
+              g.routing_strategy === "priority"
+                ? "Priority Failover"
+                : g.routing_strategy === "weighted_round_robin"
+                  ? "Weighted Round-Robin"
+                  : "Round-Robin"
+            choices.push({
+              id: g.model_id,
+              label: g.name,
+              category: "model-group",
+              strategy: g.routing_strategy,
+              detail: isSuperuser
+                ? `${strategyLabel} · ${g.member_count} member(s)`
+                : undefined,
+            })
           }
-        } catch {
-          // continue
         }
+      } catch {
+        // continue
+      }
 
+      // 2. Superusers can additionally test direct provider models
+      if (isSuperuser) {
         // Load providers & synced models for direct testing
         try {
           const providers = await listProviders()
@@ -299,7 +512,7 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
         }
       }
 
-      // 2. Query /v1/models using API key (works for both user and superuser; only gateway models returned)
+      // 3. Query /v1/models using API key (works for both user and superuser; only gateway models returned)
       if (apiKey) {
         try {
           const v1List = await listV1Models(apiKey)
@@ -322,24 +535,19 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
 
       if (!cancelled) {
         setModels(choices)
-        if (choices.length > 0 && !selectedModel) {
-          setSelectedModel(choices[0].id)
+        if (choices.length > 0) {
+          setSelectedModel((current) => current || choices[0].id)
         }
         setIsLoadingModels(false)
       }
     }
 
-    fetchAvailableModels()
+    void fetchAvailableModels()
 
     return () => {
       cancelled = true
     }
   }, [apiKey, isSuperuser])
-
-  // Scroll conversation into view
-  React.useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, isGenerating])
 
   // 1-Click Key Generator
   async function handleCreatePlaygroundKey() {
@@ -410,9 +618,9 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
   )
 
   // Send request to /v1/chat/completions
-  async function handleSendMessage(promptText?: string) {
+  async function handleSendMessage(promptText?: string, retry = false) {
     const textToSend = promptText ?? inputPrompt
-    if (!textToSend.trim() || isGenerating) return
+    if ((!retry && !textToSend.trim()) || sendingRef.current) return
 
     if (!apiKey) {
       setKeyDrawerOpen(true)
@@ -420,7 +628,7 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
       return
     }
 
-    if (!activeModelId) {
+    if (!retry && !activeModelId) {
       toast.error("Select or enter a target model.")
       return
     }
@@ -436,47 +644,55 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
     const assistantPlaceholder: ChatMessage = {
       id: assistantMessageId,
       role: "assistant",
+      modelId: retry ? lastPayload?.model : activeModelId,
       content: "",
       timestamp: new Date(),
-      isStreaming: stream,
+      isStreaming: true,
     }
 
-    const newMessages = [...messages, userMessage]
+    const newMessages = retry
+      ? retryHistoryRef.current
+      : [...messages, userMessage]
+    retryHistoryRef.current = newMessages
+    sendingRef.current = true
+    const runId = ++runIdRef.current
     setMessages([...newMessages, assistantPlaceholder])
     setInputPrompt("")
     setIsGenerating(true)
-    setTtftMs(null)
+    setRunDiagnostics(null)
     setTotalLatencyMs(null)
     setTokensPerSec(null)
-    setUsageStats(null)
     setFinishReason(null)
 
     // Build chat payload
-    const formattedMessages: { role: string; content: string }[] = []
+    const formattedMessages: ChatPayload["messages"] = []
     if (systemPrompt.trim()) {
       formattedMessages.push({ role: "system", content: systemPrompt.trim() })
     }
-    for (const m of newMessages) {
+    for (const m of conversationHistory(newMessages)) {
       formattedMessages.push({ role: m.role, content: m.content })
     }
 
-    const payload = {
-      model: activeModelId,
-      messages: formattedMessages,
-      temperature,
-      max_tokens: maxTokens,
-      top_p: topP,
-      stream,
-    }
+    const payload: ChatPayload =
+      retry && lastPayload
+        ? lastPayload
+        : {
+            model: activeModelId,
+            messages: formattedMessages,
+            temperature,
+            max_tokens: maxTokens,
+            top_p: topP,
+            stream,
+          }
 
     const payloadJson = JSON.stringify(payload, null, 2)
+    setLastPayload(JSON.parse(payloadJson) as ChatPayload)
     setLastRawRequest(payloadJson)
     setLastRawResponse("")
 
     const startTime = performance.now()
-    let firstTokenTime: number | null = null
     let accumulatedContent = ""
-    let tokenCount = 0
+    let accumulatedReasoning = ""
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -492,8 +708,9 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
         signal: controller.signal,
       })
 
+      if (runId !== runIdRef.current) return
       if (!response.ok) {
-        setInputPrompt(textToSend)
+        setInputPrompt((value) => value || textToSend)
 
         let errMessage = `Error ${response.status}: ${response.statusText}`
         let errCode: string | undefined
@@ -501,7 +718,11 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
 
         try {
           const errData = await response.json()
-          setLastRawResponse(JSON.stringify(errData, null, 2))
+          setLastRawResponse(
+            JSON.stringify(errData, null, 2)
+              .slice(-32_768)
+              .replaceAll(apiKey.trim(), "[REDACTED]")
+          )
           if (errData?.error?.message) {
             errMessage = errData.error.message
           } else if (errData?.detail) {
@@ -635,7 +856,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
             msg.id === assistantMessageId
               ? {
                   ...msg,
-                  content: `⚠️ **Request Failed**\n\n${errMessage}`,
+                  content: "",
+                  runStatus: `Failed: ${errMessage}`,
                   isStreaming: false,
                   error: true,
                   errorAction,
@@ -648,165 +870,89 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
         return
       }
 
-      // Handle Streaming SSE
-      if (stream && response.body) {
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ""
-        let rawLog = ""
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          const chunk = decoder.decode(value, { stream: true })
-          buffer += chunk
-          rawLog += chunk
-
-          const lines = buffer.split("\n")
-          buffer = lines.pop() ?? ""
-
-          for (const line of lines) {
-            const trimmed = line.trim()
-            if (!trimmed || trimmed.startsWith(":")) continue
-
-            if (trimmed === "data: [DONE]") {
-              setFinishReason((prev) => prev ?? "stop")
-              continue
-            }
-
-            if (trimmed.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(trimmed.slice(6))
-                const delta = data.choices?.[0]?.delta?.content
-                if (delta) {
-                  if (firstTokenTime === null) {
-                    firstTokenTime = performance.now()
-                    setTtftMs(Math.round(firstTokenTime - startTime))
+      const result = await readChatResponse(
+        response,
+        controller.signal,
+        startTime,
+        (snapshot) => {
+          accumulatedContent = snapshot.content
+          accumulatedReasoning = snapshot.reasoning
+          if (runId !== runIdRef.current) return
+          // Exclude the connected credential if an upstream response echoes it.
+          setLastRawResponse(
+            snapshot.raw.replaceAll(apiKey.trim(), "[REDACTED]")
+          )
+          setRunDiagnostics({ ...snapshot, raw: "", reasoning: "" })
+          setFinishReason(snapshot.finishReason)
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? {
+                    ...msg,
+                    content: snapshot.content,
+                    reasoning: snapshot.reasoning,
+                    runStatus: snapshot.status,
                   }
-                  accumulatedContent += delta
-                  tokenCount += 1
-
-                  setMessages((prev) =>
-                    prev.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? {
-                            ...msg,
-                            content: accumulatedContent,
-                            isStreaming: true,
-                          }
-                        : msg
-                    )
-                  )
-                }
-
-                if (data.choices?.[0]?.finish_reason) {
-                  setFinishReason(data.choices[0].finish_reason)
-                }
-                if (data.usage) {
-                  setUsageStats({
-                    promptTokens: data.usage.prompt_tokens ?? 0,
-                    completionTokens: data.usage.completion_tokens ?? 0,
-                    totalTokens: data.usage.total_tokens ?? 0,
-                  })
-                }
-              } catch {
-                // partial JSON chunk
-              }
-            }
-          }
-        }
-
-        setLastRawResponse(rawLog)
-        const totalDuration = Math.round(performance.now() - startTime)
-        setTotalLatencyMs(totalDuration)
-
-        if (tokenCount > 0 && totalDuration > 0) {
-          const tps =
-            Math.round((tokenCount / (totalDuration / 1000)) * 10) / 10
-          setTokensPerSec(tps)
-        }
-
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? {
-                  ...msg,
-                  content:
-                    accumulatedContent || "(No response content returned)",
-                  isStreaming: false,
-                  latencyMs: totalDuration,
-                  tokens: tokenCount,
-                }
-              : msg
-          )
-        )
-        void fetchCredits()
-      } else {
-        // Non-streaming JSON response
-        const data = await response.json()
-        setLastRawResponse(JSON.stringify(data, null, 2))
-        const totalDuration = Math.round(performance.now() - startTime)
-        setTotalLatencyMs(totalDuration)
-
-        const content = data.choices?.[0]?.message?.content ?? ""
-        const reason = data.choices?.[0]?.finish_reason ?? "stop"
-        setFinishReason(reason)
-
-        if (data.usage) {
-          setUsageStats({
-            promptTokens: data.usage.prompt_tokens ?? 0,
-            completionTokens: data.usage.completion_tokens ?? 0,
-            totalTokens: data.usage.total_tokens ?? 0,
-          })
-          if (data.usage.completion_tokens && totalDuration > 0) {
-            setTokensPerSec(
-              Math.round(
-                (data.usage.completion_tokens / (totalDuration / 1000)) * 10
-              ) / 10
+                : msg
             )
-          }
-        }
-
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? {
-                  ...msg,
-                  content: content || "(Empty response)",
-                  isStreaming: false,
-                  latencyMs: totalDuration,
-                  tokens: data.usage?.completion_tokens,
-                }
-              : msg
           )
+        }
+      )
+      if (runId !== runIdRef.current) return
+      const totalDuration = Math.round(performance.now() - startTime)
+      setTotalLatencyMs(totalDuration)
+      setFinishReason(result.finishReason ?? result.status)
+      // Provider output tokens / total request time, never event count.
+      if (result.usage?.completionTokens != null && totalDuration > 0) {
+        setTokensPerSec(
+          Math.round(
+            (result.usage.completionTokens / (totalDuration / 1000)) * 10
+          ) / 10
         )
-        void fetchCredits()
       }
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === assistantMessageId
+            ? {
+                ...msg,
+                isStreaming: false,
+                latencyMs: totalDuration,
+                tokens: result.usage?.completionTokens ?? undefined,
+                includeInHistory: Boolean(result.content),
+              }
+            : msg
+        )
+      )
+      void fetchCredits()
     } catch (err: unknown) {
-      if (err instanceof Error && err.name === "AbortError") {
+      if (runId !== runIdRef.current) return
+      if (controller.signal.aborted) {
         setFinishReason("cancelled")
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantMessageId
               ? {
                   ...msg,
-                  content:
-                    accumulatedContent + "\n\n*(Generation stopped by user)*",
+                  content: accumulatedContent,
+                  reasoning: accumulatedReasoning,
+                  runStatus: "Stopped",
                   isStreaming: false,
                 }
               : msg
           )
         )
       } else {
-        setInputPrompt(textToSend)
+        setFinishReason("error")
+        setInputPrompt((value) => value || textToSend)
         const errorMsg = err instanceof Error ? err.message : "Network error."
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantMessageId
               ? {
                   ...msg,
-                  content: `⚠️ **Request Error**: ${errorMsg}`,
+                  content: accumulatedContent,
+                  reasoning: accumulatedReasoning,
+                  runStatus: `Failed: ${errorMsg}`,
                   isStreaming: false,
                   error: true,
                 }
@@ -816,8 +962,12 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
       }
       void fetchCredits()
     } finally {
-      setIsGenerating(false)
-      abortControllerRef.current = null
+      if (runId === runIdRef.current) {
+        setTotalLatencyMs(Math.round(performance.now() - startTime))
+        sendingRef.current = false
+        setIsGenerating(false)
+        abortControllerRef.current = null
+      }
     }
   }
 
@@ -831,101 +981,47 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
 
   function handleClearChat() {
     handleStopGeneration()
+    setConversationKey((value) => value + 1)
+    ++runIdRef.current
+    sendingRef.current = false
+    setIsGenerating(false)
     setMessages([])
-    setTtftMs(null)
+    setInputPrompt("")
+    requestAnimationFrame(() => textareaRef.current?.focus())
+    setRunDiagnostics(null)
     setTotalLatencyMs(null)
     setTokensPerSec(null)
-    setUsageStats(null)
     setFinishReason(null)
+    setLastPayload(null)
+    retryHistoryRef.current = []
     setLastRawRequest("")
     setLastRawResponse("")
     toast.info("Conversation cleared.")
   }
 
-  function handleCopyContent(text: string) {
-    navigator.clipboard.writeText(text)
-    toast.success("Copied to clipboard.")
-  }
-
   // Dynamic code snippets
   function getCodeSnippet(): string {
-    const formattedMessages: { role: string; content: string }[] = []
-    if (systemPrompt.trim()) {
-      formattedMessages.push({ role: "system", content: systemPrompt.trim() })
-    }
-    for (const m of messages) {
-      formattedMessages.push({ role: m.role, content: m.content })
-    }
-    if (formattedMessages.length === 0) {
-      formattedMessages.push({ role: "user", content: "Hello!" })
-    }
-
-    const payload = {
+    const draft: ChatPayload = {
       model: activeModelId || "your-model-id",
-      messages: formattedMessages,
+      messages: [
+        ...(systemPrompt.trim()
+          ? [{ role: "system" as const, content: systemPrompt.trim() }]
+          : []),
+        ...conversationHistory(messages),
+        ...(inputPrompt.trim()
+          ? [{ role: "user" as const, content: inputPrompt.trim() }]
+          : []),
+      ],
       temperature,
       max_tokens: maxTokens,
       top_p: topP,
       stream,
     }
-
-    const keyPlaceholder = apiKey || "YOUR_API_KEY"
-
-    if (codeLang === "curl") {
-      return `curl -X POST "${API_BASE_URL}/v1/chat/completions" \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${keyPlaceholder}" \\
-  -d '${JSON.stringify(payload, null, 2)}'`
-    }
-
-    if (codeLang === "python") {
-      return `from openai import OpenAI
-
-client = OpenAI(
-    base_url="${API_BASE_URL}/v1",
-    api_key="${keyPlaceholder}",
-)
-
-response = client.chat.completions.create(
-    model="${activeModelId || "your-model-id"}",
-    messages=${JSON.stringify(formattedMessages, null, 4)},
-    temperature=${temperature},
-    max_tokens=${maxTokens},
-    top_p=${topP},
-    stream=${stream ? "True" : "False"},
-)
-
-${
-  stream
-    ? `for chunk in response:
-    content = chunk.choices[0].delta.content or ""
-    print(content, end="", flush=True)`
-    : `print(response.choices[0].message.content)`
-}`
-    }
-
-    return `// JavaScript / TypeScript
-const response = await fetch("${API_BASE_URL}/v1/chat/completions", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer ${keyPlaceholder}",
-  },
-  body: JSON.stringify(${JSON.stringify(payload, null, 2)}),
-});
-
-${
-  stream
-    ? `const reader = response.body.getReader();
-const decoder = new TextDecoder();
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  console.log(decoder.decode(value));
-}`
-    : `const data = await response.json();
-console.log(data.choices[0].message.content);`
-}`
+    return requestSnippet(
+      !exportDraft && lastPayload ? lastPayload : draft,
+      codeLang,
+      API_BASE_URL
+    )
   }
 
   // Parameters Content (Shared between the desktop dialog and mobile dialog)
@@ -1036,823 +1132,681 @@ console.log(data.choices[0].message.content);`
     </div>
   )
 
+  const currentMessage = messages.at(-1)
+  const runStatus =
+    currentMessage?.role === "assistant"
+      ? currentMessage.runStatus ||
+        (isGenerating ? "Waiting for response…" : "Ready")
+      : "Ready"
+  const inspectorProps: InspectorProps = {
+    status: runStatus,
+    diagnostics: runDiagnostics,
+    request: lastRawRequest,
+    response: lastRawResponse,
+    model: lastPayload?.model,
+    latencyMs: totalLatencyMs,
+    tokensPerSec,
+    finishReason,
+    onExport: () => {
+      setExportDraft(false)
+      setCodeDrawerOpen(true)
+    },
+  }
+  const inspector = (
+    <React.Suspense
+      fallback={
+        <p role="status" className="p-4 text-sm text-muted-foreground">
+          Loading run details…
+        </p>
+      }
+    >
+      <PlaygroundInspector {...inspectorProps} />
+    </React.Suspense>
+  )
+  const detailsButton = (
+    <Button
+      ref={detailsButtonRef}
+      variant="outline"
+      size="sm"
+      aria-label="Run details"
+      aria-expanded={inspectorOpen}
+      onClick={() => setInspectorOpen((value) => !value)}
+    >
+      <PanelRight data-icon="inline-start" />
+      <span className="hidden sm:inline">Run details</span>
+      <span className="sm:hidden">Details</span>
+    </Button>
+  )
+
+  const newConversationButton = (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={handleClearChat}
+      disabled={!messages.length && !inputPrompt}
+    >
+      <Plus data-icon="inline-start" />
+      <span className="hidden sm:inline">New conversation</span>
+      <span className="sm:hidden">New</span>
+    </Button>
+  )
+
+  const instructionsButton = (
+    <Button
+      variant={showSystemPrompt ? "secondary" : "ghost"}
+      size="sm"
+      aria-expanded={showSystemPrompt}
+      onClick={() => setShowSystemPrompt((value) => !value)}
+    >
+      <Terminal data-icon="inline-start" />
+      Instructions
+    </Button>
+  )
+
+  const keyButton = (
+    <Button variant="ghost" size="sm" onClick={() => setKeyDrawerOpen(true)}>
+      <KeyRound data-icon="inline-start" />
+      {apiKey ? "Key connected" : "Connect key"}
+    </Button>
+  )
+
+  const availableCreditsLink = (
+    <a
+      href="/dashboard/credits"
+      className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+    >
+      Available credits{" "}
+      <span className="ml-1 font-medium text-foreground tabular-nums">
+        {creditBalance
+          ? formatCredits(creditBalance.available_credits)
+          : "Unavailable"}
+      </span>
+    </a>
+  )
+
   return (
-    <div className="flex flex-1 flex-col gap-3 px-4 lg:px-6">
-      {/* Sleek Integrated Toolbar (No clunky outer card wrapper) */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3 sm:gap-2.5">
-        {/* Left: Clean Model Selector & System Instructions Toggle */}
+    <div
+      ref={workspaceRef}
+      className="group/workspace flex h-[var(--playground-height,calc(100dvh-6rem))] min-h-0 flex-none flex-col gap-3 px-4 lg:px-6"
+      data-playground-workspace
+    >
+      <div className="flex shrink-0 flex-col gap-2.5 group-data-[compact=true]/workspace:hidden">
         <div className="flex flex-wrap items-center gap-2">
-          {/* Model Combobox Popover */}
-          <Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                role="combobox"
-                aria-expanded={modelPickerOpen}
-                className="h-9 gap-2 border-border/70 bg-background/80 px-3 font-normal shadow-2xs transition-colors hover:border-border hover:bg-accent/50"
-              >
-                <Cpu className="size-4 shrink-0 text-primary" />
-                <span className="max-w-[150px] truncate text-xs font-medium text-foreground sm:max-w-[240px] sm:text-sm">
-                  {activeModelChoice
-                    ? activeModelChoice.label
-                    : activeModelId || "Select a model"}
-                </span>
+          <div className="max-w-full min-w-0 flex-[1_1_14rem]">
+            <Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={modelPickerOpen}
+                  aria-label="Choose model"
+                  className="h-10 w-full min-w-0 justify-start gap-2 font-normal"
+                >
+                  <Cpu className="size-4 shrink-0 text-primary" />
+                  <span className="truncate text-xs font-medium text-foreground sm:max-w-[240px] sm:text-sm">
+                    {activeModelChoice
+                      ? activeModelChoice.label
+                      : activeModelId || "Select a model"}
+                  </span>
 
-                {isSuperuser ? (
-                  activeModelChoice?.category === "model-group" ? (
-                    <Badge
-                      variant="secondary"
-                      className="h-4 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
-                    >
-                      {activeModelChoice.strategy === "priority"
-                        ? "Priority"
-                        : activeModelChoice.strategy === "weighted_round_robin"
-                          ? "WRR"
-                          : "Group"}
-                    </Badge>
-                  ) : activeModelChoice?.category === "provider-model" ? (
-                    <Badge
-                      variant="outline"
-                      className="h-4 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
-                    >
-                      Direct
-                    </Badge>
-                  ) : selectedModel === "__custom__" ? (
-                    <Badge
-                      variant="outline"
-                      className="h-4 px-1.5 py-0 text-[10px] font-normal text-primary"
-                    >
-                      Custom
-                    </Badge>
-                  ) : null
-                ) : null}
-
-                <ChevronsUpDown className="ml-0.5 size-3.5 shrink-0 text-muted-foreground opacity-60" />
-              </Button>
-            </PopoverTrigger>
-
-            <PopoverContent
-              align="start"
-              className="w-[320px] border-border p-0 shadow-xl sm:w-[380px]"
-            >
-              {/* Search Bar */}
-              <div className="flex items-center border-b px-3 py-2">
-                <Search className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                <input
-                  placeholder={
-                    isSuperuser
-                      ? "Search models or providers…"
-                      : "Search models…"
-                  }
-                  value={modelSearchQuery}
-                  onChange={(e) => setModelSearchQuery(e.target.value)}
-                  className="w-full bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
-                  autoFocus
-                />
-                {modelSearchQuery ? (
-                  <button
-                    type="button"
-                    onClick={() => setModelSearchQuery("")}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                ) : null}
-              </div>
-
-              {/* Category Filter Pills (Superusers only) */}
-              {isSuperuser && (groupsCount > 0 || providersCount > 0) ? (
-                <div className="flex items-center gap-1 border-b bg-muted/20 px-2 py-1.5 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => setCategoryFilter("all")}
-                    className={cn(
-                      "rounded-md px-2 py-0.5 font-medium transition-colors",
-                      categoryFilter === "all"
-                        ? "bg-background text-foreground shadow-2xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    All ({models.length})
-                  </button>
-                  {groupsCount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setCategoryFilter("model-group")}
-                      className={cn(
-                        "rounded-md px-2 py-0.5 font-medium transition-colors",
-                        categoryFilter === "model-group"
-                          ? "bg-background text-foreground shadow-2xs"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      Groups ({groupsCount})
-                    </button>
+                  {isSuperuser ? (
+                    activeModelChoice?.category === "model-group" ? (
+                      <Badge
+                        variant="secondary"
+                        className="h-4 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                      >
+                        {activeModelChoice.strategy === "priority"
+                          ? "Priority"
+                          : activeModelChoice.strategy ===
+                              "weighted_round_robin"
+                            ? "WRR"
+                            : "Group"}
+                      </Badge>
+                    ) : activeModelChoice?.category === "provider-model" ? (
+                      <Badge
+                        variant="outline"
+                        className="h-4 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                      >
+                        Direct
+                      </Badge>
+                    ) : selectedModel === "__custom__" ? (
+                      <Badge
+                        variant="outline"
+                        className="h-4 px-1.5 py-0 text-[10px] font-normal text-primary"
+                      >
+                        Custom
+                      </Badge>
+                    ) : null
                   ) : null}
-                  {providersCount > 0 ? (
+
+                  <ChevronsUpDown className="ml-0.5 size-3.5 shrink-0 text-muted-foreground opacity-60" />
+                </Button>
+              </PopoverTrigger>
+
+              <PopoverContent
+                align="start"
+                className="w-[min(380px,calc(100vw-2rem))] border-border p-0"
+              >
+                {/* Search Bar */}
+                <div className="flex items-center border-b px-3 py-2">
+                  <Search className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                  <input
+                    aria-label="Search models"
+                    placeholder={
+                      isSuperuser
+                        ? "Search models or providers…"
+                        : "Search models…"
+                    }
+                    value={modelSearchQuery}
+                    onChange={(e) => setModelSearchQuery(e.target.value)}
+                    className="w-full bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                    autoFocus
+                  />
+                  {modelSearchQuery ? (
                     <button
                       type="button"
-                      onClick={() => setCategoryFilter("provider-model")}
-                      className={cn(
-                        "rounded-md px-2 py-0.5 font-medium transition-colors",
-                        categoryFilter === "provider-model"
-                          ? "bg-background text-foreground shadow-2xs"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
+                      aria-label="Clear model search"
+                      onClick={() => setModelSearchQuery("")}
+                      className="text-muted-foreground hover:text-foreground"
                     >
-                      Direct ({providersCount})
+                      <X className="size-3.5" />
                     </button>
                   ) : null}
                 </div>
-              ) : null}
 
-              {/* Models List */}
-              <div className="max-h-72 space-y-0.5 overflow-y-auto p-1.5">
-                {isLoadingModels ? (
-                  <div className="py-6 text-center text-xs text-muted-foreground">
-                    Discovering models…
-                  </div>
-                ) : filteredModels.length === 0 ? (
-                  <div className="py-6 text-center text-xs text-muted-foreground">
-                    {!apiKey && !isSuperuser
-                      ? "Connect an API key to view gateway models."
-                      : "No matching models found."}
-                  </div>
-                ) : (
-                  filteredModels.map((m) => {
-                    const isSelected = activeModelId === m.id
-                    return (
+                {/* Category Filter Pills (Superusers only) */}
+                {isSuperuser && (groupsCount > 0 || providersCount > 0) ? (
+                  <div className="flex items-center gap-1 border-b bg-muted/20 px-2 py-1.5 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setCategoryFilter("all")}
+                      className={cn(
+                        "rounded-md px-2 py-0.5 font-medium transition-colors",
+                        categoryFilter === "all"
+                          ? "bg-background text-foreground shadow-2xs"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      All ({models.length})
+                    </button>
+                    {groupsCount > 0 ? (
                       <button
-                        key={m.id}
                         type="button"
-                        onClick={() => {
-                          setSelectedModel(m.id)
-                          setModelPickerOpen(false)
-                        }}
+                        onClick={() => setCategoryFilter("model-group")}
                         className={cn(
-                          "flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors",
-                          isSelected
-                            ? "bg-primary/10 font-medium text-primary"
-                            : "text-foreground hover:bg-muted"
+                          "rounded-md px-2 py-0.5 font-medium transition-colors",
+                          categoryFilter === "model-group"
+                            ? "bg-background text-foreground shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground"
                         )}
                       >
-                        <div className="flex items-center gap-2 overflow-hidden">
-                          <Check
-                            className={cn(
-                              "size-3.5 shrink-0",
-                              isSelected
-                                ? "text-primary opacity-100"
-                                : "opacity-0"
-                            )}
-                          />
-                          <div className="flex flex-col overflow-hidden">
-                            <span className="truncate font-mono text-[11px] sm:text-xs">
-                              {m.label}
-                            </span>
-                            {m.detail ? (
-                              <span className="truncate text-[10px] text-muted-foreground">
-                                {m.detail}
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        {isSuperuser ? (
-                          <Badge
-                            variant={
-                              m.category === "model-group"
-                                ? "secondary"
-                                : "outline"
-                            }
-                            className="shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
-                          >
-                            {m.category === "model-group"
-                              ? m.strategy === "priority"
-                                ? "Priority"
-                                : m.strategy === "weighted_round_robin"
-                                  ? "Weighted"
-                                  : "Round Robin"
-                              : "Direct"}
-                          </Badge>
-                        ) : null}
+                        Groups ({groupsCount})
                       </button>
-                    )
-                  })
-                )}
-              </div>
-
-              {/* Custom Model Route Entry (Superusers only) */}
-              {isSuperuser ? (
-                <div className="border-t bg-muted/10 p-2">
-                  {isCustomMode ? (
-                    <div className="flex items-center gap-1.5">
-                      <Input
-                        value={customModelInput}
-                        onChange={(e) => setCustomModelInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && customModelInput.trim()) {
-                            setSelectedModel("__custom__")
-                            setCustomModel(customModelInput.trim())
-                            setModelPickerOpen(false)
-                            setIsCustomMode(false)
-                          }
-                        }}
-                        placeholder="e.g. openai/gpt-4o"
-                        className="h-7 font-mono text-xs"
-                        autoFocus
-                      />
-                      <Button
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => {
-                          if (customModelInput.trim()) {
-                            setSelectedModel("__custom__")
-                            setCustomModel(customModelInput.trim())
-                            setModelPickerOpen(false)
-                            setIsCustomMode(false)
-                          }
-                        }}
+                    ) : null}
+                    {providersCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setCategoryFilter("provider-model")}
+                        className={cn(
+                          "rounded-md px-2 py-0.5 font-medium transition-colors",
+                          categoryFilter === "provider-model"
+                            ? "bg-background text-foreground shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
                       >
-                        Apply
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-1.5 text-xs text-muted-foreground"
-                        onClick={() => setIsCustomMode(false)}
-                      >
-                        <X className="size-3.5" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setIsCustomMode(true)}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                    >
-                      <Plus className="size-3" />
-                      <span>Custom model route…</span>
-                    </button>
-                  )}
-                </div>
-              ) : null}
-            </PopoverContent>
-          </Popover>
-
-          {/* System Instructions Toggle Pill */}
-          <Button
-            variant={showSystemPrompt ? "secondary" : "ghost"}
-            size="sm"
-            className="h-9 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => setShowSystemPrompt(!showSystemPrompt)}
-          >
-            <Terminal className="size-3.5" />
-            <span>System Prompt</span>
-            {systemPrompt.trim() ? (
-              <span className="size-1.5 rounded-full bg-primary" />
-            ) : null}
-          </Button>
-        </div>
-
-        {/* Right: Key Badge, Code, Clear, Parameters */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* Available Credits Link (Desktop / Tablet) */}
-          <a
-            href="/dashboard/credits"
-            title="View your credit balance and history in Credits"
-            className="hidden h-9 items-center gap-1.5 rounded-md border border-border/70 bg-background/80 px-2.5 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-accent/50 hover:text-foreground sm:inline-flex"
-          >
-            <Coins className="size-3.5 text-muted-foreground" />
-            <span>Available credits:</span>
-            <span className="font-medium text-foreground tabular-nums">
-              {creditBalance !== null
-                ? formatCredits(creditBalance.available_credits)
-                : "—"}
-            </span>
-          </a>
-
-          {/* API Key Status Pill */}
-          {apiKey ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 gap-1.5 border-emerald-500/30 bg-emerald-500/10 px-2.5 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
-              onClick={() => setKeyDrawerOpen(true)}
-            >
-              <span className="size-1.5 rounded-full bg-emerald-500" />
-              <span className="font-mono text-xs">
-                {apiKey.startsWith("sk-")
-                  ? `${apiKey.slice(0, 10)}…`
-                  : "API Key"}
-              </span>
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 gap-1.5 border-amber-500/40 px-2.5 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400"
-              onClick={() => setKeyDrawerOpen(true)}
-            >
-              <KeyRound className="size-3.5" />
-              <span className="text-xs">Connect Key</span>
-            </Button>
-          )}
-
-          {/* View Code */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-9 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => setCodeDrawerOpen(true)}
-          >
-            <Code className="size-3.5" />
-            <span className="hidden sm:inline">View Code</span>
-          </Button>
-
-          {/* Clear Chat */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-9 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-destructive"
-            onClick={handleClearChat}
-            disabled={messages.length === 0 && !isGenerating}
-          >
-            <RotateCcw className="size-3.5" />
-            <span className="hidden sm:inline">Clear</span>
-          </Button>
-
-          {/* Parameters Dialog Trigger */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 gap-1.5 px-2.5 text-xs"
-            onClick={() => setParamsDrawerOpen(true)}
-          >
-            <SlidersHorizontal className="size-3.5" />
-            <span className="hidden sm:inline">Parameters</span>
-          </Button>
-        </div>
-
-        {/* Mobile own available credits (below 640px, placed on its own line with 8px gap, never over the composer) */}
-        <div className="flex w-full items-center sm:hidden">
-          <a
-            href="/dashboard/credits"
-            title="View your credit balance and history in Credits"
-            className="inline-flex h-8 w-full items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted"
-          >
-            <div className="flex items-center gap-1.5">
-              <Coins className="size-3.5 text-muted-foreground" />
-              <span>Available credits</span>
-            </div>
-            <span className="font-medium text-foreground tabular-nums">
-              {creditBalance !== null
-                ? formatCredits(creditBalance.available_credits)
-                : "—"}
-            </span>
-          </a>
-        </div>
-      </div>
-
-      {/* Main Split Grid: Unified Chat Workspace (Full Width) */}
-      <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-12">
-        {/* Left Area (Full Width): Unified Chat Workspace Card */}
-        <div className="flex flex-col lg:col-span-12">
-          <Card className="flex min-h-[580px] flex-1 flex-col overflow-hidden rounded-xl border shadow-2xs">
-            {/* Header: Conversation / Request / Response Tabs & Live Status */}
-            <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/10 px-4 py-2">
-              <Tabs
-                value={activeTab}
-                onValueChange={(val) =>
-                  setActiveTab(val as "chat" | "request" | "response")
-                }
-                className="w-auto"
-              >
-                <TabsList className="h-8">
-                  <TabsTrigger value="chat" className="px-3 text-xs">
-                    Conversation
-                  </TabsTrigger>
-                  <TabsTrigger value="request" className="px-3 text-xs">
-                    Request JSON
-                  </TabsTrigger>
-                  <TabsTrigger value="response" className="px-3 text-xs">
-                    Response Trace
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-
-              <div className="flex items-center gap-2">
-                {isGenerating ? (
-                  <Badge
-                    variant="outline"
-                    className="animate-pulse border-primary/50 px-2.5 py-0.5 text-[11px]"
-                  >
-                    <Sparkles className="mr-1 size-3 text-primary" />
-                    Generating…
-                  </Badge>
-                ) : finishReason ? (
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "px-2 py-0.5 text-[11px]",
-                      finishReason === "error"
-                        ? "border-destructive text-destructive"
-                        : "text-muted-foreground"
-                    )}
-                  >
-                    Finish: {finishReason}
-                  </Badge>
-                ) : null}
-              </div>
-            </CardHeader>
-
-            {/* Seamless System Prompt Drawer (Opens inline inside the canvas, zero wasted height when closed) */}
-            {showSystemPrompt ? (
-              <div className="space-y-2 border-b bg-muted/20 px-4 py-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                    <Terminal className="size-3.5 text-primary" />
-                    <span>System Instructions</span>
+                        Direct ({providersCount})
+                      </button>
+                    ) : null}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-[11px] text-muted-foreground"
-                    onClick={() => setShowSystemPrompt(false)}
-                  >
-                    Hide
-                  </Button>
-                </div>
-                <Textarea
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                  placeholder="Set role instructions, persona, or output format guidelines for the model…"
-                  className="min-h-[64px] resize-y bg-background text-xs"
-                />
-              </div>
-            ) : null}
+                ) : null}
 
-            {/* Main Chat Feed */}
-            <CardContent className="flex flex-1 flex-col overflow-y-auto p-4">
-              {activeTab === "chat" ? (
-                <div className="flex flex-1 flex-col justify-between space-y-4">
-                  {/* Empty state with starter prompts */}
-                  {messages.length === 0 ? (
-                    <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
-                      <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-2xs">
-                        <Sparkles className="size-5" />
-                      </div>
-                      <h3 className="mt-3 text-sm font-semibold text-foreground">
-                        Model Playground
-                      </h3>
-                      <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                        {isSuperuser
-                          ? "Test model groups and direct provider endpoints with real-time SSE streaming and token telemetry."
-                          : "Test gateway models with real-time SSE streaming and token telemetry."}
-                      </p>
-
-                      <div className="mt-6 grid w-full max-w-lg grid-cols-1 gap-2 sm:grid-cols-2">
-                        {STARTER_PROMPTS.map((prompt, i) => (
-                          <button
-                            key={i}
-                            type="button"
-                            className="rounded-lg border bg-muted/20 p-2.5 text-left text-xs transition-colors hover:border-primary/50 hover:bg-muted/50"
-                            onClick={() => handleSendMessage(prompt)}
-                          >
-                            <p className="line-clamp-2 text-foreground">
-                              {prompt}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
+                {/* Models List */}
+                <div className="max-h-72 space-y-0.5 overflow-y-auto p-1.5">
+                  {isLoadingModels ? (
+                    <div className="py-6 text-center text-xs text-muted-foreground">
+                      Discovering models…
+                    </div>
+                  ) : filteredModels.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-muted-foreground">
+                      {models.length === 0 && !apiKey
+                        ? "Connect an API key to view gateway models."
+                        : "No matching models found."}
                     </div>
                   ) : (
-                    /* Messages list */
-                    <div className="space-y-4">
-                      {messages.map((message) => {
-                        const isUser = message.role === "user"
-                        return (
-                          <div
-                            key={message.id}
-                            className={`flex gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}
-                          >
-                            {!isUser ? (
-                              <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-2xs">
-                                <Bot className="size-3.5" />
-                              </div>
-                            ) : null}
-
-                            <div
-                              className={`group relative max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm shadow-2xs ${
-                                isUser
-                                  ? "rounded-tr-xs bg-primary text-primary-foreground"
-                                  : message.error
-                                    ? "rounded-tl-xs border border-destructive/40 bg-destructive/10 text-foreground"
-                                    : "rounded-tl-xs border bg-muted/30 text-foreground"
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-4 pb-1">
-                                <span
-                                  className={`text-[10px] font-semibold tracking-wider uppercase ${
-                                    isUser
-                                      ? "text-primary-foreground/75"
-                                      : "text-muted-foreground"
-                                  }`}
-                                >
-                                  {isUser
-                                    ? "You"
-                                    : activeModelId || "Assistant"}
+                    filteredModels.map((m) => {
+                      const isSelected = activeModelId === m.id
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedModel(m.id)
+                            setModelPickerOpen(false)
+                          }}
+                          className={cn(
+                            "flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors",
+                            isSelected
+                              ? "bg-primary/10 font-medium text-primary"
+                              : "text-foreground hover:bg-muted"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 overflow-hidden">
+                            <Check
+                              className={cn(
+                                "size-3.5 shrink-0",
+                                isSelected
+                                  ? "text-primary opacity-100"
+                                  : "opacity-0"
+                              )}
+                            />
+                            <div className="flex flex-col overflow-hidden">
+                              <span className="truncate font-mono text-[11px] sm:text-xs">
+                                {m.label}
+                              </span>
+                              {m.detail ? (
+                                <span className="truncate text-[10px] text-muted-foreground">
+                                  {m.detail}
                                 </span>
-                                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                                  <button
-                                    type="button"
-                                    className={`rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10 ${
-                                      isUser
-                                        ? "text-primary-foreground"
-                                        : "text-muted-foreground"
-                                    }`}
-                                    onClick={() =>
-                                      handleCopyContent(message.content)
-                                    }
-                                    title="Copy content"
-                                  >
-                                    <Copy className="size-3" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="text-xs leading-relaxed whitespace-pre-wrap sm:text-sm">
-                                {message.content}
-                                {message.isStreaming && !message.content ? (
-                                  <span className="inline-block animate-pulse text-xs text-muted-foreground">
-                                    Waiting for first token…
-                                  </span>
-                                ) : null}
-                                {message.isStreaming && message.content ? (
-                                  <span className="ml-1 inline-block size-1.5 animate-pulse rounded-full bg-primary" />
-                                ) : null}
-                              </div>
-
-                              {message.errorAction ? (
-                                <div className="mt-2.5">
-                                  <a
-                                    href={message.errorAction.href}
-                                    className="inline-flex items-center gap-1.5 rounded-md border border-border/80 bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-                                  >
-                                    <span>{message.errorAction.label}</span>
-                                    <ArrowRight className="size-3 text-muted-foreground" />
-                                  </a>
-                                </div>
-                              ) : null}
-
-                              {message.latencyMs || message.tokens ? (
-                                <div className="mt-2 flex items-center gap-2 border-t border-border/30 pt-1 text-[10px] text-muted-foreground">
-                                  {message.latencyMs ? (
-                                    <span>{message.latencyMs} ms</span>
-                                  ) : null}
-                                  {message.tokens ? (
-                                    <span>· {message.tokens} tokens</span>
-                                  ) : null}
-                                </div>
                               ) : null}
                             </div>
-
-                            {isUser ? (
-                              <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                                <User className="size-3.5" />
-                              </div>
-                            ) : null}
                           </div>
-                        )
-                      })}
-                      <div ref={messagesEndRef} />
-                    </div>
+
+                          {isSuperuser ? (
+                            <Badge
+                              variant={
+                                m.category === "model-group"
+                                  ? "secondary"
+                                  : "outline"
+                              }
+                              className="shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                            >
+                              {m.category === "model-group"
+                                ? m.strategy === "priority"
+                                  ? "Priority"
+                                  : m.strategy === "weighted_round_robin"
+                                    ? "Weighted"
+                                    : "Round Robin"
+                                : "Direct"}
+                            </Badge>
+                          ) : null}
+                        </button>
+                      )
+                    })
                   )}
                 </div>
-              ) : activeTab === "request" ? (
-                <div className="h-full">
-                  <pre className="h-96 overflow-auto rounded-lg bg-muted/40 p-3 font-mono text-xs text-foreground">
-                    {lastRawRequest || "// No request dispatched yet."}
-                  </pre>
-                </div>
-              ) : (
-                <div className="h-full">
-                  <pre className="h-96 overflow-auto rounded-lg bg-muted/40 p-3 font-mono text-xs text-foreground">
-                    {lastRawResponse || "// No response trace received yet."}
-                  </pre>
-                </div>
-              )}
-            </CardContent>
 
-            {/* Linear-Style Modern Combined Composer & Live Telemetry Statusline */}
-            <div className="space-y-2.5 border-t border-border/60 bg-muted/5 p-3 sm:p-4">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  handleSendMessage()
-                }}
-                className={cn(
-                  "relative flex flex-col rounded-xl border border-input/80 bg-background shadow-2xs transition-all duration-200",
-                  "focus-within:border-ring/80 focus-within:ring-2 focus-within:ring-ring/20 dark:border-border/60 dark:bg-muted/15"
-                )}
-              >
-                {/* Borderless Expanding Textarea */}
-                <textarea
-                  ref={textareaRef}
-                  value={inputPrompt}
-                  onChange={(e) => setInputPrompt(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSendMessage()
-                    }
-                  }}
-                  rows={1}
-                  placeholder={
-                    apiKey
-                      ? "Ask anything, test prompts, or enter instructions…"
-                      : "Connect API key to begin testing models…"
-                  }
-                  className="max-h-44 min-h-[50px] w-full resize-none border-0 bg-transparent px-3.5 pt-3 pb-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60 focus:ring-0 focus:outline-none"
-                  disabled={isGenerating}
-                />
-
-                {/* Bottom Combined Tray */}
-                <div className="flex items-center justify-between border-t border-transparent px-3 pt-1 pb-2">
-                  {/* Left: Active Model Pill & Keyboard Shortcut Hints */}
-                  <div className="flex items-center gap-2 overflow-hidden text-xs text-muted-foreground">
-                    {activeModelId ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground/90">
-                        <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
-                        <span className="max-w-[130px] truncate sm:max-w-[220px]">
-                          {activeModelId}
-                        </span>
-                      </span>
-                    ) : null}
-                    <span className="hidden items-center gap-1 text-[11px] text-muted-foreground/50 select-none sm:inline-flex">
-                      <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground/70">
-                        ↵
-                      </kbd>
-                      <span>send</span>
-                      <span className="opacity-40">·</span>
-                      <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground/70">
-                        ⇧↵
-                      </kbd>
-                      <span>new line</span>
-                    </span>
-                  </div>
-
-                  {/* Right: Modern Integrated Action Button */}
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {isGenerating ? (
+                {/* Custom Model Route Entry (Superusers only) */}
+                {isSuperuser ? (
+                  <div className="border-t bg-muted/10 p-2">
+                    {isCustomMode ? (
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          value={customModelInput}
+                          onChange={(e) => setCustomModelInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && customModelInput.trim()) {
+                              setSelectedModel("__custom__")
+                              setCustomModel(customModelInput.trim())
+                              setModelPickerOpen(false)
+                              setIsCustomMode(false)
+                            }
+                          }}
+                          aria-label="Custom model route"
+                          placeholder="Provider alias/model"
+                          className="h-7 font-mono text-xs"
+                          autoFocus
+                        />
+                        <Button
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => {
+                            if (customModelInput.trim()) {
+                              setSelectedModel("__custom__")
+                              setCustomModel(customModelInput.trim())
+                              setModelPickerOpen(false)
+                              setIsCustomMode(false)
+                            }
+                          }}
+                        >
+                          Apply
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-1.5 text-xs text-muted-foreground"
+                          aria-label="Cancel custom model"
+                          onClick={() => setIsCustomMode(false)}
+                        >
+                          <X className="size-3.5" />
+                        </Button>
+                      </div>
+                    ) : (
                       <button
                         type="button"
-                        onClick={handleStopGeneration}
-                        title="Stop generation"
-                        className="hover:text-destructive-foreground flex size-7 cursor-pointer items-center justify-center rounded-lg bg-foreground text-background shadow-2xs transition-all hover:bg-destructive active:scale-95"
+                        onClick={() => setIsCustomMode(true)}
+                        className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
                       >
-                        <Square className="size-3 fill-current" />
-                      </button>
-                    ) : (
-                      <button
-                        type="submit"
-                        disabled={!inputPrompt.trim() || isGenerating}
-                        title="Send message (Enter)"
-                        className={cn(
-                          "flex size-7 items-center justify-center rounded-lg transition-all",
-                          inputPrompt.trim()
-                            ? "cursor-pointer bg-primary text-primary-foreground shadow-2xs hover:opacity-90 active:scale-95"
-                            : "cursor-not-allowed bg-muted text-muted-foreground/35"
-                        )}
-                      >
-                        <ArrowUp className="size-3.5" strokeWidth={2.5} />
+                        <Plus className="size-3" />
+                        <span>Custom model route…</span>
                       </button>
                     )}
                   </div>
-                </div>
-              </form>
+                ) : null}
+              </PopoverContent>
+            </Popover>
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setParamsDrawerOpen(true)}
+            >
+              <SlidersHorizontal data-icon="inline-start" />
+              Parameters
+            </Button>
+            {instructionsButton}
+            {keyButton}
+          </div>
+        </div>
 
-              {/* Statusline: Live Telemetry below chat input */}
-              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-1 font-mono text-[11px] text-muted-foreground select-none">
-                <div className="flex items-center gap-2 overflow-hidden">
-                  {/* Status Indicator */}
-                  <div className="flex items-center gap-1.5 font-sans">
-                    {isGenerating ? (
-                      <span className="inline-flex items-center gap-1.5 font-medium text-primary">
-                        <span className="size-2 animate-pulse rounded-full bg-primary" />
-                        <span>Streaming…</span>
-                      </span>
-                    ) : finishReason ? (
-                      <span className="inline-flex items-center gap-1.5 text-foreground/80">
-                        <span
-                          className={cn(
-                            "size-1.5 rounded-full",
-                            finishReason === "error"
-                              ? "bg-destructive"
-                              : "bg-emerald-500"
-                          )}
-                        />
-                        <span className="capitalize">{finishReason}</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-muted-foreground/60">
-                        <span className="size-1.5 rounded-full bg-muted-foreground/30" />
-                        <span>Ready</span>
-                      </span>
-                    )}
-                  </div>
-
-                  <span className="text-border/80">|</span>
-
-                  {/* TTFT */}
-                  <span className="inline-flex items-center gap-1">
-                    <span className="text-muted-foreground/70">TTFT:</span>
-                    <span
-                      className={cn(
-                        "tabular-nums",
-                        ttftMs !== null
-                          ? "font-medium text-foreground"
-                          : "text-muted-foreground/50"
-                      )}
-                    >
-                      {ttftMs !== null ? `${ttftMs}ms` : "—"}
-                    </span>
-                  </span>
-
-                  <span className="text-muted-foreground/30">·</span>
-
-                  {/* Latency */}
-                  <span className="inline-flex items-center gap-1">
-                    <span className="text-muted-foreground/70">Latency:</span>
-                    <span
-                      className={cn(
-                        "tabular-nums",
-                        totalLatencyMs !== null
-                          ? "font-medium text-foreground"
-                          : "text-muted-foreground/50"
-                      )}
-                    >
-                      {totalLatencyMs !== null ? `${totalLatencyMs}ms` : "—"}
-                    </span>
-                  </span>
-
-                  <span className="text-muted-foreground/30">·</span>
-
-                  {/* Speed */}
-                  <span className="inline-flex items-center gap-1">
-                    <span className="text-muted-foreground/70">Speed:</span>
-                    <span
-                      className={cn(
-                        "tabular-nums",
-                        tokensPerSec !== null
-                          ? "font-medium text-foreground"
-                          : "text-muted-foreground/50"
-                      )}
-                    >
-                      {tokensPerSec !== null ? `${tokensPerSec} tps` : "—"}
-                    </span>
-                  </span>
-                </div>
-
-                {/* Right side: Token counts */}
-                <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px]">
-                  <Zap className="size-3 shrink-0 text-amber-500/80" />
-                  {usageStats ? (
-                    <span>
-                      <span className="font-semibold text-foreground tabular-nums">
-                        {usageStats.completionTokens}
-                      </span>
-                      <span className="text-muted-foreground/70"> out</span>
-                      <span className="mx-1 text-muted-foreground/40">·</span>
-                      <span className="font-semibold text-foreground tabular-nums">
-                        {usageStats.promptTokens}
-                      </span>
-                      <span className="text-muted-foreground/70"> in</span>
-                      <span className="mx-1 text-muted-foreground/40">·</span>
-                      <span className="font-semibold text-foreground tabular-nums">
-                        {usageStats.totalTokens}
-                      </span>
-                      <span className="text-muted-foreground/70"> tok</span>
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground/50">0 tokens</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Card>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {availableCreditsLink}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {newConversationButton}
+            {detailsButton}
+          </div>
         </div>
       </div>
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 overflow-hidden rounded-xl border bg-background",
+          canSplit && inspectorOpen && "grid-cols-[minmax(0,1fr)_340px]"
+        )}
+      >
+        <section
+          aria-label="Conversation workspace"
+          className="flex min-h-0 min-w-0 flex-col"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
+            <h2 className="text-sm font-medium">Conversation</h2>
+            <p
+              role="status"
+              aria-live="polite"
+              className={cn(
+                "max-w-[65%] truncate text-xs",
+                currentMessage?.error
+                  ? "font-mono text-destructive"
+                  : "text-muted-foreground"
+              )}
+              title={runStatus}
+            >
+              {runStatus}
+            </p>
+          </div>
+          {showSystemPrompt ? (
+            <div className="shrink-0 border-b bg-muted/30 p-3">
+              <Field className="gap-2">
+                <FieldLabel htmlFor="system-instructions">
+                  System instructions
+                </FieldLabel>
+                <Textarea
+                  id="system-instructions"
+                  value={systemPrompt}
+                  onChange={(event) => setSystemPrompt(event.target.value)}
+                  className="max-h-28 min-h-16 resize-y"
+                />
+              </Field>
+            </div>
+          ) : null}
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {messages.length ? (
+              <MessageScrollerProvider key={conversationKey} autoScroll>
+                <MessageScroller>
+                  <MessageScrollerViewport
+                    aria-label="Conversation messages"
+                    role="region"
+                    tabIndex={0}
+                  >
+                    <MessageScrollerContent className="mx-auto w-full max-w-3xl gap-6 px-4 py-5 sm:px-6">
+                      {messages.map((message) => (
+                        <MessageScrollerItem
+                          key={message.id}
+                          messageId={message.id}
+                          scrollAnchor={message.role === "user"}
+                        >
+                          <PlaygroundMessage
+                            message={message}
+                            modelId={activeModelId}
+                            onRetry={
+                              !isGenerating &&
+                              !message.isStreaming &&
+                              (message.error ||
+                                message.runStatus === "Stopped") &&
+                              message.id === currentMessage?.id &&
+                              lastPayload
+                                ? () => void handleSendMessage(undefined, true)
+                                : undefined
+                            }
+                          />
+                        </MessageScrollerItem>
+                      ))}
+                    </MessageScrollerContent>
+                  </MessageScrollerViewport>
+                  <MessageScrollerButton aria-label="Latest output" />
+                </MessageScroller>
+              </MessageScrollerProvider>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6">
+                <div className="mx-auto flex min-h-full max-w-lg flex-col justify-center gap-5 py-6">
+                  <div className="flex flex-col gap-2">
+                    <h2 className="text-2xl font-medium tracking-tight">
+                      Start with a prompt.
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      {!apiKey
+                        ? "Connect a key, choose a model, and send your first message."
+                        : !activeModelId
+                          ? "Choose a model to start a conversation."
+                          : "Send a message. Watch the answer here and inspect the run when you need to."}
+                    </p>
+                  </div>
+                  {!apiKey ? (
+                    <Button
+                      className="self-start"
+                      onClick={() => setKeyDrawerOpen(true)}
+                    >
+                      <KeyRound data-icon="inline-start" />
+                      Connect key
+                    </Button>
+                  ) : !activeModelId ? (
+                    <Button
+                      className="self-start"
+                      onClick={() => setModelPickerOpen(true)}
+                    >
+                      Choose model
+                    </Button>
+                  ) : null}
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Try a prompt
+                    </p>
+                    {STARTER_PROMPTS.slice(0, 2).map((prompt) => (
+                      <Button
+                        key={prompt}
+                        variant="outline"
+                        className="h-auto justify-start px-3 py-3 text-left whitespace-normal"
+                        onClick={() => {
+                          setInputPrompt(prompt)
+                          textareaRef.current?.focus()
+                        }}
+                      >
+                        {prompt}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
-      {/* Parameters Dialog (All Viewports) */}
+          <form
+            className="flex shrink-0 flex-col gap-2 border-t p-3 pb-[max(.75rem,env(safe-area-inset-bottom))] sm:p-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void handleSendMessage()
+            }}
+          >
+            <Field className="gap-2">
+              <FieldLabel htmlFor="playground-prompt" className="sr-only">
+                Message
+              </FieldLabel>
+              <InputGroup className="rounded-xl">
+                <InputGroupTextarea
+                  id="playground-prompt"
+                  ref={textareaRef}
+                  value={inputPrompt}
+                  onChange={(event) => setInputPrompt(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      !event.shiftKey &&
+                      !event.nativeEvent.isComposing
+                    ) {
+                      event.preventDefault()
+                      void handleSendMessage()
+                    }
+                  }}
+                  rows={2}
+                  placeholder="Message the model…"
+                  className="max-h-[min(9rem,24dvh)] min-h-16"
+                  aria-describedby="composer-help"
+                />
+                <InputGroupAddon align="block-end" className="gap-2">
+                  <InputGroupButton
+                    size="sm"
+                    aria-label="Adjust model parameters"
+                    onClick={() => setParamsDrawerOpen(true)}
+                  >
+                    <SlidersHorizontal />
+                    <span className="hidden sm:inline">Parameters</span>
+                  </InputGroupButton>
+                  <p
+                    id="composer-help"
+                    className="min-w-0 flex-1 truncate text-xs font-normal text-muted-foreground"
+                  >
+                    <span className="hidden sm:inline">
+                      Enter to send · Shift+Enter for a new line
+                    </span>
+                    <span className="sm:hidden">Enter to send</span>
+                  </p>
+                  <InputGroupButton
+                    size="sm"
+                    aria-label="View request code"
+                    aria-haspopup="dialog"
+                    onClick={() => {
+                      setExportDraft(
+                        Boolean(inputPrompt.trim()) || !lastPayload
+                      )
+                      setCodeDrawerOpen(true)
+                    }}
+                  >
+                    <Code data-icon="inline-start" />
+                    Code
+                  </InputGroupButton>
+                  {isGenerating ? (
+                    <InputGroupButton
+                      size="icon-sm"
+                      variant="default"
+                      aria-label="Stop generation"
+                      onClick={handleStopGeneration}
+                    >
+                      <Square />
+                    </InputGroupButton>
+                  ) : (
+                    <InputGroupButton
+                      size="icon-sm"
+                      type="submit"
+                      variant="default"
+                      disabled={!inputPrompt.trim()}
+                      aria-label="Send message"
+                    >
+                      <Send />
+                    </InputGroupButton>
+                  )}
+                </InputGroupAddon>
+              </InputGroup>
+            </Field>
+          </form>
+        </section>
+        {canSplit && inspectorOpen ? (
+          <aside
+            aria-label="Run inspector"
+            className="flex min-h-0 min-w-0 flex-col border-l bg-muted/10"
+          >
+            <div className="flex shrink-0 items-center justify-between p-4">
+              <h2 className="text-sm font-medium">Run inspector</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setInspectorOpen(false)
+                  detailsButtonRef.current?.focus()
+                }}
+              >
+                Hide
+              </Button>
+            </div>
+            {inspector}
+          </aside>
+        ) : null}
+      </div>
+
+      <Sheet open={!canSplit && inspectorOpen} onOpenChange={setInspectorOpen}>
+        <SheetContent
+          side={isMobile ? "bottom" : "right"}
+          showCloseButton={false}
+          className={cn(
+            "gap-0 overflow-hidden",
+            isMobile
+              ? "h-[85dvh] max-h-[calc(100dvh-1rem)] rounded-t-xl"
+              : "w-full sm:max-w-md"
+          )}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            detailsButtonRef.current?.focus()
+          }}
+        >
+          <SheetHeader className="shrink-0 flex-row items-center justify-between border-b p-4">
+            <div>
+              <SheetTitle>Run inspector</SheetTitle>
+              <SheetDescription className="sr-only">
+                Inspect the last request, timing, and live response events.
+              </SheetDescription>
+            </div>
+            <SheetClose asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Close run details"
+              >
+                <X />
+              </Button>
+            </SheetClose>
+          </SheetHeader>
+          {inspectorOpen ? inspector : null}
+        </SheetContent>
+      </Sheet>
+
+      {/* Existing configuration and export controls remain independent of inference. */}
       <Dialog open={paramsDrawerOpen} onOpenChange={setParamsDrawerOpen}>
         <DialogContent className="w-[92vw] max-w-md overflow-hidden border-border p-0 shadow-2xl sm:max-w-lg">
           <DialogHeader className="p-4 pb-3">
             <DialogTitle className="flex items-center gap-2 text-sm sm:text-base">
               <SlidersHorizontal className="size-4 text-primary" />
-              <span>Model Parameters</span>
+              <span>Parameters</span>
             </DialogTitle>
             <DialogDescription>
-              Configure sampling hyperparameters.
+              Adjust the next request. Changes do not send a request.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto">
@@ -1872,33 +1826,20 @@ console.log(data.choices[0].message.content);`
           <DialogHeader className="p-4 pb-3">
             <DialogTitle className="flex items-center gap-2 text-sm sm:text-base">
               <KeyRound className="size-4 text-primary" />
-              <span>Connect Playground API Key</span>
+              <span>Connect API key</span>
             </DialogTitle>
             <DialogDescription>
-              The gateway requires an API key to authenticate model requests,
-              record traces, and meter token usage.
+              Use an existing key or create one for this session.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 p-4 pt-1">
             {apiKey ? (
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-emerald-800 dark:text-emerald-200">
-                    Currently Connected
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-6 cursor-pointer border-emerald-500/40 px-2 text-[11px] text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
-                    onClick={handleClearKey}
-                  >
-                    Disconnect
-                  </Button>
-                </div>
-                <p className="mt-1.5 rounded border border-emerald-500/20 bg-background/60 p-2 font-mono text-[11px] break-all text-emerald-700 dark:text-emerald-300">
-                  {apiKey}
-                </p>
+              <div className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
+                <span>Key connected for this session</span>
+                <Button variant="outline" size="sm" onClick={handleClearKey}>
+                  Disconnect
+                </Button>
               </div>
             ) : null}
 
@@ -1907,12 +1848,11 @@ console.log(data.choices[0].message.content);`
               <div className="flex items-center gap-2">
                 <Sparkles className="size-3.5 text-primary" />
                 <h4 className="text-xs font-semibold text-foreground">
-                  1-Click Playground Key
+                  Create a key
                 </h4>
               </div>
               <p className="text-xs text-muted-foreground">
-                Generate an instant temporary API key saved to this browser
-                session for immediate testing.
+                Create a key and connect it to this browser session.
               </p>
               <Button
                 size="sm"
@@ -1979,11 +1919,15 @@ console.log(data.choices[0].message.content);`
           <DialogHeader className="p-4 pb-3">
             <DialogTitle className="flex items-center gap-2 text-sm sm:text-base">
               <Code className="size-4 text-primary" />
-              <span>Integration Code</span>
+              <span>
+                {exportDraft || !lastPayload
+                  ? "Draft next request"
+                  : "Last dispatched request"}
+              </span>
             </DialogTitle>
             <DialogDescription>
-              Ready-to-use client snippets matching your selected model,
-              parameters, and conversation history.
+              Export the exact last-dispatched payload or preview the next
+              draft. Shareable snippets use YOUR_API_KEY.
             </DialogDescription>
           </DialogHeader>
 
@@ -2025,7 +1969,7 @@ console.log(data.choices[0].message.content);`
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  TypeScript / Node
+                  JavaScript
                 </button>
               </div>
 
@@ -2033,22 +1977,39 @@ console.log(data.choices[0].message.content);`
                 size="sm"
                 variant="outline"
                 className="h-8 gap-1.5 px-3 text-xs"
-                onClick={() => {
-                  navigator.clipboard.writeText(getCodeSnippet())
-                  setCopiedCode(true)
-                  setTimeout(() => setCopiedCode(false), 2000)
-                  toast.success("Snippet copied to clipboard.")
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(getCodeSnippet())
+                    toast.success("Code copied to clipboard.")
+                  } catch {
+                    toast.error(
+                      "Could not copy. Select the code and copy it manually."
+                    )
+                  }
                 }}
               >
-                {copiedCode ? (
-                  <Check className="size-3.5 text-emerald-500" />
-                ) : (
-                  <Copy className="size-3.5 text-muted-foreground" />
-                )}
-                <span>{copiedCode ? "Copied" : "Copy Code"}</span>
+                <Copy data-icon="inline-start" />
+                Copy code
               </Button>
             </div>
 
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!lastPayload}
+                onClick={() => setExportDraft(false)}
+              >
+                Last dispatched request
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setExportDraft(true)}
+              >
+                Draft next request
+              </Button>
+            </div>
             {/* Well-Structured Code Container (Controlled overflow, no overlapping) */}
             <div className="relative overflow-hidden rounded-lg border border-border/80 bg-muted/40">
               <pre className="max-h-[380px] min-h-[160px] overflow-x-auto overflow-y-auto p-4 font-mono text-xs leading-relaxed whitespace-pre text-foreground select-all">

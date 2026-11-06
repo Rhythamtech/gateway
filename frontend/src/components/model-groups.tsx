@@ -175,8 +175,7 @@ export function ModelGroupsContent() {
         <>
           <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
             <p className="text-sm text-muted-foreground">
-              Groups of provider models served under one public model ID.
-              Routing is failover by member priority.
+              Provider models grouped under unified public model IDs.
             </p>
             <Button
               size="sm"

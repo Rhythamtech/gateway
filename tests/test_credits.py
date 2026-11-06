@@ -135,7 +135,7 @@ def candidate(provider_id="provider", model_id="model"):
 
 def reserve(output=100):
     return service.reserve_request_credits(
-        candidate(), "user", "key", "request", output
+        candidate(), "user", "key", "request", output, 100
     )
 
 
@@ -170,7 +170,7 @@ def test_additions_are_idempotent_and_conflicts_are_rejected(credits_db):
 def test_reservation_settles_both_balances_once(credits_db):
     fund_request(credits_db)
     hold = reserve()
-    assert balances(credits_db)[0].reserved_credits == "100.000000"
+    assert balances(credits_db)[0].reserved_credits == "20.000000"
     service.mark_dispatched(hold.usage_id)
     service.record_usage(hold.usage_id, 100, 50, "upstream-id")
     service.settle_request_usage(hold.usage_id)
@@ -200,7 +200,7 @@ def test_concurrent_requests_cannot_overspend(credits_db):
     def attempt(index):
         try:
             return service.reserve_request_credits(
-                candidate(), "user", "key", str(index), 100
+                candidate(), "user", "key", str(index), 900, 100
             )
         except GatewayError as error:
             return error.code
@@ -233,7 +233,7 @@ def test_unknown_outcome_retains_hold_until_resolution(credits_db):
     service.mark_dispatched(hold.usage_id)
     service.mark_for_review(hold.usage_id, "Timeout")
     service.release_undispatched_request(hold.usage_id)
-    assert balances(credits_db)[0].reserved_credits == "100.000000"
+    assert balances(credits_db)[0].reserved_credits == "20.000000"
     resolution = UsageResolution(
         action="settle",
         input_tokens=40,
@@ -265,7 +265,7 @@ def test_reconciliation_retries_recorded_usage_and_retains_unknown_holds(credits
     with credits_db.reads() as db:
         assert db.get(CreditUsage, known.usage_id).status == "settled"
         assert db.get(CreditUsage, unknown.usage_id).status == "needs_review"
-    assert balances(credits_db)[0].reserved_credits == "100.000000"
+    assert balances(credits_db)[0].reserved_credits == "20.000000"
 
 
 def test_excessive_provider_usage_is_not_silently_undercharged(credits_db):
@@ -359,7 +359,7 @@ def upstream_response(protocol="openai"):
         ("/v1/chat/completions", {"messages": [{"role": "user", "content": "Hello"}]}),
         (
             "/v1/messages",
-            {"max_tokens": 100, "messages": [{"role": "user", "content": "Hello"}]},
+            {"messages": [{"role": "user", "content": "Hello"}]},
         ),
         ("/v1/responses", {"input": "Hello"}),
     ],
@@ -382,6 +382,40 @@ def test_inference_settles_with_tracing_disabled(
         assert balance.reserved_credits == "0.000000"
     with credits_db.reads() as db:
         assert db.execute(text("SELECT COUNT(*) FROM llm_call_traces")).scalar() == 0
+
+
+def test_automatic_rate_caps_output_to_available_credits(client, credits_db, monkeypatch):
+    result = client.put(
+        "/provider/models/model/credit-rate",
+        headers=user_token("admin"),
+        json={"tokens_per_credit": "10"},
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["max_request_tokens"] is None
+    service.add_credits("user", "user", addition("10"), "admin")
+    service.add_credits("provider", "provider", addition("100"), "admin")
+
+    async def send(_, payload, stream):
+        assert balances(credits_db)[0].reserved_credits == "10.000000"
+        assert 10 <= payload["max_tokens"] < 100
+        return httpx.Response(200, json=upstream_response())
+
+    upstream = AsyncMock(side_effect=send)
+    monkeypatch.setattr("backend.gateway.execution.call_provider", upstream)
+    payload = {"model": "a/model-a", "messages": [{"role": "user", "content": "Hello"}]}
+    headers = {"x-api-key": "test-key"}
+    rejected = client.post(
+        "/v1/chat/completions", headers=headers, json={**payload, "max_tokens": 100}
+    )
+    assert rejected.status_code == 402, rejected.text
+    upstream.assert_not_called()
+
+    accepted = client.post("/v1/chat/completions", headers=headers, json=payload)
+    assert accepted.status_code == 200, accepted.text
+    upstream.assert_awaited_once()
+    user, provider = balances(credits_db)
+    assert user.available_credits == "6.500000"
+    assert provider.available_credits == "96.500000"
 
 
 def test_rest_permissions_and_idempotency(client):
@@ -603,7 +637,7 @@ def test_live_usage_cannot_be_manually_released(credits_db):
             "admin",
         )
     assert error.value.status_code == 409
-    assert balances(credits_db)[0].reserved_credits == "100.000000"
+    assert balances(credits_db)[0].reserved_credits == "20.000000"
 
 
 def test_fresh_and_existing_schema_migrations_are_idempotent(credits_db):
@@ -1013,7 +1047,7 @@ def test_migration_0015_removes_max_output_tokens(tmp_path):
         """
     )
     for version, _ in MIGRATIONS:
-        if version != "0015_remove_max_output_tokens":
+        if version not in {"0015_remove_max_output_tokens", "0016_optional_model_token_ceiling"}:
             db.execute("INSERT INTO schema_migrations (version) VALUES (?)", (version,))
     db.commit()
     db.close()
@@ -1023,6 +1057,7 @@ def test_migration_0015_removes_max_output_tokens(tmp_path):
     engine.dispose()
 
     assert "0015_remove_max_output_tokens" in applied
+    assert "0016_optional_model_token_ceiling" in applied
 
     db = sqlite3.connect(str(path))
     rate_columns = {row[1] for row in db.execute("PRAGMA table_info(credit_model_rates)")}
@@ -1031,6 +1066,14 @@ def test_migration_0015_removes_max_output_tokens(tmp_path):
     assert "max_output_tokens" not in usage_columns
     assert "max_request_tokens" in rate_columns
     assert "max_request_tokens" in usage_columns
+
+    assert db.execute(
+        "SELECT max_request_tokens FROM credit_model_rates WHERE id = 'rate-1'"
+    ).fetchone() == (1000,)
+    db.execute(
+        "INSERT INTO credit_model_rates VALUES"
+        " ('automatic', 'pm-1', 3, 5000000, NULL, 'actor-1', '2026-01-02')"
+    )
 
     # Verify check constraint: max_request_tokens must still be > 0
     try:

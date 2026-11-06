@@ -1,4 +1,5 @@
 import * as React from "react"
+import { X, Wallet } from "lucide-react"
 import {
   getUserCredits,
   listUserCreditHistory,
@@ -9,6 +10,7 @@ import {
 import {
   chargeDisplayedText,
   formatCredits,
+  formatTokenCount,
   isZeroCredits,
 } from "@/lib/credits"
 import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
@@ -52,7 +54,7 @@ export type BalanceState =
 export type UsageState =
   | { phase: "loading" }
   | { phase: "error"; error: string }
-  | { phase: "ready"; items: CreditUsage[] }
+  | { phase: "ready"; items: CreditUsage[]; total: number }
 
 function formatDateTime(value: string): string {
   const date = parseApiTimestamp(value)
@@ -61,18 +63,6 @@ function formatDateTime(value: string): string {
 
 function shortModelLabel(value: string): string {
   return `${value.slice(0, 8)}…`
-}
-
-function tokensLine(usage: CreditUsage): string {
-  const input =
-    usage.input_tokens === null
-      ? "Not reported"
-      : usage.input_tokens.toLocaleString("en-US")
-  const output =
-    usage.output_tokens === null
-      ? "Not reported"
-      : usage.output_tokens.toLocaleString("en-US")
-  return `${input} in · ${output} out`
 }
 
 export function BalanceCard({
@@ -126,10 +116,8 @@ export function BalanceCard({
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
-            In use = credits temporarily held by unfinished requests. Available
-            = remaining minus in use. A request reserves its full maximum
-            allowance before dispatch, so a hold can exceed the final charge;
-            the difference is released when the request settles.
+            In use credits are held while requests run and settle or release on
+            completion.
           </p>
           {isZeroCredits(state.balance.available_credits) ? (
             <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -166,13 +154,13 @@ export function UsageRecords({
   return (
     <div className="@container/recent min-w-0">
       <ul
-        className="flex flex-col divide-y @3xl/recent:hidden"
+        className="flex flex-col divide-y @2xl/recent:hidden"
         aria-label="Request usage"
       >
         {items.map((usage) => (
-          <li key={usage.id} className="flex min-w-0 flex-col gap-1 py-3.5">
+          <li key={usage.id} className="flex min-w-0 flex-col gap-2 py-3.5">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm">
+              <span className="text-xs text-muted-foreground">
                 {formatDateTime(usage.created_at)}
               </span>
               <UsageStatusBadge status={usage.status} />
@@ -182,15 +170,26 @@ export function UsageRecords({
                 title={usage.provider_model_id}
                 className="min-w-0 truncate font-mono text-xs text-muted-foreground"
               >
-                {shortModelLabel(usage.provider_model_id)}
+                {usage.provider_model_id}
               </span>
-              <span className="shrink-0 text-sm font-medium tabular-nums">
+              <span className="shrink-0 text-sm font-semibold tabular-nums">
                 {chargeDisplayedText(usage.status, usage.charged_credits)}
               </span>
             </div>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {tokensLine(usage)}
-            </span>
+            <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/40 p-2 text-xs">
+              <div>
+                <span className="text-muted-foreground">Input tokens: </span>
+                <span className="font-medium tabular-nums">
+                  {formatTokenCount(usage.input_tokens)}
+                </span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Output tokens: </span>
+                <span className="font-medium tabular-nums">
+                  {formatTokenCount(usage.output_tokens)}
+                </span>
+              </div>
+            </div>
             {onOpenDetails ? (
               <Button
                 variant="outline"
@@ -204,43 +203,57 @@ export function UsageRecords({
           </li>
         ))}
       </ul>
-      <div className="hidden overflow-x-auto @3xl/recent:block">
+      <div className="hidden overflow-x-auto @2xl/recent:block">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>When</TableHead>
               <TableHead>Provider model ID</TableHead>
-              <TableHead>Tokens</TableHead>
-              <TableHead>Charged</TableHead>
+              <TableHead className="text-right">Input tokens</TableHead>
+              <TableHead className="text-right">Output tokens</TableHead>
+              <TableHead className="text-right">Charged</TableHead>
               <TableHead>Status</TableHead>
               {onOpenDetails ? (
-                <TableHead className="sr-only">Details</TableHead>
+                <TableHead className="w-[80px] text-right">
+                  <span className="sr-only">Details</span>
+                </TableHead>
               ) : null}
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.map((usage) => (
               <TableRow key={usage.id}>
-                <TableCell className="whitespace-nowrap">
+                <TableCell className="whitespace-nowrap text-muted-foreground">
                   {formatDateTime(usage.created_at)}
                 </TableCell>
                 <TableCell
                   title={usage.provider_model_id}
-                  className="max-w-56 truncate font-mono text-xs"
+                  className="max-w-48 truncate font-mono text-xs"
                 >
-                  {shortModelLabel(usage.provider_model_id)}
+                  {usage.provider_model_id}
                 </TableCell>
-                <TableCell className="whitespace-nowrap">
-                  {tokensLine(usage)}
+                <TableCell className="text-right tabular-nums">
+                  {usage.input_tokens === null ? (
+                    <span className="text-muted-foreground">Not reported</span>
+                  ) : (
+                    usage.input_tokens.toLocaleString("en-US")
+                  )}
                 </TableCell>
-                <TableCell className="font-medium tabular-nums">
+                <TableCell className="text-right tabular-nums">
+                  {usage.output_tokens === null ? (
+                    <span className="text-muted-foreground">Not reported</span>
+                  ) : (
+                    usage.output_tokens.toLocaleString("en-US")
+                  )}
+                </TableCell>
+                <TableCell className="text-right font-medium tabular-nums">
                   {chargeDisplayedText(usage.status, usage.charged_credits)}
                 </TableCell>
                 <TableCell>
                   <UsageStatusBadge status={usage.status} />
                 </TableCell>
                 {onOpenDetails ? (
-                  <TableCell>
+                  <TableCell className="text-right">
                     <Button
                       variant="outline"
                       size="sm"
@@ -274,10 +287,19 @@ export function UsageRecordsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Recent requests</CardTitle>
-        <CardDescription>
-          Your latest charged requests, newest first.
-        </CardDescription>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Recent requests</CardTitle>
+            {ready && !empty ? (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {state.total.toLocaleString("en-US")} total recorded
+              </span>
+            ) : null}
+          </div>
+          <CardDescription>
+            Your latest charged requests, newest first.
+          </CardDescription>
+        </div>
         {ready && !empty ? (
           <CardAction>
             <Button asChild variant="ghost" size="sm">
@@ -399,9 +421,9 @@ export function CreditPaginationBar({
 
 export function HistoryRecords({ items }: { items: CreditEntry[] }) {
   return (
-    <div className="min-w-0">
+    <div className="@container/history min-w-0">
       <ul
-        className="flex flex-col divide-y @3xl/credits:hidden"
+        className="flex flex-col divide-y @2xl/history:hidden"
         aria-label="Credit history"
       >
         {items.map((entry) => (
@@ -437,14 +459,14 @@ export function HistoryRecords({ items }: { items: CreditEntry[] }) {
           </li>
         ))}
       </ul>
-      <div className="hidden overflow-x-auto @3xl/credits:block">
+      <div className="hidden overflow-x-auto @2xl/history:block">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>When</TableHead>
               <TableHead>Direction</TableHead>
-              <TableHead>Credits</TableHead>
-              <TableHead>Balance after</TableHead>
+              <TableHead className="text-right">Credits</TableHead>
+              <TableHead className="text-right">Balance after</TableHead>
               <TableHead>Reason</TableHead>
             </TableRow>
           </TableHeader>
@@ -457,10 +479,10 @@ export function HistoryRecords({ items }: { items: CreditEntry[] }) {
                 <TableCell>
                   <DirectionBadge entry={entry} />
                 </TableCell>
-                <TableCell className="font-medium tabular-nums">
+                <TableCell className="text-right font-medium tabular-nums">
                   {signedCredits(entry)}
                 </TableCell>
-                <TableCell className="tabular-nums">
+                <TableCell className="text-right tabular-nums">
                   {formatCredits(entry.remaining_credits)}
                 </TableCell>
                 <TableCell className="max-w-72">
@@ -564,12 +586,31 @@ export function UserCreditsDrawer({
         if (!next) onClose()
       }}
     >
-      <DrawerContent className="sm:max-w-lg">
-        <DrawerHeader className="shrink-0 gap-1 border-b">
-          <DrawerTitle>Credits</DrawerTitle>
-          <DrawerDescription>{user.email}</DrawerDescription>
+      <DrawerContent className="overflow-hidden data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:h-[90dvh] data-[vaul-drawer-direction=bottom]:max-h-[90dvh] data-[vaul-drawer-direction=bottom]:w-full data-[vaul-drawer-direction=bottom]:max-w-none data-[vaul-drawer-direction=right]:h-dvh data-[vaul-drawer-direction=right]:max-h-dvh data-[vaul-drawer-direction=right]:w-full data-[vaul-drawer-direction=right]:sm:max-w-lg">
+        <DrawerHeader className="shrink-0 gap-2 border-b text-left">
+          <div className="flex items-center justify-between gap-3">
+            <DrawerTitle className="flex items-center gap-2">
+              <Wallet className="size-4" />
+              User credit account
+            </DrawerTitle>
+            <DrawerClose asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Close user credit account"
+              >
+                <X />
+              </Button>
+            </DrawerClose>
+          </div>
+          <DrawerDescription className="break-all">
+            {user.email}
+          </DrawerDescription>
         </DrawerHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          data-vaul-no-drag
+        >
           <div className="flex flex-col gap-5 p-4 md:p-6">
             {balanceError !== null ? (
               <div className="flex flex-col items-start gap-2">
@@ -583,50 +624,48 @@ export function UserCreditsDrawer({
                 </Button>
               </div>
             ) : (
-              <section className="flex flex-col gap-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm text-muted-foreground">
-                      Available credits
-                    </span>
-                    {balance ? (
-                      <span className="text-3xl font-semibold tabular-nums">
-                        {formatCredits(balance.available_credits)}
+              <section
+                aria-label="User balance"
+                className="flex min-w-0 flex-col gap-4 rounded-xl border bg-muted/20 p-4"
+              >
+                <div className="flex min-w-0 flex-col gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    Available to spend
+                  </span>
+                  {balance ? (
+                    <span className="text-3xl font-semibold tracking-tight break-all tabular-nums">
+                      {formatCredits(balance.available_credits)}
+                      <span className="ml-2 text-sm font-normal text-muted-foreground">
+                        credits
                       </span>
-                    ) : (
-                      <Skeleton className="mt-1 h-8 w-40" />
-                    )}
-                  </div>
-                  <Button size="sm" onClick={onAddCredits}>
-                    Add credits
-                  </Button>
+                    </span>
+                  ) : (
+                    <Skeleton className="h-9 w-40" />
+                  )}
                 </div>
-                {balance ? (
-                  <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
-                    <span className="flex items-baseline gap-2">
-                      <span className="text-muted-foreground">In use</span>
-                      <span className="font-medium tabular-nums">
+                {balance && (
+                  <dl className="grid grid-cols-2 gap-4 border-t pt-4 text-sm">
+                    <div className="min-w-0">
+                      <dt className="text-xs text-muted-foreground">
+                        Reserved / in use
+                      </dt>
+                      <dd className="mt-1 font-medium break-all tabular-nums">
                         {formatCredits(balance.reserved_credits)}
-                      </span>
-                    </span>
-                    <Separator
-                      orientation="vertical"
-                      className="hidden h-4 self-center sm:block"
-                    />
-                    <span className="flex items-baseline gap-2">
-                      <span className="text-muted-foreground">Remaining</span>
-                      <span className="font-medium tabular-nums">
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-muted-foreground">
+                        Remaining balance
+                      </dt>
+                      <dd className="mt-1 font-medium break-all tabular-nums">
                         {formatCredits(balance.remaining_credits)}
-                      </span>
-                    </span>
-                  </div>
-                ) : null}
-                <p className="text-xs text-muted-foreground">
-                  In use = credits temporarily held by unfinished requests.
-                  Available = remaining minus in use. A request reserves its
-                  full maximum allowance before dispatch, so a hold can exceed
-                  the final charge; the difference is released when the request
-                  settles.
+                      </dd>
+                    </div>
+                  </dl>
+                )}
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Available = remaining − reserved. Active requests hold credits
+                  until settlement or release.
                 </p>
                 {balance && isZeroCredits(balance.available_credits) ? (
                   <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -674,7 +713,8 @@ export function UserCreditsDrawer({
             </section>
           </div>
         </div>
-        <DrawerFooter className="border-t pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <DrawerFooter className="shrink-0 border-t bg-background pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+          <Button onClick={onAddCredits}>Add credits</Button>
           <DrawerClose asChild>
             <Button variant="outline">Close</Button>
           </DrawerClose>

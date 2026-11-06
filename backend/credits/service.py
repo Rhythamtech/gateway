@@ -6,10 +6,12 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from backend.auth.models import User
+from backend.core.config import settings
 from backend.core.database import SessionLocal
 from backend.core.errors import GatewayError
 from backend.credits.calculation import (
     MAX_AMOUNT,
+    MICROCREDITS,
     calculate_credit_charge,
     format_credits,
     to_microcredits,
@@ -41,6 +43,7 @@ from backend.gateway.routing import RouteCandidate
 @dataclass(frozen=True)
 class CreditReservation:
     usage_id: str
+    output_tokens: int
 
 
 def get_owner(
@@ -200,7 +203,7 @@ def set_model_rate(
 ) -> ModelRateResponse:
     rate_amount = to_microcredits(data.tokens_per_credit)
     try:
-        calculate_credit_charge(data.max_request_tokens, rate_amount, reserve=True)
+        calculate_credit_charge(data.max_request_tokens or 1, rate_amount, reserve=True)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     with SessionLocal.begin() as db:
@@ -230,6 +233,7 @@ def reserve_request_credits(
     api_key_id: str,
     request_id: str,
     requested_output_tokens: int | None,
+    estimated_input_tokens: int,
 ) -> CreditReservation:
     with SessionLocal.begin() as db:
         user = db.get(User, user_id)
@@ -258,27 +262,48 @@ def reserve_request_credits(
             raise GatewayError(
                 503, "model_rate_missing", "Model credit rate is not configured"
             )
-        if requested_output_tokens and requested_output_tokens > rate.max_request_tokens:
+        model_output_room = min(
+            1_000_000, (rate.max_request_tokens or 10_000_000) - estimated_input_tokens
+        )
+        if model_output_room < 1 or (
+            requested_output_tokens is not None
+            and requested_output_tokens > model_output_room
+        ):
             raise GatewayError(
                 400,
                 "output_limit_exceeded",
-                "Requested output exceeds the model token limit",
+                f"The input leaves room for at most {max(0, model_output_room)} output tokens",
             )
-        amount = calculate_credit_charge(
-            rate.max_request_tokens, rate.tokens_per_credit_micros, reserve=True
-        )
+
         provider_balance = get_credit_balance(db, "provider", provider.id, create=True)
         user_balance = get_credit_balance(db, "user", user.id, create=True)
-        if provider_balance.remaining - provider_balance.reserved < amount:
+        provider_available = provider_balance.remaining - provider_balance.reserved
+        user_available = user_balance.remaining - user_balance.reserved
+        available = min(provider_available, user_available)
+        affordable_output = (
+            available * rate.tokens_per_credit_micros // MICROCREDITS**2
+            - estimated_input_tokens
+        )
+        output_tokens = requested_output_tokens or min(
+            settings.CREDITS_DEFAULT_OUTPUT_TOKENS, model_output_room, affordable_output
+        )
+        if output_tokens < 1 or output_tokens > affordable_output:
+            if provider_available <= user_available:
+                raise GatewayError(
+                    503,
+                    "provider_credits_exhausted",
+                    "Provider has insufficient available credits",
+                )
             raise GatewayError(
-                503,
-                "provider_credits_exhausted",
-                "Provider has insufficient available credits",
+                402,
+                "insufficient_credits",
+                f"Your balance can cover at most {max(0, affordable_output)} output tokens after input",
             )
-        if user_balance.remaining - user_balance.reserved < amount:
-            raise GatewayError(
-                402, "insufficient_credits", "User has insufficient available credits"
-            )
+
+        reserved_tokens = estimated_input_tokens + output_tokens
+        amount = calculate_credit_charge(
+            reserved_tokens, rate.tokens_per_credit_micros, reserve=True
+        )
         provider_balance.reserved += amount
         user_balance.reserved += amount
         usage = CreditUsage(
@@ -289,12 +314,12 @@ def reserve_request_credits(
             provider_model_id=model.id,
             rate_id=rate.id,
             tokens_per_credit_micros=rate.tokens_per_credit_micros,
-            max_request_tokens=rate.max_request_tokens,
+            max_request_tokens=reserved_tokens,
             reserved=amount,
         )
         db.add(usage)
         db.flush()
-        return CreditReservation(usage.id)
+        return CreditReservation(usage.id, output_tokens)
 
 
 def require_usage(db: Session, usage_id: str) -> CreditUsage:
@@ -356,7 +381,7 @@ def record_usage(
             input_tokens + output_tokens > usage.max_request_tokens
         ):
             usage.status = "needs_review"
-            usage.reason = "Provider reported usage above the configured request limits"
+            usage.reason = "Provider reported usage above the reserved token allowance"
         else:
             usage.status = "usage_recorded"
             usage.reason = None

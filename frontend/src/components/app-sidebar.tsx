@@ -51,10 +51,9 @@ const navigation = [
     superuserOnly: true,
   },
   {
-    title: "LLM Traces",
+    title: "Request traces",
     url: "/dashboard/traces",
     icon: Activity,
-    superuserOnly: true,
   },
   {
     title: "Credit review",

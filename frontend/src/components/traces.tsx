@@ -26,6 +26,7 @@ import {
   type CallTraceFilters,
   type CallTraceItem,
   type CallsPage,
+  type CurrentUser,
   type MessageTraceDetail,
   type MessageTraceItem,
   type MessagesPage,
@@ -246,7 +247,7 @@ const filterFields: {
   { key: "to", label: "To date", type: "date" },
 ]
 
-export function TracesContent() {
+export function TracesContent({ user }: { user?: CurrentUser } = {}) {
   const [tab, setTab] = React.useState<TabKey>("messages")
   const [reloadTick, setReloadTick] = React.useState(0)
   const [page, setPage] = React.useState(1)
@@ -272,6 +273,16 @@ export function TracesContent() {
   const [drawerCall, setDrawerCall] = React.useState<CallTraceItem | null>(null)
   const searchId = React.useId()
   const statusId = React.useId()
+  const [inlineInspector, setInlineInspector] = React.useState(false)
+  React.useEffect(() => {
+    const media = window.matchMedia("(min-width: 1280px)")
+    const update = () => setInlineInspector(media.matches)
+    update()
+    media.addEventListener("change", update)
+    return () => media.removeEventListener("change", update)
+  }, [])
+  const inspectedMessage = useTraceDetail(inlineInspector ? messageId : null)
+
   React.useEffect(() => {
     let cancelled = false
     const request =
@@ -342,12 +353,17 @@ export function TracesContent() {
       <div className="flex min-w-0 flex-col gap-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex max-w-2xl flex-col gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-              Request traces
-            </h1>
-            <p className="text-sm leading-6 text-muted-foreground">
-              Follow a request through the gateway. Inspect provider attempts,
-              retries, and the time spent along the way.
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <IconRoute className="size-4" /> Observability{" "}
+              {user?.role === "superuser" ? (
+                <Badge variant="outline">Superuser</Badge>
+              ) : null}
+            </div>
+            <h2 className="text-2xl font-semibold tracking-tight">
+              Trace explorer
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Follow a request from arrival to its final provider attempt.
             </p>
           </div>
           <Button
@@ -362,320 +378,521 @@ export function TracesContent() {
             Refresh
           </Button>
         </div>
-        <Tabs
-          value={tab}
-          onValueChange={(value) => {
-            setTab(value as TabKey)
-            setPage(1)
-            setSearch("")
-          }}
-          className="gap-0"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
-            <TabsList variant="line">
-              <TabsTrigger value="messages">
-                <IconRoute />
-                Messages
-              </TabsTrigger>
-              <TabsTrigger value="calls">
-                <IconRoute />
-                Provider calls
-              </TabsTrigger>
-            </TabsList>
-            <span className="text-xs text-muted-foreground">
-              {data
-                ? `${formatInt(data.total)} ${tab === "messages" ? "messages recorded" : "matching calls"}`
-                : "Recorded gateway traffic"}
-            </span>
+        {user && !user.tracing_enabled ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3 text-xs">
+            <p className="text-muted-foreground">
+              Usage tracing is currently disabled for your account. New inference requests are not being recorded.
+            </p>
+            <Button asChild variant="outline" size="sm">
+              <a href="/dashboard/settings">Enable in Settings</a>
+            </Button>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 py-4">
-            <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-sm">
-              <IconSearch
-                aria-hidden="true"
-                className="size-4 shrink-0 text-muted-foreground"
-              />
-              <label htmlFor={searchId} className="sr-only">
-                Search this page
-              </label>
-              <Input
-                id={searchId}
-                type="search"
-                placeholder="Search this page…"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-            </div>
-            {tab === "calls" ? (
-              <Button
-                variant="outline"
-                aria-expanded={filtersOpen}
-                aria-controls="trace-call-filters"
-                onClick={() => setFiltersOpen(!filtersOpen)}
-              >
-                <IconFilter data-icon="inline-start" />
-                Filters
-                {appliedCount ? (
-                  <Badge variant="secondary">{appliedCount}</Badge>
-                ) : null}
-              </Button>
-            ) : (
-              <span className="hidden text-xs text-muted-foreground sm:block">
-                One message. Every attempt.
-              </span>
-            )}
-          </div>
-          {tab === "calls" ? (
-            <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
-              <CollapsibleContent id="trace-call-filters">
-                <form
-                  className="mb-4 flex flex-col gap-4 rounded-lg border bg-muted/20 p-4"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    const next = Object.fromEntries(
-                      Object.entries(draftFilters)
-                        .filter(([, value]) => value?.trim())
-                        .map(([key, value]) => [key, value.trim()])
-                    ) as CallTraceFilters
-                    setFilters(next)
-                    setPage(1)
-                    setSearch("")
-                  }}
-                >
-                  <div className="flex flex-col gap-1">
-                    <h2 className="text-sm font-medium">
-                      Filter provider calls
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      Filters apply to all recorded calls. Date bounds are
-                      inclusive; model, user, and key IDs use UUIDs.
-                    </p>
-                  </div>
-                  <FieldGroup className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    <Field>
-                      <FieldLabel htmlFor={statusId}>Status</FieldLabel>
-                      <Select
-                        value={draftFilters.status ?? "any"}
-                        onValueChange={(value) =>
-                          setDraftFilters((draft) => ({
-                            ...draft,
-                            status: value === "any" ? undefined : value,
-                          }))
-                        }
-                      >
-                        <SelectTrigger id={statusId} className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="any">Any status</SelectItem>
-                            <SelectItem value="success">Success</SelectItem>
-                            <SelectItem value="failed">Failed</SelectItem>
-                            <SelectItem value="timeout">Timeout</SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    {filterFields.map(({ key, label, type }) => (
-                      <FilterInput
-                        key={key}
-                        label={label}
-                        type={type}
-                        value={draftFilters[key] ?? ""}
-                        onChange={(value) =>
-                          setDraftFilters((draft) => ({
-                            ...draft,
-                            [key]: value,
-                          }))
-                        }
-                      />
-                    ))}
-                  </FieldGroup>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="submit" size="sm">
-                      Apply filters
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={resetFilters}
-                    >
-                      Reset filters
-                    </Button>
-                  </div>
-                </form>
-              </CollapsibleContent>
-            </Collapsible>
-          ) : null}
-          {appliedCount > 0 && tab === "calls" ? (
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-              {Object.entries(filters).map(([key, value]) => (
-                <Badge key={key} variant="outline" className="max-w-full">
-                  <span className="truncate">
-                    {key.replaceAll("_", " ")}: {value}
-                  </span>
-                </Badge>
-              ))}
-              <Button variant="ghost" size="sm" onClick={resetFilters}>
-                <IconX data-icon="inline-start" />
-                Clear
-              </Button>
-            </div>
-          ) : null}
-          <TabsContent
+        ) : null}
+        <div className="grid min-w-0 items-start gap-0 overflow-hidden rounded-xl border xl:grid-cols-[minmax(0,1fr)_360px]">
+          <Tabs
             value={tab}
-            className="@container/trace mt-0"
-            aria-busy={loading}
+            onValueChange={(value) => {
+              setTab(value as TabKey)
+              setPage(1)
+              setSearch("")
+              setMessageId(null)
+              setDrawerCall(null)
+            }}
+            className="min-w-0 gap-0"
           >
-            <div className="overflow-hidden rounded-xl border bg-card">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-                <h2 className="text-sm font-medium">
-                  {tab === "messages"
-                    ? "Inbound messages"
-                    : "Provider attempts"}
-                </h2>
-                <span className="text-xs text-muted-foreground">
-                  {tab === "messages"
-                    ? "Includes retries and failover"
-                    : "One row per provider call"}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/30 px-4 pt-3 pb-2">
+              <TabsList variant="line">
+                <TabsTrigger value="messages">
+                  <IconRoute />
+                  Messages
+                </TabsTrigger>
+                <TabsTrigger value="calls">
+                  <IconRoute />
+                  Provider calls
+                </TabsTrigger>
+              </TabsList>
+              <span className="text-xs text-muted-foreground">
+                {data
+                  ? `${formatInt(data.total)} ${tab === "messages" ? "messages recorded" : "matching calls"}`
+                  : "Recorded gateway traffic"}
+              </span>
+            </div>
+            <div
+              className="border-b bg-muted/10 px-4 py-4"
+              aria-label="Outcomes on the loaded page"
+            >
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>
+                  Loaded page · {data ? data.items.length : "—"} records
+                </span>
+                <span>
+                  {data
+                    ? `${data.items.filter((item) => item.status === "success").length} successful / ${data.items.filter((item) => item.status === "failed" || item.status === "timeout").length} unsuccessful`
+                    : "Waiting for records"}
                 </span>
               </div>
-              {error ? (
-                <TraceEmpty
-                  title="Unable to load traces"
-                  description={error}
-                  action={
-                    <Button
-                      variant="outline"
-                      onClick={() => setReloadTick((tick) => tick + 1)}
-                    >
-                      Try again
-                    </Button>
-                  }
-                  error
-                />
-              ) : loading ? (
-                <div
-                  className="flex flex-col gap-5 p-5"
-                  role="status"
-                  aria-label="Loading traces"
-                >
-                  {Array.from({ length: 6 }, (_, index) => (
-                    <div key={index} className="flex items-center gap-6">
-                      <Skeleton className="h-9 flex-1" />
-                      <Skeleton className="h-6 w-20" />
-                      <Skeleton className="hidden h-6 w-20 sm:block" />
-                    </div>
-                  ))}
-                </div>
-              ) : !items.length ? (
-                <TraceEmpty
-                  title={
-                    query
-                      ? "No matches on this page"
-                      : appliedCount && tab === "calls"
-                        ? "No calls match these filters"
-                        : "No traces recorded yet"
-                  }
-                  description={
-                    query
-                      ? "Try another model, identifier, or status. Search covers only the current page of results."
-                      : appliedCount && tab === "calls"
-                        ? "Adjust your filters or clear them to see all recorded provider calls."
-                        : "Enable tracing for a user in User Management, then send a request through the gateway to inspect it here."
-                  }
-                  action={
-                    query ? (
-                      <Button variant="outline" onClick={() => setSearch("")}>
-                        Clear search
-                      </Button>
-                    ) : appliedCount && tab === "calls" ? (
-                      <Button variant="outline" onClick={resetFilters}>
-                        Clear filters
-                      </Button>
-                    ) : (
-                      <Button asChild variant="outline">
-                        <a href="/dashboard/users">
-                          Manage user tracing
-                          <IconArrowUpRight data-icon="inline-end" />
-                        </a>
-                      </Button>
-                    )
-                  }
-                />
-              ) : (
-                <Table>
-                  <TableHeader className="bg-muted/30">
-                    <TableRow>
-                      <TableHead className="pl-4">
-                        {tab === "messages" ? "Request" : "Provider / model"}
-                      </TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="hidden @min-[800px]/trace:table-cell">
-                        {tab === "messages" ? "Attempts" : "Gateway model"}
-                      </TableHead>
-                      <TableHead className="hidden @min-[620px]/trace:table-cell">
-                        Tokens{" "}
-                        <span className="font-normal text-muted-foreground">
-                          in / out
-                        </span>
-                      </TableHead>
-                      <TableHead className="hidden text-right @min-[440px]/trace:table-cell">
-                        Duration
-                      </TableHead>
-                      <TableHead className="w-12 pr-4">
-                        <span className="sr-only">Inspect</span>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {items.map((item) =>
-                      "provider_model" in item ? (
-                        <CallRow
-                          key={item.id}
-                          call={item}
-                          onOpen={() => setDrawerCall(item)}
-                        />
-                      ) : (
-                        <MessageRow
-                          key={item.id}
-                          item={item}
-                          onOpen={() => setMessageId(item.id)}
-                        />
-                      )
+              <div
+                className="flex h-7 gap-1"
+                role="group"
+                aria-label="Select a recorded request"
+              >
+                {data?.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-label={`Inspect ${item.status} ${item.id}`}
+                    title={`${item.status} · ${item.id}`}
+                    onClick={() => {
+                      if ("provider_model" in item) {
+                        setDrawerCall(item)
+                        setMessageId(null)
+                      } else {
+                        setMessageId(item.id)
+                        setDrawerCall(null)
+                      }
+                    }}
+                    className={cn(
+                      "min-w-0 flex-1 rounded-sm border border-border transition-opacity hover:opacity-60 focus-visible:outline-2 focus-visible:outline-ring",
+                      item.status === "success"
+                        ? "bg-green-600/65 dark:bg-green-400/65"
+                        : item.status === "failed" || item.status === "timeout"
+                          ? "bg-destructive/50"
+                          : "bg-muted",
+                      (messageId === item.id || drawerCall?.id === item.id) &&
+                        "ring-2 ring-ring"
                     )}
-                  </TableBody>
-                </Table>
-              )}
-              {data && data.total > 0 ? (
-                <TablePagination
-                  page={page}
-                  pageSize={data.page_size}
-                  total={data.total}
-                  onPageChange={(next) => {
-                    setPage(next)
-                    setSearch("")
-                  }}
-                />
-              ) : null}
+                  />
+                ))}
+                {!data?.items.length && (
+                  <div className="w-full rounded-sm bg-muted" />
+                )}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Each segment is one{" "}
+                {tab === "messages" ? "message" : "provider call"}. Select to
+                inspect.
+              </p>
             </div>
-          </TabsContent>
-        </Tabs>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-4">
+              <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-sm">
+                <IconSearch
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-muted-foreground"
+                />
+                <label htmlFor={searchId} className="sr-only">
+                  Search this page
+                </label>
+                <Input
+                  id={searchId}
+                  type="search"
+                  placeholder="Search this page…"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </div>
+              {tab === "calls" ? (
+                <Button
+                  variant="outline"
+                  aria-expanded={filtersOpen}
+                  aria-controls="trace-call-filters"
+                  onClick={() => setFiltersOpen(!filtersOpen)}
+                >
+                  <IconFilter data-icon="inline-start" />
+                  Filters
+                  {appliedCount ? (
+                    <Badge variant="secondary">{appliedCount}</Badge>
+                  ) : null}
+                </Button>
+              ) : (
+                <span className="hidden text-xs text-muted-foreground sm:block">
+                  Recorded requests · oldest first
+                </span>
+              )}
+            </div>
+            {tab === "calls" ? (
+              <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+                <CollapsibleContent id="trace-call-filters">
+                  <form
+                    className="mb-4 flex flex-col gap-4 rounded-lg border bg-muted/20 p-4"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      const next = Object.fromEntries(
+                        Object.entries(draftFilters)
+                          .filter(([, value]) => value?.trim())
+                          .map(([key, value]) => [key, value.trim()])
+                      ) as CallTraceFilters
+                      setFilters(next)
+                      setPage(1)
+                      setSearch("")
+                    }}
+                  >
+                    <div className="flex flex-col gap-1">
+                      <h2 className="text-sm font-medium">
+                        Filter provider calls
+                      </h2>
+                      <p className="text-xs text-muted-foreground">
+                        Filters apply to all recorded calls. Date bounds are
+                        inclusive; model, user, and key IDs use UUIDs.
+                      </p>
+                    </div>
+                    <FieldGroup className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      <Field>
+                        <FieldLabel htmlFor={statusId}>Status</FieldLabel>
+                        <Select
+                          value={draftFilters.status ?? "any"}
+                          onValueChange={(value) =>
+                            setDraftFilters((draft) => ({
+                              ...draft,
+                              status: value === "any" ? undefined : value,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id={statusId} className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="any">Any status</SelectItem>
+                              <SelectItem value="success">Success</SelectItem>
+                              <SelectItem value="failed">Failed</SelectItem>
+                              <SelectItem value="timeout">Timeout</SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      {filterFields
+                        .filter(
+                          (f) => user?.role === "superuser" || f.key !== "user_id"
+                        )
+                        .map(({ key, label, type }) => (
+                        <FilterInput
+                          key={key}
+                          label={label}
+                          type={type}
+                          value={draftFilters[key] ?? ""}
+                          onChange={(value) =>
+                            setDraftFilters((draft) => ({
+                              ...draft,
+                              [key]: value,
+                            }))
+                          }
+                        />
+                      ))}
+                    </FieldGroup>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="submit" size="sm">
+                        Apply filters
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={resetFilters}
+                      >
+                        Reset filters
+                      </Button>
+                    </div>
+                  </form>
+                </CollapsibleContent>
+              </Collapsible>
+            ) : null}
+            {appliedCount > 0 && tab === "calls" ? (
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                {Object.entries(filters).map(([key, value]) => (
+                  <Badge key={key} variant="outline" className="max-w-full">
+                    <span className="truncate">
+                      {key.replaceAll("_", " ")}: {value}
+                    </span>
+                  </Badge>
+                ))}
+                <Button variant="ghost" size="sm" onClick={resetFilters}>
+                  <IconX data-icon="inline-start" />
+                  Clear
+                </Button>
+              </div>
+            ) : null}
+            <TabsContent
+              value={tab}
+              className="@container/trace mt-0"
+              aria-busy={loading}
+            >
+              <div className="overflow-hidden rounded-xl border bg-card">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+                  <h2 className="text-sm font-medium">
+                    {tab === "messages" ? "Request log" : "Provider call log"}
+                  </h2>
+                  <span className="text-xs text-muted-foreground">
+                    {tab === "messages"
+                      ? "Message status includes all attempts"
+                      : "Recorded calls · oldest first"}
+                  </span>
+                </div>
+                {error ? (
+                  <TraceEmpty
+                    title="Unable to load traces"
+                    description={error}
+                    action={
+                      <Button
+                        variant="outline"
+                        onClick={() => setReloadTick((tick) => tick + 1)}
+                      >
+                        Try again
+                      </Button>
+                    }
+                    error
+                  />
+                ) : loading ? (
+                  <div
+                    className="flex flex-col gap-5 p-5"
+                    role="status"
+                    aria-label="Loading traces"
+                  >
+                    {Array.from({ length: 6 }, (_, index) => (
+                      <div key={index} className="flex items-center gap-6">
+                        <Skeleton className="h-9 flex-1" />
+                        <Skeleton className="h-6 w-20" />
+                        <Skeleton className="hidden h-6 w-20 sm:block" />
+                      </div>
+                    ))}
+                  </div>
+                ) : !items.length ? (
+                  <TraceEmpty
+                    title={
+                      query
+                        ? "No matches on this page"
+                        : appliedCount && tab === "calls"
+                          ? "No calls match these filters"
+                          : "No traces recorded yet"
+                    }
+                    description={
+                      query
+                        ? "Try another model, identifier, or status. Search covers only the current page of results."
+                        : appliedCount && tab === "calls"
+                          ? "Adjust your filters or clear them to see all recorded provider calls."
+                          : "Enable tracing for a user in User Management, then send a request through the gateway to inspect it here."
+                    }
+                    action={
+                      query ? (
+                        <Button variant="outline" onClick={() => setSearch("")}>
+                          Clear search
+                        </Button>
+                      ) : appliedCount && tab === "calls" ? (
+                        <Button variant="outline" onClick={resetFilters}>
+                          Clear filters
+                        </Button>
+                      ) : (
+                        <Button asChild variant="outline">
+                          <a href="/dashboard/users">
+                            Manage user tracing
+                            <IconArrowUpRight data-icon="inline-end" />
+                          </a>
+                        </Button>
+                      )
+                    }
+                  />
+                ) : (
+                  <Table>
+                    <TableHeader className="bg-muted/30">
+                      <TableRow>
+                        <TableHead className="pl-4">
+                          {tab === "messages" ? "Request" : "Provider / model"}
+                        </TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="hidden @min-[800px]/trace:table-cell">
+                          {tab === "messages" ? "Attempts" : "Gateway model"}
+                        </TableHead>
+                        <TableHead className="hidden @min-[620px]/trace:table-cell">
+                          Tokens{" "}
+                          <span className="font-normal text-muted-foreground">
+                            in / out
+                          </span>
+                        </TableHead>
+                        <TableHead className="hidden text-right @min-[440px]/trace:table-cell">
+                          {tab === "messages" ? "Call time ∑" : "Latency"}
+                        </TableHead>
+                        <TableHead className="w-12 pr-4">
+                          <span className="sr-only">Inspect</span>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {items.map((item) =>
+                        "provider_model" in item ? (
+                          <CallRow
+                            key={item.id}
+                            call={item}
+                            selected={drawerCall?.id === item.id}
+                            onOpen={() => {
+                              setDrawerCall(item)
+                              setMessageId(null)
+                            }}
+                          />
+                        ) : (
+                          <MessageRow
+                            key={item.id}
+                            item={item}
+                            selected={messageId === item.id}
+                            onOpen={() => {
+                              setMessageId(item.id)
+                              setDrawerCall(null)
+                            }}
+                          />
+                        )
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
+                {data && data.total > 0 ? (
+                  <TablePagination
+                    page={page}
+                    pageSize={data.page_size}
+                    total={data.total}
+                    onPageChange={(next) => {
+                      setPage(next)
+                      setSearch("")
+                    }}
+                  />
+                ) : null}
+              </div>
+            </TabsContent>
+          </Tabs>
+          <aside
+            aria-label="Trace inspection workspace"
+            className="sticky top-0 hidden min-w-0 flex-col border-l bg-muted/10 xl:flex"
+          >
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <h3 className="flex items-center gap-2 text-sm font-semibold">
+                <IconCode className="size-4" />
+                Inspector
+              </h3>
+              {(messageId || drawerCall) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Clear selected trace"
+                  onClick={() => {
+                    setMessageId(null)
+                    setDrawerCall(null)
+                  }}
+                >
+                  <IconX />
+                </Button>
+              )}
+            </div>
+            <div className="flex max-h-[calc(100dvh-10rem)] min-w-0 flex-col gap-5 overflow-y-auto p-5">
+              {messageId ? (
+                inspectedMessage?.error ? (
+                  <div role="alert" className="flex flex-col gap-3">
+                    <p className="text-sm text-destructive">
+                      {inspectedMessage.error}
+                    </p>
+                    <Button variant="outline" asChild>
+                      <a
+                        href={`/dashboard/traces/detail?id=${encodeURIComponent(messageId)}`}
+                      >
+                        Open full trace
+                      </a>
+                    </Button>
+                  </div>
+                ) : inspectedMessage?.trace ? (
+                  <>
+                    <div className="flex flex-col gap-3">
+                      <TraceStatusBadge
+                        status={inspectedMessage.trace.status}
+                      />
+                      <h3 className="text-base font-medium break-all">
+                        {requestModel(inspectedMessage.trace.request)}
+                      </h3>
+                      <CopyButton value={messageId} label="Copy trace ID" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 rounded-lg border p-3 text-xs">
+                      <div>
+                        <p className="text-muted-foreground">Provider calls</p>
+                        <p className="mt-1 font-medium">
+                          {inspectedMessage.trace.call_count}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">
+                          Summed call time
+                        </p>
+                        <p className="mt-1 font-medium">
+                          {formatMs(inspectedMessage.trace.total_latency_ms)}
+                        </p>
+                      </div>
+                    </div>
+                    <TraceInspectorTabs
+                      key={messageId}
+                      trace={inspectedMessage.trace}
+                    />
+                    <Button asChild variant="outline">
+                      <a
+                        href={`/dashboard/traces/detail?id=${encodeURIComponent(messageId)}`}
+                      >
+                        Open full trace
+                        <IconArrowUpRight data-icon="inline-end" />
+                      </a>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Skeleton className="h-8 w-2/3" />
+                    <Skeleton className="h-40 w-full" />
+                  </>
+                )
+              ) : drawerCall ? (
+                <>
+                  <TraceStatusBadge status={drawerCall.status} />
+                  <h3 className="text-base font-medium break-all">
+                    {drawerCall.provider_model?.model_id ??
+                      "Unresolved provider"}
+                  </h3>
+                  <CallFacts call={drawerCall} />
+                  <RequestBlock request={drawerCall.request} />
+                </>
+              ) : (
+                <div className="flex flex-col gap-5 py-8">
+                  <div className="flex size-12 items-center justify-center rounded-xl border bg-background">
+                    <IconRoute className="size-6 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Start with a request</h3>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Select a segment or open a row to inspect its provider
+                      attempts, timing, and sanitized payload.
+                    </p>
+                  </div>
+                  <ol className="flex flex-col gap-4 border-l pl-4 text-xs text-muted-foreground">
+                    <li>Locate the request or provider call</li>
+                    <li>Follow the ordered attempt timeline</li>
+                    <li>Inspect errors and reported usage</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+          </aside>
+        </div>
         <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
-          Tracing is opt-in per user. Payloads are sanitized before storage;
-          viewing this page does not enable collection. Token counts come from
-          providers; — means unreported. For billing, see{" "}
+          Tracing is opt-in per user. Payloads are sanitized before storage. For
+          billing, see{" "}
           <a href="/dashboard/credits" className="underline underline-offset-4">
             Credits
           </a>
           .
         </p>
       </div>
-      <MessageInspector
-        traceId={messageId}
-        onClose={() => setMessageId(null)}
-      />
-      <CallTraceDrawer call={drawerCall} onClose={() => setDrawerCall(null)} />
+      {!inlineInspector && (
+        <>
+          <MessageInspector
+            traceId={messageId}
+            onClose={() => setMessageId(null)}
+          />
+          <CallTraceDrawer
+            call={drawerCall}
+            onClose={() => setDrawerCall(null)}
+          />
+        </>
+      )}
     </PageContent>
   )
 }
@@ -713,13 +930,15 @@ function TraceEmpty({
 function MessageRow({
   item,
   onOpen,
+  selected,
 }: {
   item: MessageTraceItem
   onOpen: () => void
+  selected?: boolean
 }) {
   return (
-    <TableRow>
-      <TableCell className="py-4 pl-4">
+    <TableRow data-state={selected ? "selected" : undefined}>
+      <TableCell className="py-3 pl-4">
         <button
           type="button"
           className="flex max-w-[96px] min-w-0 flex-col gap-1.5 text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring min-[375px]:max-w-[130px] @min-[600px]/trace:max-w-[280px]"
@@ -789,13 +1008,15 @@ function MessageRow({
 function CallRow({
   call,
   onOpen,
+  selected,
 }: {
   call: CallTraceItem
   onOpen: () => void
+  selected?: boolean
 }) {
   return (
-    <TableRow>
-      <TableCell className="py-4 pl-4">
+    <TableRow data-state={selected ? "selected" : undefined}>
+      <TableCell className="py-3 pl-4">
         <button
           type="button"
           className="flex max-w-[96px] min-w-0 flex-col gap-1.5 text-left outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring min-[375px]:max-w-[130px] @min-[600px]/trace:max-w-[260px]"
@@ -954,7 +1175,7 @@ function useTraceDetail(traceId: string | null, tick = 0) {
 function TraceSummary({ trace }: { trace: MessageTraceItem }) {
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-5 rounded-lg border bg-muted/20 p-4 sm:grid-cols-4">
-      <TraceField label="Duration">
+      <TraceField label="Summed call time">
         {formatMs(trace.total_latency_ms)}
       </TraceField>
       <TraceField label="Provider calls">
@@ -1206,7 +1427,7 @@ function MessageInspector({
 function TraceInspectorTabs({ trace }: { trace: MessageTraceDetail }) {
   return (
     <Tabs defaultValue="attempts" className="min-w-0 gap-5">
-      <TabsList>
+      <TabsList className="max-w-full">
         <TabsTrigger value="attempts">
           Attempts ({trace.calls.length})
         </TabsTrigger>

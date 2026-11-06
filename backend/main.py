@@ -41,6 +41,7 @@ from backend.telemetry import TelemetryMiddleware
 from backend.telemetry import setup as setup_telemetry, shutdown as shutdown_telemetry
 from backend.traces import models as trace_models  # noqa: F401
 from backend.traces.controller import router as traces_router
+from backend.traces.service import purge_expired_logs
 from backend.users.controller import router as users_router
 
 logger = logging.getLogger(__name__)
@@ -57,9 +58,18 @@ async def lifespan(_: FastAPI):
         logger.info("Imported %s provider(s) from configuration", seeded)
 
     reconciliation_task = asyncio.create_task(reconcile_credits())
+    async def retention_loop():
+        while True:
+            await asyncio.to_thread(purge_expired_logs)
+            await asyncio.sleep(3600)
+
+    retention_task = asyncio.create_task(retention_loop())
     try:
         yield
     finally:
+        retention_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await retention_task
         reconciliation_task.cancel()
         with suppress(asyncio.CancelledError):
             await reconciliation_task

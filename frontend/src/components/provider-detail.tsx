@@ -490,11 +490,8 @@ export function ProviderDetailContent() {
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    In use = credits temporarily held by unfinished requests.
-                    Available = remaining minus in use. A request reserves its
-                    full maximum allowance before dispatch, so a hold can exceed
-                    the final charge; the difference is released when the
-                    request settles.
+                    In use credits are held while requests run and settle or
+                    release on completion.
                   </p>
                   {isZeroCredits(balance.available_credits) ? (
                     <p className="text-xs text-amber-700 dark:text-amber-400">

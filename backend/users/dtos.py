@@ -22,4 +22,5 @@ class UserUpdateRequest(BaseModel):
 
 
 class UserPreferencesUpdate(BaseModel):
-    telemetry_enabled: bool
+    telemetry_enabled: bool | None = None
+    tracing_enabled: bool | None = None

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     ROUTER_MODEL_ROUTES: dict[str, str] = {}
     ROUTER_MODEL_CACHE_TTL: int = 300
 
+    CREDITS_DEFAULT_OUTPUT_TOKENS: int = Field(default=2048, ge=1, le=1_000_000)
     CREDITS_RECONCILE_INTERVAL_SECONDS: int = Field(default=30, ge=1)
     CREDITS_REVIEW_AFTER_SECONDS: int = Field(default=900, ge=60)
 

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth.models import User
 from backend.core.database import get_db
-from backend.dependencies import require_superuser
+from backend.dependencies import get_current_user, require_superuser
 from backend.gateway.model_groups import service
 from backend.gateway.model_groups.dtos import (
     ModelGroupCreate,
@@ -36,7 +36,7 @@ def list_model_groups(
     is_enabled: bool | None = None,
     routing_strategy: RoutingStrategy | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(require_superuser),
+    _: User = Depends(get_current_user),
 ):
     return service.list_model_groups(db, page, page_size, is_enabled, routing_strategy)
 
@@ -45,7 +45,7 @@ def list_model_groups(
 def get_model_group(
     group_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_superuser),
+    _: User = Depends(get_current_user),
 ):
     return service.get_model_group(db, group_id)
 

@@ -5,7 +5,7 @@ class AnthropicMessageRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     model: str
-    max_tokens: int = Field(gt=0, le=1_000_000, strict=True)
+    max_tokens: int | None = Field(default=None, gt=0, le=1_000_000, strict=True)
     stream: bool = False
 
 

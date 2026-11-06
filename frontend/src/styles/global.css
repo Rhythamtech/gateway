@@ -130,3 +130,19 @@
     @apply font-sans;
   }
 }
+
+/* Dashboard-only data colors; leave shared application/chart tokens unchanged. */
+.dashboard-analytics {
+  --analytics-volume: oklch(0.53 0.17 254);
+  --analytics-tokens: oklch(0.49 0.10 181);
+  --analytics-output: oklch(0.73 0.08 181);
+  --analytics-success: oklch(0.49 0.10 160);
+  --analytics-latency: oklch(0.54 0.13 292);
+}
+.dark .dashboard-analytics {
+  --analytics-volume: oklch(0.74 0.12 250);
+  --analytics-tokens: oklch(0.76 0.12 181);
+  --analytics-output: oklch(0.55 0.08 181);
+  --analytics-success: oklch(0.76 0.12 160);
+  --analytics-latency: oklch(0.76 0.12 292);
+}

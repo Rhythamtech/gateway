@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
@@ -9,6 +10,7 @@ from starlette.background import BackgroundTask
 
 from backend.core.errors import GatewayError
 from backend.credits import service
+from backend.gateway.chat.models import anthropic_to_openai, openai_to_anthropic
 from backend.gateway.providers.service import (
     RuntimeProvider,
     call_provider,
@@ -284,14 +286,39 @@ class CreditExecution:
         )
 
 
+def estimate_input_tokens(payload: dict[str, Any]) -> int:
+    # Allow one token per UTF-8 byte of input plus provider framing. Provider
+    # tokenization and hidden framing can differ from this local estimate.
+    prompt = {
+        key: payload[key]
+        for key in (
+            "messages", "system", "tools", "tool_choice", "functions",
+            "function_call", "response_format",
+        )
+        if payload.get(key)
+    }
+    return 16 + len(json.dumps(prompt, ensure_ascii=False).encode("utf-8", "surrogatepass"))
+
+
 def admit_request(
-    request: Request, payload: dict[str, Any], capture: CallCapture
+    request: Request,
+    payload: dict[str, Any],
+    capture: CallCapture,
+    *,
+    input_protocol: str = "openai",
 ) -> CreditExecution:
     output_tokens = validate_credit_request(payload)
     request_id = str(uuid4())
     errors: list[GatewayError] = []
     candidates = plan(payload["model"])
     for candidate in candidates:
+        provider_payload = payload
+        if input_protocol != candidate.protocol:
+            convert = (
+                openai_to_anthropic if candidate.protocol == "anthropic" else anthropic_to_openai
+            )
+            provider_payload = convert(payload)
+        estimated_input_tokens = estimate_input_tokens(provider_payload)
         try:
             reservation = service.reserve_request_credits(
                 candidate,
@@ -299,6 +326,7 @@ def admit_request(
                 request.state.api_key_id,
                 request_id,
                 output_tokens,
+                estimated_input_tokens,
             )
         except GatewayError as exc:
             if exc.code in (
@@ -315,13 +343,12 @@ def admit_request(
             bounded_payload = dict(payload)
             output_key = (
                 "max_completion_tokens"
-                if "max_completion_tokens" in payload
+                if candidate.protocol == "openai" and "max_completion_tokens" in payload
                 else "max_tokens"
             )
             for key in ("max_tokens", "max_completion_tokens", "max_output_tokens"):
                 bounded_payload.pop(key, None)
-            if output_tokens is not None:
-                bounded_payload[output_key] = output_tokens
+            bounded_payload[output_key] = reservation.output_tokens
             provider = capture.begin_attempt(
                 candidate, bounded_payload, stream=bool(payload.get("stream"))
             )

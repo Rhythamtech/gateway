@@ -9,7 +9,7 @@ names are snake_case.
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.core.datetime_safety import UTCDateTime
 
@@ -112,6 +112,12 @@ class DailyUsageEntry(BaseModel):
     average_latency_ms: int | None
 
 
+class HourlyCallActivity(BaseModel):
+    hour: int = Field(ge=0, le=23)
+    successful_call_count: int
+    failed_call_count: int
+
+
 class UsageAnalytics(BaseModel):
     subject_type: SubjectType
     subject_id: UUID
@@ -119,3 +125,4 @@ class UsageAnalytics(BaseModel):
     to_date: str
     totals: UsageTotals
     daily: list[DailyUsageEntry]
+    hourly: list[HourlyCallActivity] | None = None

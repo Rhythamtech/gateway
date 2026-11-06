@@ -10,8 +10,10 @@ import {
   ApiError,
   listUsers,
   updateUserActive,
+  updateUserTracing,
   type CurrentUser,
 } from "@/lib/auth"
+import { cn } from "cn"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -107,6 +109,28 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
     }
   }
 
+  async function handleToggleTracing(target: CurrentUser) {
+    setPendingUserId(target.id)
+    setActionError(null)
+
+    const nextState = !target.tracing_enabled
+    try {
+      await updateUserTracing(target.id, nextState)
+      toast.success(
+        nextState
+          ? `Tracing enabled for “${target.email}”. Requests will be recorded in Request traces.`
+          : `Tracing disabled for “${target.email}”.`
+      )
+      refreshUsers()
+    } catch (error) {
+      setActionError(
+        error instanceof ApiError ? error.message : "Unable to update tracing."
+      )
+    } finally {
+      setPendingUserId(null)
+    }
+  }
+
   const initialLoadFailed = loadError !== null && users === null
 
   return (
@@ -127,8 +151,7 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
         <>
           <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
             <p className="text-sm text-muted-foreground">
-              Sign-in access for registered accounts. Deactivating a user also
-              cuts off their API keys immediately.
+              User accounts and access management.
             </p>
           </div>
           <div className="px-4 lg:px-6">
@@ -156,6 +179,7 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Tracing</TableHead>
                     <TableHead>
                       <span className="sr-only">Actions</span>
                     </TableHead>
@@ -165,7 +189,7 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                   {users === null ? (
                     <TableRow>
                       <TableCell
-                        colSpan={4}
+                        colSpan={5}
                         className="h-24 text-center text-muted-foreground"
                       >
                         Loading users…
@@ -174,7 +198,7 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                   ) : users.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={4}
+                        colSpan={5}
                         className="h-24 text-center text-muted-foreground"
                       >
                         No users found.
@@ -221,6 +245,37 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                               {user.is_active ? "Active" : "Inactive"}
                             </Badge>
                           </TableCell>
+                          <TableCell>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleTracing(user)}
+                              disabled={pendingUserId === user.id}
+                              className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+                              title={
+                                user.tracing_enabled
+                                  ? "Tracing is enabled. Click to disable."
+                                  : "Tracing is disabled. Click to enable."
+                              }
+                            >
+                              <span
+                                className={cn(
+                                  "size-2 rounded-full",
+                                  user.tracing_enabled
+                                    ? "bg-green-500"
+                                    : "bg-muted-foreground/40"
+                                )}
+                              />
+                              <span
+                                className={cn(
+                                  user.tracing_enabled
+                                    ? "text-foreground"
+                                    : "text-muted-foreground"
+                                )}
+                              >
+                                {user.tracing_enabled ? "Enabled" : "Disabled"}
+                              </span>
+                            </button>
+                          </TableCell>
                           <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -236,7 +291,7 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                                   </span>
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuContent align="end" className="w-44">
                                 <DropdownMenuItem
                                   onSelect={() => {
                                     setDrawerState({
@@ -269,6 +324,15 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                                   }}
                                 >
                                   Add credits
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  disabled={pendingUserId === user.id}
+                                  onSelect={() => handleToggleTracing(user)}
+                                >
+                                  {user.tracing_enabled
+                                    ? "Disable tracing"
+                                    : "Enable tracing"}
                                 </DropdownMenuItem>
                                 {!isSuperuser ? (
                                   <>
@@ -420,9 +484,8 @@ function DeactivateUserDrawer({
         <DrawerHeader className="gap-1">
           <DrawerTitle>Deactivate “{user.email}”?</DrawerTitle>
           <DrawerDescription>
-            The user can no longer sign in, and their API keys immediately stop
-            resolving inference requests. Their account and data are kept, and
-            they can be re-enabled at any time.
+            Deactivating prevents sign-in and stops all associated API keys
+            immediately. The account can be re-enabled at any time.
           </DrawerDescription>
         </DrawerHeader>
         {error ? (

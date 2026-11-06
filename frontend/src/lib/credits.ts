@@ -222,3 +222,9 @@ export function isMissingRateError(error: unknown): boolean {
     (error as { status: unknown }).status === 404
   )
 }
+
+/** Token count formatting for tables and cards; preserves 0, distinct from null ("Not reported"). */
+export function formatTokenCount(count: number | null): string {
+  if (count === null) return "Not reported"
+  return count.toLocaleString("en-US")
+}

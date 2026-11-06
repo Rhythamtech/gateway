@@ -1,5 +1,10 @@
 import * as React from "react"
-import { IconCircleCheckFilled } from "@tabler/icons-react"
+import {
+  IconCheck,
+  IconCircleCheckFilled,
+  IconCopy,
+  IconX,
+} from "@tabler/icons-react"
 
 import {
   addProviderCredits,
@@ -18,7 +23,6 @@ import {
   CREDIT_MAX_REQUEST_TOKENS,
   CREDIT_REASON_MAX_LENGTH,
   calculateChargePreview,
-  calculateHoldPreview,
   chargeDisplayedText,
   formatCredits,
   generateIdempotencyKey,
@@ -95,6 +99,44 @@ export function UsageStatusBadge({ status }: { status: string }) {
   )
 }
 
+function CopyableIdentifier({ value }: { value: string }) {
+  const [copied, setCopied] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => setCopied(false), 1800)
+    return () => window.clearTimeout(timer)
+  }, [copied])
+
+  return (
+    <div className="flex max-w-full items-center justify-between gap-2">
+      <span className="min-w-0 font-mono text-xs break-all select-all">
+        {value}
+      </span>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+        aria-label={`Copy ${value}`}
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(value)
+            setCopied(true)
+          } catch {
+            // no-op if clipboard access fails
+          }
+        }}
+      >
+        {copied ? (
+          <IconCheck className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+        ) : (
+          <IconCopy className="h-3.5 w-3.5" />
+        )}
+      </Button>
+    </div>
+  )
+}
+
 export function UsageDetailDrawer({
   usage,
   onClose,
@@ -102,16 +144,38 @@ export function UsageDetailDrawer({
   usage: CreditUsage
   onClose: () => void
 }) {
+  const isMobile = useIsMobile()
   const tokensUnknown =
     usage.input_tokens === null || usage.output_tokens === null
+  const isUnfinalized =
+    usage.status === "reserved" ||
+    usage.status === "dispatched" ||
+    usage.status === "usage_recorded" ||
+    usage.status === "needs_review"
 
   return (
-    <Drawer open onOpenChange={(open) => !open && onClose()}>
-      <DrawerContent className="sm:max-w-lg">
-        <DrawerHeader className="border-b">
-          <DrawerTitle className="flex items-center gap-2">
-            Request usage <UsageStatusBadge status={usage.status} />
-          </DrawerTitle>
+    <Drawer
+      direction={isMobile ? "bottom" : "right"}
+      open={true}
+      onOpenChange={(open) => !open && onClose()}
+    >
+      <DrawerContent className="data-[vaul-drawer-direction=bottom]:max-h-[90dvh] data-[vaul-drawer-direction=right]:w-full data-[vaul-drawer-direction=right]:sm:max-w-lg">
+        <DrawerHeader className="shrink-0 border-b">
+          <div className="flex items-center justify-between gap-3">
+            <DrawerTitle className="flex items-center gap-2">
+              Request usage <UsageStatusBadge status={usage.status} />
+            </DrawerTitle>
+            <DrawerClose asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                aria-label="Close request usage"
+              >
+                <IconX className="h-4 w-4" />
+              </Button>
+            </DrawerClose>
+          </div>
           <DrawerDescription>
             Recorded for request {usage.request_id.slice(0, 8)}…
           </DrawerDescription>
@@ -139,11 +203,13 @@ export function UsageDetailDrawer({
                   </span>
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground">
-                The hold reserved this request&apos;s full allowance up front
-                and can exceed the final charge; the difference is released on
-                settlement.
-              </p>
+              {isUnfinalized ? (
+                <p className="text-xs text-muted-foreground">
+                  The hold reserved this request&apos;s full allowance up front
+                  and can exceed the final charge; the difference is released on
+                  settlement.
+                </p>
+              ) : null}
             </section>
 
             <section className="flex flex-col gap-2">
@@ -167,16 +233,13 @@ export function UsageDetailDrawer({
                     : usage.output_tokens.toLocaleString("en-US")}
                 </span>
               </DetailRow>
-              <DetailRow label="Charge formula">
-                <span>Input + output tokens ÷ tokens per credit</span>
-              </DetailRow>
               {tokensUnknown ? (
                 <p className="text-xs text-amber-700 dark:text-amber-400">
                   The provider did not report usage for this request. Missing
                   usage is never billed from an estimate; the hold stays until
                   it is resolved.
                 </p>
-              ) : (
+              ) : isUnfinalized ? (
                 <p className="text-xs text-muted-foreground">
                   At this recorded rate these tokens charge{" "}
                   <span className="tabular-nums">
@@ -189,29 +252,32 @@ export function UsageDetailDrawer({
                   credits. The recorded rate applies to this request; the
                   model&apos;s current rate may have changed since.
                 </p>
-              )}
+              ) : null}
             </section>
 
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold">Identifiers</h3>
+              <DetailRow label="Usage ID">
+                <CopyableIdentifier value={usage.id} />
+              </DetailRow>
               <DetailRow label="Request ID">
-                <span className="block font-mono text-xs break-all">
-                  {usage.request_id}
-                </span>
+                <CopyableIdentifier value={usage.request_id} />
+              </DetailRow>
+              <DetailRow label="Applied rate ID">
+                <CopyableIdentifier value={usage.rate_id} />
+              </DetailRow>
+              <DetailRow label="Provider model ID">
+                <CopyableIdentifier value={usage.provider_model_id} />
               </DetailRow>
               <DetailRow label="Provider response ID">
                 {usage.provider_request_id ? (
-                  <span className="block font-mono text-xs break-all">
-                    {usage.provider_request_id}
-                  </span>
+                  <CopyableIdentifier value={usage.provider_request_id} />
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}
               </DetailRow>
               <DetailRow label="API key ID">
-                <span className="block font-mono text-xs break-all">
-                  {usage.api_key_id}
-                </span>
+                <CopyableIdentifier value={usage.api_key_id} />
               </DetailRow>
             </section>
 
@@ -231,9 +297,11 @@ export function UsageDetailDrawer({
             </section>
           </div>
         </div>
-        <DrawerFooter className="border-t pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <DrawerFooter className="shrink-0 border-t pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <DrawerClose asChild>
-            <Button variant="outline">Close</Button>
+            <Button variant="outline" className="w-full">
+              Close
+            </Button>
           </DrawerClose>
         </DrawerFooter>
       </DrawerContent>
@@ -557,39 +625,27 @@ function ModelRateForm({
     () => existing?.tokens_per_credit ?? ""
   )
   const [maxRequestTokens, setMaxRequestTokens] = React.useState(() =>
-    existing ? String(existing.max_request_tokens) : ""
+    existing?.max_request_tokens == null ? "" : String(existing.max_request_tokens)
   )
   const [fieldErrors, setFieldErrors] = React.useState<RateFieldErrors>({})
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
   const parsedRate = validateTokensPerCredit(tokensPerCredit)
-  const parsedRequest = validateTokenCeiling(
-    maxRequestTokens,
-    CREDIT_MAX_REQUEST_TOKENS
-  )
+  const parsedRequest = maxRequestTokens.trim()
+    ? validateTokenCeiling(maxRequestTokens, CREDIT_MAX_REQUEST_TOKENS)
+    : null
 
   const exampleCharge = parsedRate.valid
     ? calculateChargePreview(1000, 0, parsedRate.normalized)
     : null
-  const holdPreview =
-    parsedRate.valid && parsedRequest.valid
-      ? {
-          tokens: parsedRequest.tokens,
-          credits: calculateHoldPreview(
-            parsedRequest.tokens,
-            parsedRate.normalized
-          ),
-        }
-      : null
-
   async function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!parsedRate.valid) {
       setFieldErrors({ tokensPerCredit: parsedRate.error })
       return
     }
-    if (!parsedRequest.valid) {
+    if (parsedRequest && !parsedRequest.valid) {
       setFieldErrors({ maxRequestTokens: parsedRequest.error })
       return
     }
@@ -602,7 +658,7 @@ function ModelRateForm({
       onSaved(
         await setModelCreditRate(model.id, {
           tokens_per_credit: parsedRate.normalized,
-          max_request_tokens: parsedRequest.tokens,
+          max_request_tokens: parsedRequest?.tokens ?? null,
         })
       )
     } catch (requestError) {
@@ -647,20 +703,18 @@ function ModelRateForm({
         </div>
         <div className="flex flex-col gap-3">
           <Label htmlFor="model-rate-max-request-tokens">
-            Maximum total tokens
+            Total Token Ceiling (optional)
           </Label>
           <Input
             id="model-rate-max-request-tokens"
             inputMode="numeric"
             value={maxRequestTokens}
             onChange={(event) => setMaxRequestTokens(event.target.value)}
-            placeholder="32768"
+            placeholder="Automatic"
           />
           <p className="text-xs text-muted-foreground">
-            The upstream model&apos;s verified upper bound for total billable
-            input plus output, including cached input and hidden tokens.
-            Configure it from the provider&apos;s actual limits, not as a
-            spending target.
+            Leave blank to let the gateway size each reservation. Set a ceiling
+            if this model has a known limit on input plus output.
           </p>
           {fieldErrors.maxRequestTokens ? (
             <p className="text-xs text-destructive" role="alert">
@@ -677,20 +731,6 @@ function ModelRateForm({
               </span>{" "}
               credits at this rate.
             </span>
-            {holdPreview !== null ? (
-              <span>
-                A request at the{" "}
-                <span className="tabular-nums">
-                  {holdPreview.tokens.toLocaleString("en-US")}
-                </span>{" "}
-                token maximum reserves{" "}
-                <span className="font-medium text-foreground tabular-nums">
-                  {holdPreview.credits}
-                </span>{" "}
-                credits before dispatch. Each request reserves its full
-                allowance, so a hold can exceed the final charge.
-              </span>
-            ) : null}
           </div>
         ) : null}
         {error ? (
@@ -825,12 +865,19 @@ export function ReviewEvidenceDrawer({
           output_tokens: parsedOutput.tokens,
           reason: reason.trim(),
         })
+        onResolved()
       } catch (requestError) {
-        setError(
-          requestError instanceof ApiError
-            ? requestError.message
-            : "Unable to resolve this usage."
-        )
+        if (requestError instanceof ApiError && requestError.status === 409) {
+          setError(
+            "This record was updated or resolved by another session. Please refresh the queue to assess its updated status."
+          )
+        } else {
+          setError(
+            requestError instanceof ApiError
+              ? requestError.message
+              : "Unable to resolve this usage."
+          )
+        }
       } finally {
         setPending(false)
       }
@@ -844,11 +891,17 @@ export function ReviewEvidenceDrawer({
       })
       onResolved()
     } catch (requestError) {
-      setError(
-        requestError instanceof ApiError
-          ? requestError.message
-          : "Unable to resolve this usage."
-      )
+      if (requestError instanceof ApiError && requestError.status === 409) {
+        setError(
+          "This record was updated or resolved by another session. Please refresh the queue to assess its updated status."
+        )
+      } else {
+        setError(
+          requestError instanceof ApiError
+            ? requestError.message
+            : "Unable to resolve this usage."
+        )
+      }
     } finally {
       setPending(false)
     }
@@ -862,11 +915,23 @@ export function ReviewEvidenceDrawer({
         if (!next) onClose()
       }}
     >
-      <DrawerContent className="sm:max-w-lg">
+      <DrawerContent className="data-[vaul-drawer-direction=bottom]:max-h-[90dvh] data-[vaul-drawer-direction=right]:w-full data-[vaul-drawer-direction=right]:sm:max-w-lg">
         <DrawerHeader className="shrink-0 gap-1 border-b">
-          <DrawerTitle className="flex items-center gap-2">
-            Review evidence <UsageStatusBadge status={usage.status} />
-          </DrawerTitle>
+          <div className="flex items-center justify-between gap-3">
+            <DrawerTitle className="flex items-center gap-2">
+              Review evidence <UsageStatusBadge status={usage.status} />
+            </DrawerTitle>
+            <DrawerClose asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                aria-label="Close review evidence"
+              >
+                <IconX className="h-4 w-4" />
+              </Button>
+            </DrawerClose>
+          </div>
           <DrawerDescription>
             Request {usage.request_id.slice(0, 8)}… ·{" "}
             {formatDateTime(usage.created_at)}
@@ -909,13 +974,10 @@ export function ReviewEvidenceDrawer({
                   {formatCredits(usage.tokens_per_credit)}
                 </span>
               </DetailRow>
-              <DetailRow label="Maximum total tokens (snapshot)">
+              <DetailRow label="Reserved token allowance">
                 <span className="tabular-nums">
                   {usage.max_request_tokens.toLocaleString("en-US")}
                 </span>
-              </DetailRow>
-              <DetailRow label="Charge formula">
-                <span>Input + output tokens ÷ tokens per credit</span>
               </DetailRow>
             </section>
 
@@ -948,33 +1010,23 @@ export function ReviewEvidenceDrawer({
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold">Identifiers</h3>
               <DetailRow label="Request ID">
-                <span className="block font-mono text-xs break-all">
-                  {usage.request_id}
-                </span>
+                <CopyableIdentifier value={usage.request_id} />
               </DetailRow>
               <DetailRow label="Provider response ID">
                 {usage.provider_request_id ? (
-                  <span className="block font-mono text-xs break-all">
-                    {usage.provider_request_id}
-                  </span>
+                  <CopyableIdentifier value={usage.provider_request_id} />
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}
               </DetailRow>
               <DetailRow label="User ID">
-                <span className="block font-mono text-xs break-all">
-                  {usage.user_id}
-                </span>
+                <CopyableIdentifier value={usage.user_id} />
               </DetailRow>
               <DetailRow label="Provider ID">
-                <span className="block font-mono text-xs break-all">
-                  {usage.provider_id}
-                </span>
+                <CopyableIdentifier value={usage.provider_id} />
               </DetailRow>
               <DetailRow label="Provider model ID">
-                <span className="block font-mono text-xs break-all">
-                  {usage.provider_model_id}
-                </span>
+                <CopyableIdentifier value={usage.provider_model_id} />
               </DetailRow>
             </section>
 
@@ -1015,6 +1067,12 @@ export function ReviewEvidenceDrawer({
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
+
+                <p className="text-xs text-muted-foreground">
+                  {action === "settle"
+                    ? `Settles verified token counts at ${formatCredits(usage.tokens_per_credit)} tokens/credit. Unused hold is returned to user and provider.`
+                    : `Releases the full hold (${formatCredits(usage.reserved_credits)} credits) back to user and provider with zero charge.`}
+                </p>
 
                 {action === "settle" ? (
                   <>

@@ -7,15 +7,15 @@ even under concurrent gateway traffic. Every actual upstream attempt,
 including retries and routing decisions, is recorded once; token and latency
 totals measure operational workload per attempt.
 
-Read side: normalized table helpers behind the trace API. Analytics read the
-indexed daily aggregate tables rather than scanning the call table.
+Read side: daily analytics use indexed aggregate tables. Opt-in hourly
+activity groups the matching indexed call rows by their UTC start hour.
 """
 
 import json
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -36,6 +36,28 @@ from backend.traces.redaction import serialize_request_payload
 STATUS_PENDING = "pending"
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
+
+
+def purge_expired_logs() -> int:
+    """Permanently remove closed request logs older than gateway retention."""
+    with SessionLocal.begin() as db:
+        policy = db.execute(
+            text("SELECT log_retention FROM gateway_settings WHERE id=1")
+        ).scalar_one()
+        age = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}.get(policy)
+        if age is None:
+            return 0
+        cutoff = datetime.now(timezone.utc) - age
+        result = db.execute(text("""
+            DELETE FROM llm_message_traces
+            WHERE finished_at IS NOT NULL AND finished_at < :cutoff
+              AND NOT EXISTS (
+                SELECT 1 FROM llm_call_traces
+                WHERE llm_call_traces.message_trace_id = llm_message_traces.id
+                  AND llm_call_traces.status = 'pending'
+              )
+        """), {"cutoff": cutoff.isoformat()})
+        return result.rowcount or 0
 STATUS_TIMEOUT = "timeout"
 _STATUSES = (STATUS_PENDING, STATUS_SUCCESS, STATUS_FAILED, STATUS_TIMEOUT)
 
@@ -428,7 +450,11 @@ def finish_pending_attempt(
 # ---------------------------------------------------------------------------
 
 
-def _aggregate_message_rows(db: Session, trace_id: str | None = None):
+def _aggregate_message_rows(
+    db: Session,
+    trace_id: str | None = None,
+    user_id: str | None = None,
+):
     """Aggregate calls per message trace (LEFT JOIN keeps empty messages)."""
 
     query = db.query(
@@ -457,6 +483,8 @@ def _aggregate_message_rows(db: Session, trace_id: str | None = None):
 
     if trace_id is not None:
         query = query.filter(LLMMessageTrace.id == trace_id)
+    if user_id is not None:
+        query = query.filter(LLMMessageTrace.user_id == user_id)
 
     return query.group_by(LLMMessageTrace.id)
 
@@ -509,13 +537,19 @@ def message_row_from_aggregate(row: Any) -> dict[str, Any]:
 
 
 def list_message_rows(
-    db: Session, page: int, page_size: int
+    db: Session,
+    page: int,
+    page_size: int,
+    user_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    total = db.query(func.count(LLMMessageTrace.id)).scalar() or 0
-    # Chronological (ascending) to match the detail view's attempt ordering.
+    count_query = db.query(func.count(LLMMessageTrace.id))
+    if user_id is not None:
+        count_query = count_query.filter(LLMMessageTrace.user_id == user_id)
+    total = count_query.scalar() or 0
+    # Newest requests first. Attempt ordering remains chronological in detail.
     query = (
-        _aggregate_message_rows(db)
-        .order_by(LLMMessageTrace.created_at.asc(), LLMMessageTrace.id.asc())
+        _aggregate_message_rows(db, user_id=user_id)
+        .order_by(LLMMessageTrace.created_at.desc(), LLMMessageTrace.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -533,7 +567,7 @@ def list_call_rows_by_message(db: Session, trace_id: str) -> list[dict[str, Any]
     rows = (
         _calls_query(db)
         .filter(LLMCallTrace.message_trace_id == trace_id)
-        .order_by(LLMCallTrace.created_at.asc())
+        .order_by(LLMCallTrace.created_at.asc(), LLMCallTrace.id.asc())
         .all()
     )
     return [_call_row_data(row) for row in rows]
@@ -624,9 +658,9 @@ def list_calls(
         query = query.filter(LLMCallTrace.created_at < ended)
 
     total = query.with_entities(func.count(LLMCallTrace.id)).scalar() or 0
-    # Chronological (ascending) to match the message-detail attempt ordering.
+    # Newest provider calls first in the top-level list.
     rows = (
-        query.order_by(LLMCallTrace.created_at.asc(), LLMCallTrace.id.asc())
+        query.order_by(LLMCallTrace.created_at.desc(), LLMCallTrace.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -736,6 +770,38 @@ def usage_for_user_gateway_model(
 
     rows = rows_query.order_by(LLMUserModelUsageDaily.usage_date).all()
     return {"totals": _totals_row(rows), "daily": _daily_entries(rows)}
+
+
+def hourly_call_activity(
+    db: Session,
+    subject_column,
+    subject_id: str,
+    from_date: date,
+    to_date: date,
+) -> list[dict[str, int]]:
+    """Count completed attempts in each UTC hour across the selected dates."""
+    hour = func.strftime("%H", LLMCallTrace.created_at)
+    success = func.sum(case((LLMCallTrace.status == STATUS_SUCCESS, 1), else_=0))
+    rows = (
+        db.query(hour, success, func.count())
+        .filter(
+            subject_column == subject_id,
+            LLMCallTrace.created_at >= day_start(from_date),
+            LLMCallTrace.created_at <= datetime.combine(to_date, time.max, tzinfo=timezone.utc),
+            LLMCallTrace.status.in_((STATUS_SUCCESS, STATUS_FAILED, STATUS_TIMEOUT)),
+        )
+        .group_by(hour)
+        .all()
+    )
+    counts = {int(bucket): (successful, total - successful) for bucket, successful, total in rows}
+    return [
+        {
+            "hour": hour,
+            "successful_call_count": counts.get(hour, (0, 0))[0],
+            "failed_call_count": counts.get(hour, (0, 0))[1],
+        }
+        for hour in range(24)
+    ]
 
 
 def day_start(a_date: date) -> datetime:
