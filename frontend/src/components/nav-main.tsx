@@ -1,4 +1,3 @@
-import * as React from "react"
 import { ChevronRight, type LucideIcon } from "lucide-react"
 
 import {
@@ -16,12 +15,13 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-  useSidebar,
 } from "@/components/ui/sidebar"
 
 export function NavMain({
   items,
+  label,
 }: {
+  label?: string
   items: {
     title: string
     url: string
@@ -33,18 +33,9 @@ export function NavMain({
     }[]
   }[]
 }) {
-  const { setOpenMobile } = useSidebar()
-  React.useEffect(() => {
-    // Keep the link mounted until Astro has handled its click. Closing the
-    // mobile sheet in onClick can remove it before the router sees the event.
-    const closeMobileNavigation = () => setOpenMobile(false)
-    document.addEventListener("astro:after-swap", closeMobileNavigation)
-    return () =>
-      document.removeEventListener("astro:after-swap", closeMobileNavigation)
-  }, [setOpenMobile])
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>Platform</SidebarGroupLabel>
+      {label && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
       <SidebarMenu>
         {items.map((item) => (
           <Collapsible key={item.title} asChild defaultOpen={item.isActive}>

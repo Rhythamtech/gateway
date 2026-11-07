@@ -580,6 +580,20 @@ export function updateUserTracing(
   })
 }
 
+export type UserAdminAuditItem = {
+  id: string
+  actor_email: string
+  action: string
+  detail: string
+  created_at: string
+}
+
+export function getUserAdminAudit(
+  userId: string
+): Promise<UserAdminAuditItem[]> {
+  return authenticatedRequest<UserAdminAuditItem[]>(`/users/${userId}/audit`)
+}
+
 // --- LLM usage analytics (role scoping enforced by the backend) ---
 
 // Operational usage of actual gateway/provider attempts, including retries —
@@ -639,7 +653,9 @@ export function getLogRetention(): Promise<{ log_retention: LogRetention }> {
   return authenticatedRequest("/traces/retention")
 }
 
-export function updateLogRetention(logRetention: LogRetention): Promise<{ log_retention: LogRetention }> {
+export function updateLogRetention(
+  logRetention: LogRetention
+): Promise<{ log_retention: LogRetention }> {
   return authenticatedRequest("/traces/retention", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -785,6 +801,7 @@ export type CallsPage = {
 // optional. from/to are inclusive dates.
 export type CallTraceFilters = {
   user_id?: string
+  request_id?: string
   message_id?: string
   api_key_id?: string
   gateway_model_id?: string
@@ -801,12 +818,13 @@ export type CallTraceFilterOptions = {
 }
 
 export function listMessageTraces(
-  options: { page?: number; pageSize?: number } = {}
+  options: { page?: number; pageSize?: number; requestId?: string } = {}
 ): Promise<MessagesPage> {
   const params = new URLSearchParams()
   if (options.page !== undefined) params.set("page", String(options.page))
   if (options.pageSize !== undefined)
     params.set("page_size", String(options.pageSize))
+  if (options.requestId) params.set("request_id", options.requestId)
   const query = params.toString()
   return authenticatedRequest<MessagesPage>(
     `/traces/messages${query ? `?${query}` : ""}`

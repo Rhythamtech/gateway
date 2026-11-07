@@ -15,11 +15,14 @@ export function getStoredTheme(): Theme {
     return "system"
   }
 
+  const fallback = /^\/dashboard(?:\/|$)/.test(window.location.pathname)
+    ? "dark"
+    : "system"
   try {
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
-    return isTheme(stored) ? stored : "system"
+    return isTheme(stored) ? stored : fallback
   } catch {
-    return "system"
+    return fallback
   }
 }
 

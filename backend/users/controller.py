@@ -8,6 +8,7 @@ from backend.users.dtos import (
     CurrentUserResponse,
     UserPreferencesUpdate,
     UserUpdateRequest,
+    UserAdminAuditItem,
 )
 from backend.users.service import list_users, to_user_response
 from backend.users import service as users_service
@@ -45,6 +46,17 @@ def update_user_endpoint(
     user_id: str,
     data: UserUpdateRequest,
     db: Session = Depends(get_db),
-    _: User = Depends(require_superuser),
+    actor: User = Depends(require_superuser),
 ):
-    return to_user_response(users_service.update_user(db, user_id, data))
+    return to_user_response(users_service.update_user(db, user_id, data, actor))
+
+
+@router.get("/{user_id}/audit", response_model=list[UserAdminAuditItem])
+def get_user_audit(user_id: str, db: Session = Depends(get_db), _: User = Depends(require_superuser)):
+    if db.get(User, user_id) is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="User not found")
+    return [
+        UserAdminAuditItem(id=entry.id, actor_email=email, action=entry.action, detail=entry.detail, created_at=entry.created_at)
+        for entry, email in users_service.list_user_audit(db, user_id)
+    ]

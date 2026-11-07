@@ -256,6 +256,7 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
     tab: TabKey
     page: number
     tick: number
+    requestId: string
     filters: CallTraceFilters
     data: MessagesPage | CallsPage
   } | null>(null)
@@ -263,6 +264,7 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
     tab: TabKey
     page: number
     tick: number
+    requestId: string
     filters: CallTraceFilters
     message: string
   } | null>(null)
@@ -283,16 +285,22 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
   }, [])
   const inspectedMessage = useTraceDetail(inlineInspector ? messageId : null)
 
+  const requestId = search.trim()
+
   React.useEffect(() => {
     let cancelled = false
     const request =
       tab === "messages"
-        ? listMessageTraces({ page, pageSize: PAGE_SIZE })
-        : listCallTraces({ page, pageSize: PAGE_SIZE, filters })
+        ? listMessageTraces({ page, pageSize: PAGE_SIZE, requestId })
+        : listCallTraces({
+            page,
+            pageSize: PAGE_SIZE,
+            filters: { ...filters, request_id: requestId },
+          })
     request
       .then((data) => {
         if (!cancelled)
-          setResult({ tab, page, tick: reloadTick, filters, data })
+          setResult({ tab, page, tick: reloadTick, requestId, filters, data })
       })
       .catch((error: unknown) => {
         if (!cancelled)
@@ -300,6 +308,7 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
             tab,
             page,
             tick: reloadTick,
+            requestId,
             filters,
             message:
               error instanceof Error ? error.message : "Unable to load traces.",
@@ -308,40 +317,25 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
     return () => {
       cancelled = true
     }
-  }, [tab, page, filters, reloadTick])
+  }, [tab, page, filters, reloadTick, requestId])
   const matchesRequest = (
     value: {
       tab: TabKey
       page: number
       tick: number
+      requestId: string
       filters: CallTraceFilters
     } | null
   ) =>
     value?.tab === tab &&
     value.page === page &&
     value.tick === reloadTick &&
+    value.requestId === requestId &&
     value.filters === filters
   const data = matchesRequest(result) ? result!.data : null
   const error = matchesRequest(failure) && !data ? failure!.message : null
   const loading = !data && !error
-  const query = search.trim().toLowerCase()
-  const items =
-    data?.items.filter((item) => {
-      const call = "provider_model" in item ? item : null
-      return [
-        item.id,
-        item.message_id,
-        item.user_id,
-        item.api_key_id,
-        item.status,
-        requestModel(item.request),
-        call?.gateway_model?.model_id,
-        call?.provider_model?.model_id,
-        call?.provider_model?.provider_name,
-        call?.provider_model?.provider_alias,
-        call?.error_code,
-      ].some((value) => value?.toLowerCase().includes(query))
-    }) ?? []
+  const items = data?.items ?? []
   const appliedCount = Object.keys(filters).length
   function resetFilters() {
     setDraftFilters({})
@@ -364,12 +358,16 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
             </h2>
             <p className="text-sm text-muted-foreground">
               Follow a request from arrival to its final provider attempt.
+              Newest entries appear first.
             </p>
           </div>
           <Button
             variant="outline"
             disabled={loading}
-            onClick={() => setReloadTick((tick) => tick + 1)}
+            onClick={() => {
+              setPage(1)
+              setReloadTick((tick) => tick + 1)
+            }}
           >
             <IconRefresh
               data-icon="inline-start"
@@ -381,7 +379,8 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
         {user && !user.tracing_enabled ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3 text-xs">
             <p className="text-muted-foreground">
-              Usage tracing is currently disabled for your account. New inference requests are not being recorded.
+              Usage tracing is currently disabled for your account. New
+              inference requests are not being recorded.
             </p>
             <Button asChild variant="outline" size="sm">
               <a href="/dashboard/settings">Enable in Settings</a>
@@ -394,14 +393,16 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
             onValueChange={(value) => {
               setTab(value as TabKey)
               setPage(1)
-              setSearch("")
               setMessageId(null)
               setDrawerCall(null)
             }}
             className="min-w-0 gap-0"
           >
             <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/30 px-4 pt-3 pb-2">
-              <TabsList variant="line">
+              <TabsList
+                variant="line"
+                className="[&>[data-slot=tabs-trigger]:focus-visible]:ring-0"
+              >
                 <TabsTrigger value="messages">
                   <IconRoute />
                   Messages
@@ -480,14 +481,18 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
                   className="size-4 shrink-0 text-muted-foreground"
                 />
                 <label htmlFor={searchId} className="sr-only">
-                  Search this page
+                  Search by request ID
                 </label>
                 <Input
                   id={searchId}
                   type="search"
-                  placeholder="Search this page…"
+                  placeholder="Search by request ID…"
+                  maxLength={255}
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => {
+                    setSearch(event.target.value)
+                    setPage(1)
+                  }}
                 />
               </div>
               {tab === "calls" ? (
@@ -523,7 +528,6 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
                       ) as CallTraceFilters
                       setFilters(next)
                       setPage(1)
-                      setSearch("")
                     }}
                   >
                     <div className="flex flex-col gap-1">
@@ -562,22 +566,23 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
                       </Field>
                       {filterFields
                         .filter(
-                          (f) => user?.role === "superuser" || f.key !== "user_id"
+                          (f) =>
+                            user?.role === "superuser" || f.key !== "user_id"
                         )
                         .map(({ key, label, type }) => (
-                        <FilterInput
-                          key={key}
-                          label={label}
-                          type={type}
-                          value={draftFilters[key] ?? ""}
-                          onChange={(value) =>
-                            setDraftFilters((draft) => ({
-                              ...draft,
-                              [key]: value,
-                            }))
-                          }
-                        />
-                      ))}
+                          <FilterInput
+                            key={key}
+                            label={label}
+                            type={type}
+                            value={draftFilters[key] ?? ""}
+                            onChange={(value) =>
+                              setDraftFilters((draft) => ({
+                                ...draft,
+                                [key]: value,
+                              }))
+                            }
+                          />
+                        ))}
                     </FieldGroup>
                     <div className="flex flex-wrap gap-2">
                       <Button type="submit" size="sm">
@@ -658,22 +663,28 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
                 ) : !items.length ? (
                   <TraceEmpty
                     title={
-                      query
-                        ? "No matches on this page"
+                      requestId
+                        ? "No traces match this request ID"
                         : appliedCount && tab === "calls"
                           ? "No calls match these filters"
                           : "No traces recorded yet"
                     }
                     description={
-                      query
-                        ? "Try another model, identifier, or status. Search covers only the current page of results."
+                      requestId
+                        ? "Check the full request ID and any active filters."
                         : appliedCount && tab === "calls"
                           ? "Adjust your filters or clear them to see all recorded provider calls."
                           : "Enable tracing for a user in User Management, then send a request through the gateway to inspect it here."
                     }
                     action={
-                      query ? (
-                        <Button variant="outline" onClick={() => setSearch("")}>
+                      requestId ? (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setSearch("")
+                            setPage(1)
+                          }}
+                        >
                           Clear search
                         </Button>
                       ) : appliedCount && tab === "calls" ? (
@@ -749,7 +760,6 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
                     total={data.total}
                     onPageChange={(next) => {
                       setPage(next)
-                      setSearch("")
                     }}
                   />
                 ) : null}

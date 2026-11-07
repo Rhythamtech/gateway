@@ -130,6 +130,7 @@ export function Dashboard({
     path === "/dashboard" ||
     path === "/dashboard/credits" ||
     path === "/dashboard/credit-review" ||
+    path === "/dashboard/users/detail" ||
     path === "/dashboard/settings"
   return (
     <AuthGate

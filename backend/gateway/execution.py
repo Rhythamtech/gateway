@@ -1,7 +1,6 @@
 import json
 from collections.abc import AsyncIterator
 from typing import Any
-from uuid import uuid4
 
 import httpx
 from fastapi import Request
@@ -308,7 +307,7 @@ def admit_request(
     input_protocol: str = "openai",
 ) -> CreditExecution:
     output_tokens = validate_credit_request(payload)
-    request_id = str(uuid4())
+    request_id = capture.request_id
     errors: list[GatewayError] = []
     candidates = plan(payload["model"])
     for candidate in candidates:

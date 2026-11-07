@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, EmailStr
 
 from backend.auth.models import UserRole
@@ -24,3 +26,11 @@ class UserUpdateRequest(BaseModel):
 class UserPreferencesUpdate(BaseModel):
     telemetry_enabled: bool | None = None
     tracing_enabled: bool | None = None
+
+
+class UserAdminAuditItem(BaseModel):
+    id: str
+    actor_email: EmailStr
+    action: str
+    detail: str
+    created_at: datetime

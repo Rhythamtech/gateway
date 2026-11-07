@@ -652,6 +652,20 @@ def _migration_0017_gateway_log_retention(connection: Connection) -> None:
     ))
 
 
+def _migration_0018_user_admin_audit(connection: Connection) -> None:
+    connection.execute(text("""
+        CREATE TABLE IF NOT EXISTS user_admin_audit (
+            id VARCHAR(36) PRIMARY KEY,
+            actor_id VARCHAR(36) NOT NULL REFERENCES users(id),
+            user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+            action VARCHAR(48) NOT NULL,
+            detail VARCHAR(255) NOT NULL,
+            created_at DATETIME NOT NULL
+        )
+    """))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_admin_audit_user_created ON user_admin_audit (user_id, created_at)"))
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -676,6 +690,7 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0015_remove_max_output_tokens", _migration_0015_remove_max_output_tokens),
     ("0016_optional_model_token_ceiling", _migration_0016_optional_model_token_ceiling),
     ("0017_gateway_log_retention", _migration_0017_gateway_log_retention),
+    ("0018_user_admin_audit", _migration_0018_user_admin_audit),
 ]
 
 

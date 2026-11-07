@@ -228,12 +228,13 @@ def list_messages(
     page: int = Query(default=1),
     page_size: int = Query(default=20),
     user_id: UUID | None = Query(default=None),
+    request_id: str | None = Query(default=None, max_length=255),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     page, page_size = _ensure_page(page, page_size)
     scoped_user_id = user.id if user.role != UserRole.SUPERUSER else (str(user_id) if user_id else None)
-    items, total = service.list_message_rows(db, page, page_size, user_id=scoped_user_id)
+    items, total = service.list_message_rows(db, page, page_size, user_id=scoped_user_id, request_id=request_id)
 
     return MessagesPage(
         items=[_message_item(item) for item in items],
@@ -282,6 +283,7 @@ def list_calls(
     page: int = Query(default=1),
     page_size: int = Query(default=20),
     user_id: UUID | None = Query(default=None),
+    request_id: str | None = Query(default=None, max_length=255),
     message_id: str | None = Query(default=None),
     api_key_id: UUID | None = Query(default=None),
     gateway_model_id: UUID | None = Query(default=None),
@@ -304,6 +306,7 @@ def list_calls(
         page_size,
         user_id=scoped_user_id,
         message_id=message_id,
+        request_id=request_id,
         api_key_id=str(api_key_id) if api_key_id else None,
         gateway_model_id=str(gateway_model_id) if gateway_model_id else None,
         provider_model_id=str(provider_model_id) if provider_model_id else None,
@@ -477,6 +480,24 @@ def user_usage(
     from_date, to_date = _ensure_dates(from_param, to_param)
     data = service.usage_for_subject(
         db, LLMUserUsageDaily, "user_id", subject.id, from_date, to_date
+    )
+    defaults = service.usage_date_bounds(subject.created_at)
+    hourly = (
+        service.hourly_call_activity(
+            db, LLMCallTrace.user_id, subject.id, from_date or defaults[0], to_date or defaults[1]
+        )
+        if include_hourly
+        else None
+    )
+    return _usage_response(
+        subject_type="user",
+        subject_id=user_id,
+        from_date=from_date,
+        to_date=to_date,
+        data=data,
+        default_from=defaults[0],
+        default_to=defaults[1],
+        hourly=hourly,
     )
 
 

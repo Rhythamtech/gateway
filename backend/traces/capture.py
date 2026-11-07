@@ -20,6 +20,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
+from uuid import uuid4
 
 from opentelemetry.trace import Span
 
@@ -92,6 +93,7 @@ class CallCapture:
         self._provider_model_id: str | None = None
         self._provider_id: str | None = None
         self._upstream_model: str | None = None
+        self.request_id = str(uuid4())
         self.message_trace_id: str | None = None
 
     @classmethod
@@ -145,6 +147,7 @@ class CallCapture:
                         api_key_id=self._api_key_id,
                         request_json=self._request_json,
                         message_trace_id=self.message_trace_id,
+                        request_id=self.request_id,
                         gateway_model_id=self._gateway_model_id,
                         provider_model_id=self._provider_model_id,
                     )
@@ -229,6 +232,7 @@ class CallCapture:
                     api_key_id=self._api_key_id,
                     message_trace_id=self.message_trace_id,
                     message_id=message_id,
+                    request_id=self.request_id,
                     request_json=self._request_json,
                     gateway_model_id=self._gateway_model_id,
                     provider_model_id=self._provider_model_id,

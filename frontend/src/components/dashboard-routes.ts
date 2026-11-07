@@ -88,6 +88,15 @@ const routes = [
     true
   ),
   route(
+    "/dashboard/users/detail",
+    "User details",
+    () =>
+      import("@/components/user-detail").then((m) => ({
+        default: m.UserDetailContent,
+      })),
+    true
+  ),
+  route(
     "/dashboard/users",
     "Users",
     () =>

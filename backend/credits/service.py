@@ -141,6 +141,15 @@ def add_credits(
             reason=data.reason,
         )
         db.add(entry)
+        if owner_type == "user":
+            from backend.users.audit import UserAdminAudit
+
+            db.add(UserAdminAudit(
+                actor_id=actor_id,
+                user_id=owner_id,
+                action="credits_added",
+                detail=f"Added {data.credits} credits: {data.reason}",
+            ))
         db.flush()
         return entry_response(entry)
 

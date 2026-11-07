@@ -15,7 +15,7 @@ import json
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import case, func, select, text
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -162,6 +162,7 @@ def record_attempt(
     user_id: str,
     api_key_id: str | None = None,
     message_trace_id: str | None = None,
+    request_id: str | None = None,
     message_id: str | None = None,
     request_json: str | None = None,
     gateway_model_id: str | None = None,
@@ -199,6 +200,7 @@ def record_attempt(
 
         if message_trace_id is None:
             message = LLMMessageTrace(
+                id=request_id,
                 user_id=user_id,
                 message_id=message_id,
                 request_json=request_json,
@@ -303,6 +305,7 @@ def start_pending_attempt(
     api_key_id: str | None = None,
     request_json: str | None = None,
     message_trace_id: str | None = None,
+    request_id: str | None = None,
     gateway_model_id: str | None = None,
     provider_model_id: str | None = None,
     created_at: datetime | None = None,
@@ -323,6 +326,7 @@ def start_pending_attempt(
     try:
         if message_trace_id is None:
             message = LLMMessageTrace(
+                id=request_id,
                 user_id=user_id,
                 request_json=request_json,
                 created_at=started_at,
@@ -536,20 +540,29 @@ def message_row_from_aggregate(row: Any) -> dict[str, Any]:
     }
 
 
+def _request_id_match(request_id: str):
+    return or_(LLMMessageTrace.id == request_id, LLMMessageTrace.message_id == request_id)
+
+
 def list_message_rows(
     db: Session,
     page: int,
     page_size: int,
     user_id: str | None = None,
+    request_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     count_query = db.query(func.count(LLMMessageTrace.id))
+    query = _aggregate_message_rows(db, user_id=user_id)
+    if request_id:
+        match = _request_id_match(request_id)
+        count_query = count_query.filter(match)
+        query = query.filter(match)
     if user_id is not None:
         count_query = count_query.filter(LLMMessageTrace.user_id == user_id)
     total = count_query.scalar() or 0
     # Newest requests first. Attempt ordering remains chronological in detail.
     query = (
-        _aggregate_message_rows(db, user_id=user_id)
-        .order_by(LLMMessageTrace.created_at.desc(), LLMMessageTrace.id.desc())
+        query.order_by(LLMMessageTrace.created_at.desc(), LLMMessageTrace.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -630,6 +643,7 @@ def list_calls(
     *,
     user_id: str | None = None,
     message_id: str | None = None,
+    request_id: str | None = None,
     api_key_id: str | None = None,
     gateway_model_id: str | None = None,
     provider_model_id: str | None = None,
@@ -641,6 +655,9 @@ def list_calls(
 
     if user_id:
         query = query.filter(LLMCallTrace.user_id == user_id)
+    if request_id:
+        message_ids = select(LLMMessageTrace.id).where(_request_id_match(request_id))
+        query = query.filter(or_(LLMCallTrace.message_trace_id.in_(message_ids), LLMCallTrace.id == request_id))
     if message_id:
         message_ids = select(LLMMessageTrace.id).where(LLMMessageTrace.message_id == message_id)
         query = query.filter(LLMCallTrace.message_trace_id.in_(message_ids))

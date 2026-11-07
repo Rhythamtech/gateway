@@ -2,17 +2,12 @@ import * as React from "react"
 import {
   Activity,
   ArrowUpRight,
-  CheckCircle2,
-  ChevronDown,
   CalendarDays,
   KeyRound,
-  Layers,
   RefreshCw,
-  Timer,
 } from "lucide-react"
 import {
   getApiKeyUsage,
-  getUserUsage,
   getMyUsage,
   getMyCredits,
   listApiKeys,
@@ -24,7 +19,13 @@ import {
 } from "@/lib/auth"
 import { formatCredits } from "@/lib/credits"
 import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
-import { DashboardMetricTrend } from "@/components/dashboard-metric-trend"
+import { DashboardCreditTrend } from "@/components/dashboard-credit-trend"
+import { GatewayOverview } from "@/components/gateway-overview"
+import {
+  OverviewMetrics,
+  OverviewAreaChart,
+} from "@/components/overview-analytics"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -97,6 +98,25 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 export function DashboardOverview({ user }: { user: CurrentUser }) {
+  if (user.role !== "superuser") return <PersonalOverview user={user} />
+  return (
+    <Tabs defaultValue="gateway" className="gap-4">
+      <TabsList aria-label="Dashboard view">
+        <TabsTrigger value="gateway">Gateway overview</TabsTrigger>
+        <TabsTrigger value="personal">My usage</TabsTrigger>
+      </TabsList>
+      <TabsContent value="gateway">
+        <GatewayOverview />
+      </TabsContent>
+      <TabsContent value="personal">
+        <PersonalOverview user={user} />
+      </TabsContent>
+    </Tabs>
+  )
+}
+
+function PersonalOverview({ user }: { user: CurrentUser }) {
+  const [tab, setTab] = React.useState("charges")
   const [keys, setKeys] = React.useState<ApiKeyItem[]>([])
   const [keyError, setKeyError] = React.useState<string | null>(null)
   const [keysLoaded, setKeysLoaded] = React.useState(false)
@@ -213,9 +233,7 @@ export function DashboardOverview({ user }: { user: CurrentUser }) {
     let cancelled = false
     const request =
       subject === "account"
-        ? user.role === "superuser"
-          ? getUserUsage(user.id, range, true)
-          : getMyUsage(range, true)
+        ? getMyUsage(range, true)
         : getApiKeyUsage(subject, range, true)
     request
       .then((value) => {
@@ -249,52 +267,58 @@ export function DashboardOverview({ user }: { user: CurrentUser }) {
   }))
   const metrics = [
     {
+      label: "Available credits",
+      value:
+        balance && !balanceError
+          ? formatCredits(balance.available_credits)
+          : undefined,
+      badge: "Current",
+      headline: balanceError
+        ? "Balance unavailable"
+        : balance
+          ? `${formatCredits(balance.reserved_credits)} credits reserved`
+          : "Personal balance",
+      detail: "Available for new requests",
+      href: "/dashboard/credits",
+      loading: !balance && !balanceError,
+    },
+    {
       label: "Traced calls",
       value: totals?.call_count.toLocaleString(),
-      note: "Recorded provider attempts",
-      icon: Activity,
-      color: "var(--analytics-volume)",
-      trend: daily.map((day) => day.call_count),
-      percentage: false,
+      badge: "Selected period",
+      headline: totals
+        ? `${totals.successful_call_count.toLocaleString()} successful calls`
+        : "Recorded activity",
+      detail: "Provider attempts, including retries",
+      href: "#dashboard-reporting",
+      loading: initialLoading,
     },
     {
       label: "Reported tokens",
       value: totals
         ? compact(totals.input_tokens + totals.output_tokens)
         : undefined,
-      note: "Input + output tokens",
-      icon: Layers,
-      color: "var(--analytics-tokens)",
-      trend: daily.map((day) => day.input_tokens + day.output_tokens),
-      percentage: false,
+      badge: "Selected period",
+      headline: totals
+        ? `${compact(totals.input_tokens)} input · ${compact(totals.output_tokens)} output`
+        : "Input and output",
+      detail: "Tokens reported by providers",
+      href: totals?.call_count ? "#personal-tokens" : undefined,
+      loading: initialLoading,
     },
     {
       label: "Call success rate",
-      value:
-        totals && totals.call_count
-          ? `${((totals.successful_call_count / totals.call_count) * 100).toFixed(1)}%`
-          : "—",
-      note: "Successful / recorded calls",
-      icon: CheckCircle2,
-      color: "var(--analytics-success)",
-      trend: daily.map((day) =>
-        day.call_count
-          ? (day.successful_call_count / day.call_count) * 100
-          : null
-      ),
-      percentage: true,
-    },
-    {
-      label: "Average call latency",
-      value:
+      value: totals?.call_count
+        ? `${((totals.successful_call_count / totals.call_count) * 100).toFixed(1)}%`
+        : undefined,
+      badge: "Selected period",
+      headline:
         totals?.average_latency_ms != null
-          ? `${(totals.average_latency_ms / 1000).toFixed(2)} s`
-          : "—",
-      note: "Sample-weighted average",
-      icon: Timer,
-      color: "var(--analytics-latency)",
-      trend: daily.map((day) => day.average_latency_ms),
-      percentage: false,
+          ? `${(totals.average_latency_ms / 1000).toFixed(2)} s average latency`
+          : "Recorded call outcomes",
+      detail: "Successful attempts as a share of traced calls",
+      href: totals?.call_count ? "#personal-reliability" : undefined,
+      loading: initialLoading,
     },
   ]
   const chartEmpty = !data || !totals?.call_count
@@ -311,68 +335,21 @@ export function DashboardOverview({ user }: { user: CurrentUser }) {
 
   return (
     <div className="dashboard-analytics @container/analytics flex min-w-0 flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            Activity overview
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {user.role === "superuser"
-              ? "My Usage across your account."
-              : "My Usage across your account, with an optional API key filter."}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button asChild variant="ghost" size="sm">
-            <a href="/dashboard/api-keys">
-              <KeyRound data-icon="inline-start" /> Manage API keys
-            </a>
-          </Button>
-          <Button asChild size="sm">
-            <a href="/dashboard/playground">
-              Open Playground <ArrowUpRight data-icon="inline-end" />
-            </a>
-          </Button>
-        </div>
-      </div>
+      <OverviewMetrics metrics={metrics} />
       <section
         id="dashboard-reporting"
-        aria-label="Reporting controls"
-        className="flex scroll-mt-4 flex-wrap items-end justify-between gap-4 rounded-xl border bg-muted/20 p-4"
+        aria-label="Personal activity"
+        className="min-w-0 scroll-mt-4 rounded-xl border bg-card p-4 sm:p-6"
       >
-        <div className="flex min-w-0 flex-wrap gap-3">
-          <div className="flex min-w-0 flex-col gap-2">
-            <label
-              htmlFor="analytics-scope"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              Reporting scope
-            </label>
-            <Select value={subject} onValueChange={setSubject}>
-              <SelectTrigger
-                id="analytics-scope"
-                className="w-full max-w-72 min-w-48"
-              >
-                <SelectValue placeholder="Select an API key" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="account">My account (all keys)</SelectItem>
-                  {keys.map((key) => (
-                    <SelectItem key={key.id} value={key.id}>
-                      {key.name || key.key_prefix}
-                      {key.revoked ? " (revoked)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">My activity</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Recorded provider attempts per UTC day
+            </p>
           </div>
-          <div className="flex min-w-0 flex-col gap-2">
-            <span
-              id="analytics-period-label"
-              className="text-xs font-medium text-muted-foreground"
-            >
+          <div className="min-w-0">
+            <span id="analytics-period-label" className="sr-only">
               Reporting period · UTC
             </span>
             <ToggleGroup
@@ -388,120 +365,177 @@ export function DashboardOverview({ user }: { user: CurrentUser }) {
               size="sm"
               aria-labelledby="analytics-period-label"
             >
-              {["7", "30", "90"].map((days) => (
+              {["90", "30", "7"].map((days) => (
                 <ToggleGroupItem
                   key={days}
+                  className="px-2! text-xs sm:px-3! sm:text-sm"
                   value={days}
                   aria-label={`Last ${days} days`}
                 >
                   {days} days
                 </ToggleGroupItem>
               ))}
-              <ToggleGroupItem value="custom">
-                <CalendarDays className="size-3.5" />
+              <ToggleGroupItem
+                value="custom"
+                className="px-2! text-xs sm:px-3! sm:text-sm"
+              >
+                <CalendarDays className="hidden size-3.5 sm:block" />
                 Custom
               </ToggleGroupItem>
             </ToggleGroup>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground" role="status">
-            {loading
-              ? "Loading analytics…"
-              : data && result
-                ? `Updated ${result.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-                : ""}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label="Refresh analytics and balance"
-            disabled={loading}
-            onClick={() => setTick((value) => value + 1)}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap gap-3">
+            <div className="flex min-w-0 flex-col gap-2">
+              <label
+                htmlFor="analytics-scope"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Reporting scope
+              </label>
+              <Select value={subject} onValueChange={setSubject}>
+                <SelectTrigger
+                  id="analytics-scope"
+                  className="w-full max-w-72 min-w-48"
+                >
+                  <SelectValue placeholder="Select an API key" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="account">
+                      My account (all keys)
+                    </SelectItem>
+                    {keys.map((key) => (
+                      <SelectItem key={key.id} value={key.id}>
+                        {key.name || key.key_prefix}
+                        {key.revoked ? " (revoked)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground" role="status">
+              {loading
+                ? "Loading analytics…"
+                : data && result
+                  ? `Updated ${result.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  : ""}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Refresh analytics and balance"
+              disabled={loading}
+              onClick={() => setTick((value) => value + 1)}
+            >
+              <RefreshCw
+                data-icon="inline-start"
+                className={loading ? "motion-safe:animate-spin" : undefined}
+              />
+              Refresh
+            </Button>
+          </div>
+        </div>
+        {period === "custom" && (
+          <form
+            onSubmit={applyCustomRange}
+            noValidate
+            className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-4"
+            aria-label="Custom reporting period"
           >
-            <RefreshCw
-              data-icon="inline-start"
-              className={loading ? "motion-safe:animate-spin" : undefined}
+            <Field
+              className="w-full gap-2 sm:w-auto"
+              data-invalid={Boolean(rangeError)}
+            >
+              <FieldLabel htmlFor="analytics-from">From date · UTC</FieldLabel>
+              <Input
+                id="analytics-from"
+                type="date"
+                value={draftFrom}
+                onChange={(event) => {
+                  setDraftFrom(event.target.value)
+                  setRangeError(null)
+                }}
+                max={draftTo || new Date().toISOString().slice(0, 10)}
+                aria-invalid={Boolean(rangeError)}
+                aria-describedby="analytics-range-error"
+              />
+            </Field>
+            <Field
+              className="w-full gap-2 sm:w-auto"
+              data-invalid={Boolean(rangeError)}
+            >
+              <FieldLabel htmlFor="analytics-to">To date · UTC</FieldLabel>
+              <Input
+                id="analytics-to"
+                type="date"
+                value={draftTo}
+                onChange={(event) => {
+                  setDraftTo(event.target.value)
+                  setRangeError(null)
+                }}
+                min={draftFrom}
+                max={new Date().toISOString().slice(0, 10)}
+                aria-invalid={Boolean(rangeError)}
+                aria-describedby="analytics-range-error"
+              />
+            </Field>
+            <Button type="submit" disabled={!hasDraftDates}>
+              Apply dates
+            </Button>
+            {hasDraftDates && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setDraftFrom(customRange.from)
+                  setDraftTo(customRange.to)
+                  setRangeError(null)
+                }}
+              >
+                Discard changes
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {hasDraftDates ? "Date changes are not applied. " : ""}Showing{" "}
+              {range.from} through {range.to}, inclusive.
+            </p>
+            <p
+              id="analytics-range-error"
+              role={rangeError ? "alert" : undefined}
+              className={
+                rangeError ? "w-full text-xs text-destructive" : "sr-only"
+              }
+            >
+              {rangeError ?? ""}
+            </p>
+          </form>
+        )}
+        <div className="mt-5">
+          {chartEmpty ? (
+            empty
+          ) : (
+            <OverviewAreaChart
+              data={daily}
+              formatLabel={dateLabel}
+              series={{
+                call_count: {
+                  label: "Traced calls",
+                  color: "var(--analytics-volume)",
+                },
+                successful_call_count: {
+                  label: "Successful",
+                  color: "var(--analytics-success)",
+                },
+              }}
             />
-            Refresh
-          </Button>
+          )}
         </div>
       </section>
-      {period === "custom" && (
-        <form
-          onSubmit={applyCustomRange}
-          noValidate
-          className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-4"
-          aria-label="Custom reporting period"
-        >
-          <Field
-            className="w-full gap-2 sm:w-auto"
-            data-invalid={Boolean(rangeError)}
-          >
-            <FieldLabel htmlFor="analytics-from">From date · UTC</FieldLabel>
-            <Input
-              id="analytics-from"
-              type="date"
-              value={draftFrom}
-              onChange={(event) => {
-                setDraftFrom(event.target.value)
-                setRangeError(null)
-              }}
-              max={draftTo || new Date().toISOString().slice(0, 10)}
-              aria-invalid={Boolean(rangeError)}
-              aria-describedby="analytics-range-error"
-            />
-          </Field>
-          <Field
-            className="w-full gap-2 sm:w-auto"
-            data-invalid={Boolean(rangeError)}
-          >
-            <FieldLabel htmlFor="analytics-to">To date · UTC</FieldLabel>
-            <Input
-              id="analytics-to"
-              type="date"
-              value={draftTo}
-              onChange={(event) => {
-                setDraftTo(event.target.value)
-                setRangeError(null)
-              }}
-              min={draftFrom}
-              max={new Date().toISOString().slice(0, 10)}
-              aria-invalid={Boolean(rangeError)}
-              aria-describedby="analytics-range-error"
-            />
-          </Field>
-          <Button type="submit" disabled={!hasDraftDates}>
-            Apply dates
-          </Button>
-          {hasDraftDates && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setDraftFrom(customRange.from)
-                setDraftTo(customRange.to)
-                setRangeError(null)
-              }}
-            >
-              Discard changes
-            </Button>
-          )}
-          <p className="text-xs text-muted-foreground">
-            {hasDraftDates ? "Date changes are not applied. " : ""}Showing{" "}
-            {range.from} through {range.to}, inclusive.
-          </p>
-          <p
-            id="analytics-range-error"
-            role={rangeError ? "alert" : undefined}
-            className={
-              rangeError ? "w-full text-xs text-destructive" : "sr-only"
-            }
-          >
-            {rangeError ?? ""}
-          </p>
-        </form>
-      )}
       {(error || keyError) && (
         <div
           role="alert"
@@ -563,47 +597,6 @@ export function DashboardOverview({ user }: { user: CurrentUser }) {
           </span>
         </div>
       ) : null}
-      <div
-        aria-label="Usage summary"
-        aria-busy={loading}
-        className="grid grid-cols-2 gap-3 sm:gap-4 @min-[900px]/analytics:grid-cols-4"
-      >
-        {metrics.map((metric) => (
-          <div
-            key={metric.label}
-            className="flex min-w-0 flex-col gap-2 overflow-hidden rounded-xl border bg-card p-4 sm:p-5"
-          >
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <metric.icon
-                className="hidden size-4 sm:block"
-                style={{ color: metric.color }}
-              />
-              {metric.label}
-            </div>
-            {initialLoading ? (
-              <Skeleton className="h-9 w-24" />
-            ) : (
-              <p className="text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">
-                {data ? metric.value : "—"}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">{metric.note}</p>
-            {initialLoading ? (
-              <Skeleton className="mt-2 h-12 w-full" />
-            ) : (
-              <DashboardMetricTrend
-                values={metric.trend}
-                color={metric.color}
-                percentage={metric.percentage}
-              />
-            )}
-            <span className="sr-only">
-              Sparkline summarizes the selected period; exact daily values are
-              available in View daily data.
-            </span>
-          </div>
-        ))}
-      </div>
       {!error && !keyError && !user.tracing_enabled && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3 text-xs text-muted-foreground">
           <p>
@@ -647,96 +640,19 @@ export function DashboardOverview({ user }: { user: CurrentUser }) {
             )}
           </div>
         )}
-      <div className="grid min-w-0 gap-6 @min-[900px]/analytics:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <section
-          aria-label="Call activity chart"
-          aria-busy={loading}
-          className="min-w-0 rounded-xl border bg-card p-4 sm:p-6"
-        >
-          <div className="mb-6 flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h3 className="text-base font-semibold">Call activity</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Completed attempts by UTC hour of day, combined across this
-                period.
+      <section
+        aria-label="Personal usage and credit charts"
+        className="grid min-w-0 gap-4 @min-[680px]/analytics:grid-cols-2"
+      >
+        {!chartEmpty && (
+          <>
+            <section className="min-w-0 rounded-xl border bg-card p-4 sm:p-6">
+              <h3 id="personal-tokens" className="scroll-mt-4 font-semibold">
+                Token volume
+              </h3>
+              <p className="mt-1 mb-6 text-xs text-muted-foreground">
+                Provider-reported input and output tokens
               </p>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {data
-                ? `${dateLabel(data.from_date)} – ${dateLabel(data.to_date)}`
-                : `${dateLabel(range.from)} – ${dateLabel(range.to)}`}{" "}
-              · UTC
-            </span>
-          </div>
-          {!data ? (
-            empty
-          ) : !hourly?.length ? (
-            <p className="py-12 text-center text-sm text-muted-foreground">
-              Hourly activity is unavailable.
-            </p>
-          ) : (
-            <ChartContainer
-              className="aspect-auto h-64 w-full sm:h-72"
-              config={{
-                successful_call_count: {
-                  label: "Successful",
-                  color: "var(--analytics-volume)",
-                },
-                failed_call_count: {
-                  label: "Unsuccessful",
-                  color: "var(--destructive)",
-                },
-              }}
-            >
-              <BarChart
-                accessibilityLayer
-                data={hourly}
-                margin={{ left: 0, right: 8 }}
-              >
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  axisLine={false}
-                  tickLine={false}
-                  minTickGap={32}
-                />
-                <YAxis
-                  width={36}
-                  allowDecimals={false}
-                  tickFormatter={compact}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar
-                  dataKey="successful_call_count"
-                  stackId="calls"
-                  fill="var(--color-successful_call_count)"
-                  isAnimationActive={false}
-                />
-                <Bar
-                  dataKey="failed_call_count"
-                  stackId="calls"
-                  fill="var(--color-failed_call_count)"
-                  isAnimationActive={false}
-                />
-                <ChartLegend content={<ChartLegendContent />} />
-              </BarChart>
-            </ChartContainer>
-          )}
-        </section>
-        <CallOutcomes totals={totals} loading={initialLoading} />
-      </div>
-      {!chartEmpty && (
-        <div className="grid min-w-0 gap-6 @min-[760px]/analytics:grid-cols-2">
-          <section className="min-w-0 rounded-xl border p-4 sm:p-6">
-            <h3 className="font-semibold">Token volume</h3>
-            <p className="mt-1 mb-6 text-xs text-muted-foreground">
-              Provider-reported input and output tokens
-            </p>
-            {chartEmpty ? (
-              empty
-            ) : (
               <ChartContainer
                 className="aspect-auto h-52 w-full"
                 config={{
@@ -782,194 +698,358 @@ export function DashboardOverview({ user }: { user: CurrentUser }) {
                   <ChartLegend content={<ChartLegendContent />} />
                 </BarChart>
               </ChartContainer>
-            )}
-          </section>
-          <section className="min-w-0 rounded-xl border p-4 sm:p-6">
-            <h3 className="font-semibold">Latency trend</h3>
-            <p className="mt-1 mb-6 text-xs text-muted-foreground">
-              Daily average call latency · milliseconds
-            </p>
-            {chartEmpty ? (
-              empty
-            ) : (
+            </section>
+            <section className="min-w-0 rounded-xl border bg-card p-4 sm:p-6">
+              <h3 className="font-semibold">Latency trend</h3>
+              <p className="mt-1 mb-6 text-xs text-muted-foreground">
+                Daily average call latency · milliseconds
+              </p>
+              {daily.some((day) => day.average_latency_ms != null) ? (
+                <ChartContainer
+                  className="aspect-auto h-52 w-full"
+                  config={{
+                    average_latency_ms: {
+                      label: "Average latency (ms)",
+                      color: "var(--analytics-latency)",
+                    },
+                  }}
+                >
+                  <LineChart accessibilityLayer data={daily}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={dateLabel}
+                      axisLine={false}
+                      tickLine={false}
+                      minTickGap={32}
+                    />
+                    <YAxis
+                      width={40}
+                      tickFormatter={compact}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Line
+                      dataKey="average_latency_ms"
+                      type="monotone"
+                      stroke="var(--color-average_latency_ms)"
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      connectNulls={false}
+                      isAnimationActive={false}
+                    />
+                  </LineChart>
+                </ChartContainer>
+              ) : (
+                <p className="py-16 text-center text-sm text-muted-foreground">
+                  No latency measurements in this period.
+                </p>
+              )}
+            </section>
+            <section className="min-w-0 rounded-xl border bg-card p-4 sm:p-6 @min-[680px]/analytics:col-span-2 @min-[1080px]/analytics:col-span-1">
+              <h3
+                id="personal-reliability"
+                className="scroll-mt-4 font-semibold"
+              >
+                Daily success rate
+              </h3>
+              <p className="mt-1 mb-6 text-xs text-muted-foreground">
+                Successful share of traced calls · days without calls are gaps
+              </p>
               <ChartContainer
                 className="aspect-auto h-52 w-full"
                 config={{
-                  average_latency_ms: {
-                    label: "Average latency (ms)",
-                    color: "var(--analytics-latency)",
+                  successRate: {
+                    label: "Success rate (%)",
+                    color: "var(--analytics-success)",
                   },
                 }}
               >
-                <LineChart accessibilityLayer data={daily}>
+                <LineChart
+                  accessibilityLayer
+                  data={daily.map((day) => ({
+                    date: day.date,
+                    successRate: day.call_count
+                      ? Number(
+                          (
+                            (100 * day.successful_call_count) /
+                            day.call_count
+                          ).toFixed(1)
+                        )
+                      : null,
+                  }))}
+                >
                   <CartesianGrid vertical={false} />
                   <XAxis
                     dataKey="date"
                     tickFormatter={dateLabel}
                     axisLine={false}
                     tickLine={false}
-                    minTickGap={32}
+                    minTickGap={24}
                   />
                   <YAxis
-                    width={40}
-                    tickFormatter={compact}
+                    domain={[0, 100]}
+                    width={45}
+                    tickFormatter={(value: number) => `${value}%`}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        labelFormatter={(label) =>
+                          typeof label === "string" ? dateLabel(label) : label
+                        }
+                      />
+                    }
+                  />
                   <Line
-                    dataKey="average_latency_ms"
-                    type="monotone"
-                    stroke="var(--color-average_latency_ms)"
+                    dataKey="successRate"
+                    stroke="var(--color-successRate)"
                     strokeWidth={2}
-                    dot={{ r: 3 }}
-                    connectNulls={false}
+                    dot={{ r: 2 }}
                     isAnimationActive={false}
                   />
                 </LineChart>
               </ChartContainer>
-            )}
-          </section>
-        </div>
-      )}
-      <div className="grid min-w-0 items-start gap-6 @min-[1100px]/analytics:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <React.Suspense fallback={<Skeleton className="h-64 w-full" />}>
-          <DashboardDailyUsage
-            key={scopeKey}
-            daily={daily}
-            from={range.from}
-            to={range.to}
-            loading={initialLoading}
-            unavailable={Boolean(error && !data) || !subject}
-            scopeLabel={
-              isAccountScope
-                ? "My account"
-                : selectedKey?.name ||
-                  selectedKey?.key_prefix ||
-                  "Selected API key"
-            }
-          />
-        </React.Suspense>
-        <React.Suspense fallback={<Skeleton className="h-64 w-full" />}>
-          <DashboardRecentCharges refreshTick={tick} />
-        </React.Suspense>
-      </div>
-      <details className="group rounded-xl border">
-        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-6">
-          <span className="flex items-center gap-2 text-sm font-medium">
-            <KeyRound className="size-4" />
-            API key directory
-            <span className="text-xs font-normal text-muted-foreground">
-              {keysLoaded ? keys.length : "…"} keys
-            </span>
-          </span>
-          <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
-        </summary>
-        <Card className="rounded-t-none border-0 border-t shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <KeyRound className="size-4 text-primary" />
-                <span>Key activity</span>
-              </CardTitle>
-              <CardDescription>
-                Choose a key to show its analytics above. Manage credentials on
-                the API Keys page.
-              </CardDescription>
-            </div>
-            <Button asChild variant="outline" size="sm">
-              <a href="/dashboard/api-keys">Manage in API Keys</a>
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="bg-muted/30">
-                  <TableRow>
-                    <TableHead className="pl-4">Key Name</TableHead>
-                    <TableHead>Prefix</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Last used</TableHead>
-                    <TableHead className="pr-4 text-right">Metrics</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {keys.length === 0 ? (
+            </section>
+          </>
+        )}
+        <DashboardCreditTrend refreshTick={tick} />
+      </section>
+      <Tabs
+        id="personal-activity"
+        value={tab}
+        onValueChange={setTab}
+        className="scroll-mt-4 gap-4"
+      >
+        <TabsList
+          aria-label="Personal activity tables"
+          className="h-auto! max-w-full flex-wrap justify-start"
+        >
+          <TabsTrigger value="charges">Recent charges</TabsTrigger>
+          <TabsTrigger value="daily">Daily usage</TabsTrigger>
+          <TabsTrigger value="keys">API keys</TabsTrigger>
+          <TabsTrigger value="analysis">Detailed analytics</TabsTrigger>
+        </TabsList>
+        <TabsContent value="charges">
+          <React.Suspense fallback={<Skeleton className="h-64 w-full" />}>
+            <DashboardRecentCharges refreshTick={tick} />
+          </React.Suspense>
+        </TabsContent>
+        <TabsContent
+          value="analysis"
+          className="flex flex-col gap-6 data-[state=inactive]:hidden"
+        >
+          <div className="grid min-w-0 gap-6 @min-[900px]/analytics:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <section
+              aria-label="Call activity chart"
+              aria-busy={loading}
+              className="min-w-0 rounded-xl border bg-card p-4 sm:p-6"
+            >
+              <div className="mb-6 flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-base font-semibold">Call activity</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Completed attempts by UTC hour of day, combined across this
+                    period.
+                  </p>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {data
+                    ? `${dateLabel(data.from_date)} – ${dateLabel(data.to_date)}`
+                    : `${dateLabel(range.from)} – ${dateLabel(range.to)}`}{" "}
+                  · UTC
+                </span>
+              </div>
+              {!data ? (
+                empty
+              ) : !hourly?.length ? (
+                <p className="py-12 text-center text-sm text-muted-foreground">
+                  Hourly activity is unavailable.
+                </p>
+              ) : (
+                <ChartContainer
+                  className="aspect-auto h-64 w-full sm:h-72"
+                  config={{
+                    successful_call_count: {
+                      label: "Successful",
+                      color: "var(--analytics-success)",
+                    },
+                    failed_call_count: {
+                      label: "Unsuccessful",
+                      color: "var(--destructive)",
+                    },
+                  }}
+                >
+                  <BarChart
+                    accessibilityLayer
+                    data={hourly}
+                    margin={{ left: 0, right: 8 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      axisLine={false}
+                      tickLine={false}
+                      minTickGap={32}
+                    />
+                    <YAxis
+                      width={36}
+                      allowDecimals={false}
+                      tickFormatter={compact}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar
+                      dataKey="successful_call_count"
+                      stackId="calls"
+                      fill="var(--color-successful_call_count)"
+                      isAnimationActive={false}
+                    />
+                    <Bar
+                      dataKey="failed_call_count"
+                      stackId="calls"
+                      fill="var(--color-failed_call_count)"
+                      isAnimationActive={false}
+                    />
+                    <ChartLegend content={<ChartLegendContent />} />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </section>
+            <CallOutcomes totals={totals} loading={initialLoading} />
+          </div>
+        </TabsContent>
+        <TabsContent value="daily">
+          <React.Suspense fallback={<Skeleton className="h-64 w-full" />}>
+            <DashboardDailyUsage
+              key={scopeKey}
+              daily={daily}
+              from={range.from}
+              to={range.to}
+              loading={initialLoading}
+              unavailable={Boolean(error && !data) || !subject}
+              scopeLabel={
+                isAccountScope
+                  ? "My account"
+                  : selectedKey?.name ||
+                    selectedKey?.key_prefix ||
+                    "Selected API key"
+              }
+            />
+          </React.Suspense>
+        </TabsContent>
+        <TabsContent value="keys">
+          <Card className="shadow-none">
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <KeyRound className="size-4 text-primary" />
+                  <span>Key activity</span>
+                </CardTitle>
+                <CardDescription>
+                  Choose a key to show its analytics above. Manage credentials
+                  on the API Keys page.
+                </CardDescription>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <a href="/dashboard/api-keys">Manage in API Keys</a>
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader className="bg-muted/30">
                     <TableRow>
-                      <TableCell
-                        colSpan={6}
-                        className="h-20 text-center text-xs text-muted-foreground"
-                      >
-                        No API keys found. Create an API key in API Keys to
-                        start recording metrics.
-                      </TableCell>
+                      <TableHead className="pl-4">Key Name</TableHead>
+                      <TableHead>Prefix</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Last used</TableHead>
+                      <TableHead className="pr-4 text-right">Metrics</TableHead>
                     </TableRow>
-                  ) : (
-                    keys.map((key) => {
-                      const isSelected = subject === key.id
-                      return (
-                        <TableRow
-                          key={key.id}
-                          className={
-                            isSelected ? "bg-muted/40 font-medium" : undefined
-                          }
+                  </TableHeader>
+                  <TableBody>
+                    {keys.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={6}
+                          className="h-20 text-center text-xs text-muted-foreground"
                         >
-                          <TableCell className="pl-4 font-medium">
-                            {key.name || "Untitled key"}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground">
-                            {key.key_prefix}…
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={key.revoked ? "destructive" : "outline"}
-                              className="px-1.5 py-0 text-[10px]"
-                            >
-                              {key.revoked ? "Revoked" : "Active"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
-                            {formatDateTime(key.created_at)}
-                          </TableCell>
-                          <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
-                            {formatDateTime(key.last_used_at)}
-                          </TableCell>
-                          <TableCell className="pr-4 text-right">
-                            {isSelected ? (
+                          No API keys found. Create an API key in API Keys to
+                          start recording metrics.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      keys.map((key) => {
+                        const isSelected = subject === key.id
+                        return (
+                          <TableRow
+                            key={key.id}
+                            className={
+                              isSelected ? "bg-muted/40 font-medium" : undefined
+                            }
+                          >
+                            <TableCell className="pl-4 font-medium">
+                              {key.name || "Untitled key"}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-muted-foreground">
+                              {key.key_prefix}…
+                            </TableCell>
+                            <TableCell>
                               <Badge
-                                variant="secondary"
-                                className="px-2 py-0.5 text-xs font-normal"
+                                variant={
+                                  key.revoked ? "destructive" : "outline"
+                                }
+                                className="px-1.5 py-0 text-[10px]"
                               >
-                                Viewing
+                                {key.revoked ? "Revoked" : "Active"}
                               </Badge>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => {
-                                  setSubject(key.id)
-                                  window.scrollTo({
-                                    top: 0,
-                                    behavior: "smooth",
-                                  })
-                                }}
-                              >
-                                View metrics
-                              </Button>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      </details>
+                            </TableCell>
+                            <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                              {formatDateTime(key.created_at)}
+                            </TableCell>
+                            <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                              {formatDateTime(key.last_used_at)}
+                            </TableCell>
+                            <TableCell className="pr-4 text-right">
+                              {isSelected ? (
+                                <Badge
+                                  variant="secondary"
+                                  className="px-2 py-0.5 text-xs font-normal"
+                                >
+                                  Viewing
+                                </Badge>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => {
+                                    setSubject(key.id)
+                                    document
+                                      .getElementById("dashboard-reporting")
+                                      ?.scrollIntoView()
+                                  }}
+                                >
+                                  View metrics
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
       <footer className="flex flex-wrap items-center justify-between gap-4 border-t pt-5">
         <p className="max-w-xl text-xs leading-5 text-muted-foreground">
           Tracing is opt-in. These metrics cover recorded attempts only, not
@@ -1028,7 +1108,7 @@ function ChartPlaceholder({
           </h4>
           <p className="max-w-sm text-xs leading-5 text-muted-foreground">
             {error
-              ? "Use Try again above to reload this reporting scope."
+              ? "Use Try again to reload this reporting scope."
               : !hasScope
                 ? "Create a key or select an existing one in the reporting controls."
                 : !tracingEnabled
@@ -1107,7 +1187,7 @@ function CallOutcomes({
               <span
                 style={{
                   width: calls ? `${(success / calls) * 100}%` : "0%",
-                  backgroundColor: "var(--analytics-volume)",
+                  backgroundColor: "var(--analytics-success)",
                 }}
               />
               <span
@@ -1132,7 +1212,7 @@ function CallOutcomes({
               <dt className="flex items-center gap-2">
                 <span
                   className="size-2 rounded-full"
-                  style={{ backgroundColor: "var(--analytics-volume)" }}
+                  style={{ backgroundColor: "var(--analytics-success)" }}
                 />
                 Successful
               </dt>

@@ -134,15 +134,35 @@
 /* Dashboard-only data colors; leave shared application/chart tokens unchanged. */
 .dashboard-analytics {
   --analytics-volume: oklch(0.53 0.17 254);
-  --analytics-tokens: oklch(0.49 0.10 181);
-  --analytics-output: oklch(0.73 0.08 181);
-  --analytics-success: oklch(0.49 0.10 160);
+  --analytics-tokens: oklch(0.49 0.1 181);
+  --analytics-output: oklch(0.62 0.1 222);
+  --analytics-success: oklch(0.49 0.1 160);
   --analytics-latency: oklch(0.54 0.13 292);
+  --analytics-credits: oklch(0.55 0.11 82);
+  --analytics-timeout: oklch(0.56 0.17 48);
 }
 .dark .dashboard-analytics {
   --analytics-volume: oklch(0.74 0.12 250);
   --analytics-tokens: oklch(0.76 0.12 181);
-  --analytics-output: oklch(0.55 0.08 181);
+  --analytics-output: oklch(0.66 0.11 230);
   --analytics-success: oklch(0.76 0.12 160);
   --analytics-latency: oklch(0.76 0.12 292);
+  --analytics-credits: oklch(0.82 0.14 88);
+  --analytics-timeout: oklch(0.76 0.17 53);
+}
+
+/* Keep toolbar layout in the shared stylesheet before lazy route code loads. */
+@layer components {
+  .users-filter-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  @media (width >= 64rem) {
+    .users-filter-toolbar {
+      grid-template-columns: minmax(0, 1fr) repeat(3, 9rem);
+    }
+  }
 }

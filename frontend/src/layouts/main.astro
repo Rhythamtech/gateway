@@ -16,10 +16,13 @@ import { Toaster } from "@/components/ui/sonner"
         const apply = () => {
           try {
             const stored = localStorage.getItem("gateway-theme")
+            const fallback = /^\/dashboard(?:\/|$)/.test(location.pathname)
+              ? "dark"
+              : "system"
             const theme =
               stored === "light" || stored === "dark" || stored === "system"
                 ? stored
-                : "system"
+                : fallback
             const isDark =
               theme === "dark" ||
               (theme === "system" &&

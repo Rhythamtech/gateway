@@ -3,6 +3,7 @@ import {
   IconBan,
   IconCircleCheckFilled,
   IconDotsVertical,
+  IconSearch,
 } from "@tabler/icons-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 
@@ -13,6 +14,18 @@ import {
   updateUserTracing,
   type CurrentUser,
 } from "@/lib/auth"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "cn"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
@@ -66,6 +79,10 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
   const [drawerState, setDrawerState] = React.useState<DrawerState>(null)
   const [pendingUserId, setPendingUserId] = React.useState<string | null>(null)
   const [actionError, setActionError] = React.useState<string | null>(null)
+  const [query, setQuery] = React.useState("")
+  const [roleFilter, setRoleFilter] = React.useState("all")
+  const [statusFilter, setStatusFilter] = React.useState("all")
+  const [tracingFilter, setTracingFilter] = React.useState("all")
 
   React.useEffect(() => {
     let cancelled = false
@@ -132,6 +149,14 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
   }
 
   const initialLoadFailed = loadError !== null && users === null
+  const visibleUsers = (users ?? []).filter(
+    (item) =>
+      item.email.toLowerCase().includes(query.trim().toLowerCase()) &&
+      (roleFilter === "all" || item.role === roleFilter) &&
+      (statusFilter === "all" || String(item.is_active) === statusFilter) &&
+      (tracingFilter === "all" ||
+        String(item.tracing_enabled) === tracingFilter)
+  )
 
   return (
     <>
@@ -154,7 +179,95 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
               User accounts and access management.
             </p>
           </div>
-          <div className="px-4 lg:px-6">
+          <div className="flex flex-col gap-3 px-4 lg:px-6">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground" role="status">
+                {visibleUsers.length} of {users?.length ?? 0} accounts
+              </p>
+              {(query ||
+                roleFilter !== "all" ||
+                statusFilter !== "all" ||
+                tracingFilter !== "all") && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setQuery("")
+                    setRoleFilter("all")
+                    setStatusFilter("all")
+                    setTracingFilter("all")
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
+            <div className="users-filter-toolbar">
+              <InputGroup>
+                <InputGroupInput
+                  type="search"
+                  aria-label="Search users by email"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search email"
+                />
+                <InputGroupAddon>
+                  <IconSearch aria-hidden="true" />
+                </InputGroupAddon>
+              </InputGroup>
+              {[
+                {
+                  label: "Role",
+                  value: roleFilter,
+                  set: setRoleFilter,
+                  options: [
+                    ["all", "All roles"],
+                    ["user", "User"],
+                    ["superuser", "Superuser"],
+                  ],
+                },
+                {
+                  label: "Status",
+                  value: statusFilter,
+                  set: setStatusFilter,
+                  options: [
+                    ["all", "All statuses"],
+                    ["true", "Active"],
+                    ["false", "Inactive"],
+                  ],
+                },
+                {
+                  label: "Tracing",
+                  value: tracingFilter,
+                  set: setTracingFilter,
+                  options: [
+                    ["all", "All tracing"],
+                    ["true", "Enabled"],
+                    ["false", "Disabled"],
+                  ],
+                },
+              ].map((filter) => (
+                <Select
+                  key={filter.label}
+                  value={filter.value}
+                  onValueChange={filter.set}
+                >
+                  <SelectTrigger
+                    aria-label={`Filter by ${filter.label.toLowerCase()}`}
+                    className="w-full"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filter.options.map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ))}
+            </div>
             {loadError !== null ? (
               <p className="mb-2 text-sm text-destructive" role="alert">
                 {loadError}{" "}
@@ -195,17 +308,17 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                         Loading users…
                       </TableCell>
                     </TableRow>
-                  ) : users.length === 0 ? (
+                  ) : visibleUsers.length === 0 ? (
                     <TableRow>
                       <TableCell
                         colSpan={5}
                         className="h-24 text-center text-muted-foreground"
                       >
-                        No users found.
+                        No users match these filters.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    users.map((user) => {
+                    visibleUsers.map((user) => {
                       const isSelf = user.id === signedInUser.id
                       const isSuperuser = user.role === "superuser"
 
@@ -213,7 +326,12 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                         <TableRow key={user.id}>
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
-                              {user.email}
+                              <a
+                                className="underline-offset-4 hover:underline"
+                                href={`/dashboard/users/detail?id=${encodeURIComponent(user.id)}`}
+                              >
+                                {user.email}
+                              </a>
                               {isSelf ? (
                                 <Badge
                                   variant="secondary"
@@ -312,6 +430,13 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                                   }}
                                 >
                                   View credits
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <a
+                                    href={`/dashboard/users/detail?id=${encodeURIComponent(user.id)}`}
+                                  >
+                                    View account
+                                  </a>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onSelect={() => {

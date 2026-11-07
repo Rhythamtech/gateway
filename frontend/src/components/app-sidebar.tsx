@@ -8,6 +8,7 @@ import {
   Gauge,
   KeyRound,
   ListChecks,
+  PlusCircle,
   Server,
   Settings,
   Sparkles,
@@ -25,6 +26,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar"
 
 const navigation = [
@@ -79,12 +81,19 @@ export function AppSidebar({
     role?: "user" | "superuser"
   }
 }) {
-  const navMain = navigation
+  const { setOpenMobile } = useSidebar()
+  React.useEffect(() => {
+    // Closing on click can remove a mobile link before Astro routes it.
+    const closeMobileNavigation = () => setOpenMobile(false)
+    document.addEventListener("astro:after-swap", closeMobileNavigation)
+    return () =>
+      document.removeEventListener("astro:after-swap", closeMobileNavigation)
+  }, [setOpenMobile])
+
+  const navItems = navigation
     .filter((item) => !item.superuserOnly || role === "superuser")
     .map((item) => ({
-      title: item.title,
-      url: item.url,
-      icon: item.icon,
+      ...item,
       isActive:
         item.url === "/dashboard"
           ? currentPath === item.url
@@ -92,7 +101,7 @@ export function AppSidebar({
     }))
 
   return (
-    <Sidebar variant="inset" {...props}>
+    <Sidebar variant="inset" collapsible="icon" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -105,9 +114,46 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={navMain} />
+        <SidebarMenu className="px-2">
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              tooltip={
+                role === "superuser" ? "Review credits" : "Open Playground"
+              }
+              className="bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90 hover:text-sidebar-primary-foreground dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90"
+            >
+              <a
+                href={
+                  role === "superuser"
+                    ? "/dashboard/credit-review"
+                    : "/dashboard/playground"
+                }
+              >
+                <PlusCircle />
+                <span>
+                  {role === "superuser" ? "Review credits" : "Open Playground"}
+                </span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+        <NavMain
+          items={navItems.filter(
+            (item) => !item.superuserOnly && item.url !== "/dashboard/settings"
+          )}
+        />
+        {role === "superuser" && (
+          <NavMain
+            label="Administration"
+            items={navItems.filter((item) => item.superuserOnly)}
+          />
+        )}
       </SidebarContent>
       <SidebarFooter>
+        <NavMain
+          items={navItems.filter((item) => item.url === "/dashboard/settings")}
+        />
         <NavUser user={{ ...user, avatar: user.avatar ?? "" }} />
       </SidebarFooter>
     </Sidebar>

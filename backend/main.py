@@ -43,6 +43,7 @@ from backend.traces import models as trace_models  # noqa: F401
 from backend.traces.controller import router as traces_router
 from backend.traces.service import purge_expired_logs
 from backend.users.controller import router as users_router
+from backend.users import audit as user_audit_models  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

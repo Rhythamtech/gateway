@@ -28,13 +28,13 @@ export function DashboardShell({
     <SidebarProvider
       style={
         {
-          "--sidebar-width": "calc(var(--spacing) * 72)",
+          "--sidebar-width": "calc(var(--spacing) * 68)",
           "--header-height": "calc(var(--spacing) * 12)",
         } as React.CSSProperties
       }
     >
       <AppSidebar role={role} currentPath={currentPath} user={user} />
-      <SidebarInset>
+      <SidebarInset className="min-w-0 md:rounded-2xl">
         <SiteHeader title={pageTitle} />
         {children}
       </SidebarInset>
