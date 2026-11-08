@@ -31,10 +31,26 @@ import { Toaster } from "@/components/ui/sonner"
             root.classList.toggle("dark", isDark)
             root.style.colorScheme = isDark ? "dark" : "light"
             root.dataset.theme = theme
+            // Absence of the attribute means the default "classic" style; only
+            // allowlist values are written so a stale key stays harmless.
+            // Keep the keys in sync with THEME_STYLES / DARK_CANVAS_META in
+            // lib/theme.ts.
+            const darkCanvas = {
+              classic: "#0a0a0a",
+              "endless-blue": "#0a0b0d",
+              "fresh-green": "#001e2b",
+              ember: "#000000",
+            }
+            const style = localStorage.getItem("gateway-theme-style")
+            if (style !== null && style in darkCanvas)
+              root.dataset.themeStyle = style
             document
               .querySelectorAll('meta[name="theme-color"]')
               ?.forEach((meta) =>
-                meta.setAttribute("content", isDark ? "#0a0a0a" : "#ffffff")
+                meta.setAttribute(
+                  "content",
+                  isDark ? (darkCanvas[style] ?? "#0a0a0a") : "#ffffff"
+                )
               )
           } catch {
             // Ignore unavailable storage; the default light theme still applies.

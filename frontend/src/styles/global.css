@@ -119,6 +119,229 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Endless Blue — Coinbase-derived institutional palette: white canvas,
+   ink text, soft-gray elevation bands, and a single #0052ff brand blue
+   that carries primary actions, rings, and the sidebar accent. */
+[data-theme-style="endless-blue"] {
+  --radius: 1rem;
+  --background: #ffffff;
+  --foreground: #0a0b0d;
+  --card: #ffffff;
+  --card-foreground: #0a0b0d;
+  --popover: #ffffff;
+  --popover-foreground: #0a0b0d;
+  --primary: #0052ff;
+  --primary-foreground: #ffffff;
+  --secondary: #eef0f3;
+  --secondary-foreground: #0a0b0d;
+  --muted: #eef0f3;
+  --muted-foreground: #5b616e;
+  --accent: #eef0f3;
+  --accent-foreground: #0a0b0d;
+  --destructive: #cf202f;
+  --border: #dee1e6;
+  --input: #dee1e6;
+  --ring: #0052ff;
+  --chart-1: #0052ff;
+  --chart-2: #05b169;
+  --chart-3: #f4b000;
+  --chart-4: #0a0b0d;
+  --chart-5: #5b616e;
+  --sidebar: #f7f7f7;
+  --sidebar-foreground: #0a0b0d;
+  --sidebar-primary: #0052ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef0f3;
+  --sidebar-accent-foreground: #0a0b0d;
+  --sidebar-border: #dee1e6;
+  --sidebar-ring: #0052ff;
+}
+
+/* Dark mode composes with the style: the near-black editorial canvas
+   (#0a0b0d) with one-step-elevated surfaces (#16181c) for cards. */
+.dark[data-theme-style="endless-blue"] {
+  --background: #0a0b0d;
+  --foreground: #ffffff;
+  --card: #16181c;
+  --card-foreground: #ffffff;
+  --popover: #16181c;
+  --popover-foreground: #ffffff;
+  --primary: #0052ff;
+  --primary-foreground: #ffffff;
+  --secondary: #1e2126;
+  --secondary-foreground: #ffffff;
+  --muted: #1e2126;
+  --muted-foreground: #a8acb3;
+  --accent: #1e2126;
+  --accent-foreground: #ffffff;
+  --destructive: #ff5c66;
+  --border: rgb(255 255 255 / 10%);
+  --input: rgb(255 255 255 / 15%);
+  --ring: #0052ff;
+  --chart-1: #3375ff;
+  --chart-2: #19c37d;
+  --chart-3: #f4b000;
+  --chart-4: #ffffff;
+  --chart-5: #a8acb3;
+  --sidebar: #0a0b0d;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #0052ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1e2126;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 10%);
+  --sidebar-ring: #0052ff;
+}
+
+/* Fresh Green — MongoDB-derived dual-mode palette: stark white canvas,
+   deep navy-teal ink (#001e2b), and the bright MongoDB green (#00ed64)
+   carrying every primary action with navy text on it. */
+[data-theme-style="fresh-green"] {
+  --radius: 0.75rem;
+  --background: #ffffff;
+  --foreground: #001e2b;
+  --card: #ffffff;
+  --card-foreground: #001e2b;
+  --popover: #ffffff;
+  --popover-foreground: #001e2b;
+  --primary: #00ed64;
+  --primary-foreground: #001e2b;
+  --secondary: #f5f6f7;
+  --secondary-foreground: #001e2b;
+  --muted: #f5f6f7;
+  --muted-foreground: #5c6c75;
+  --accent: #f5f6f7;
+  --accent-foreground: #001e2b;
+  --destructive: #cf202f;
+  --border: #dee4e7;
+  --input: #cfd9dd;
+  --ring: #00684a;
+  --chart-1: #00684a;
+  --chart-2: #001e2b;
+  --chart-3: #651fff;
+  --chart-4: #ff8a47;
+  --chart-5: #5c6c75;
+  --sidebar: #f5f6f7;
+  --sidebar-foreground: #001e2b;
+  --sidebar-primary: #00ed64;
+  --sidebar-primary-foreground: #001e2b;
+  --sidebar-accent: #e8ecee;
+  --sidebar-accent-foreground: #001e2b;
+  --sidebar-border: #dee4e7;
+  --sidebar-ring: #00684a;
+}
+
+/* Dark mode composes with the style: the deep teal hero canvas (#001e2b)
+   with teal-tinted elevated surfaces for cards, per the dark-band identity. */
+.dark[data-theme-style="fresh-green"] {
+  --background: #001e2b;
+  --foreground: #ffffff;
+  --card: #0a2a3a;
+  --card-foreground: #ffffff;
+  --popover: #0a2a3a;
+  --popover-foreground: #ffffff;
+  --primary: #00ed64;
+  --primary-foreground: #001e2b;
+  --secondary: #0e3242;
+  --secondary-foreground: #ffffff;
+  --muted: #0e3242;
+  --muted-foreground: #a9becd;
+  --accent: #0e3242;
+  --accent-foreground: #ffffff;
+  --destructive: #ff5c66;
+  --border: rgb(255 255 255 / 10%);
+  --input: rgb(255 255 255 / 15%);
+  --ring: #00ed64;
+  --chart-1: #00ed64;
+  --chart-2: #651fff;
+  --chart-3: #ff8a47;
+  --chart-4: #ffffff;
+  --chart-5: #a9becd;
+  --sidebar: #0a2a3a;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #00ed64;
+  --sidebar-primary-foreground: #001e2b;
+  --sidebar-accent: #0e3242;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 10%);
+  --sidebar-ring: #00ed64;
+}
+
+/* Ember — Cloudflare Workers-derived developer-platform palette: pure black
+   canvas, warm off-white ink (#FFFBF5), warm cream secondary text (#F0E3DE),
+   and a restrained #FF4801 orange reserved for primary actions, active
+   states, and rings. Dark mode is the brand-native mode. */
+[data-theme-style="ember"] {
+  --radius: 0.75rem;
+  --background: #fffbf5;
+  --foreground: #121212;
+  --card: #ffffff;
+  --card-foreground: #121212;
+  --popover: #ffffff;
+  --popover-foreground: #121212;
+  --primary: #ff4801;
+  --primary-foreground: #ffffff;
+  --secondary: #f0e3de;
+  --secondary-foreground: #121212;
+  --muted: #f0e3de;
+  --muted-foreground: #5a524c;
+  --accent: #f0e3de;
+  --accent-foreground: #121212;
+  --destructive: #ed1641;
+  --border: #f0e3de;
+  --input: #f0e3de;
+  --chart-1: #ff4801;
+  --chart-2: #0a95ff;
+  --chart-3: #5a524c;
+  --chart-4: #b866ff;
+  --chart-5: #f14602;
+  --sidebar: #fffbf5;
+  --sidebar-foreground: #121212;
+  --sidebar-primary: #ff4801;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f0e3de;
+  --sidebar-accent-foreground: #121212;
+  --sidebar-border: #f0e3de;
+  --sidebar-ring: #ff4801;
+}
+
+/* Dark mode composes with the style and is the spec's native mode: pure
+   black canvas, #121212 card surfaces, #191817 elevation, dim hairlines
+   (#2A2927), and cream body text. */
+.dark[data-theme-style="ember"] {
+  --background: #000000;
+  --foreground: #fffbf5;
+  --card: #121212;
+  --card-foreground: #fffbf5;
+  --popover: #121212;
+  --popover-foreground: #fffbf5;
+  --primary: #ff4801;
+  --primary-foreground: #ffffff;
+  --secondary: #191817;
+  --secondary-foreground: #fffbf5;
+  --muted: #191817;
+  --muted-foreground: #f0e3de;
+  --accent: #2a2927;
+  --accent-foreground: #fffbf5;
+  --destructive: #ed1641;
+  --border: #2a2927;
+  --input: #2a2927;
+  --ring: #ff4801;
+  --chart-1: #ff4801;
+  --chart-2: #ff6d33;
+  --chart-3: #0a95ff;
+  --chart-4: #5eff3a;
+  --chart-5: #b866ff;
+  --sidebar: #121212;
+  --sidebar-foreground: #fffbf5;
+  --sidebar-primary: #ff4801;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #191817;
+  --sidebar-accent-foreground: #fffbf5;
+  --sidebar-border: #2a2927;
+  --sidebar-ring: #ff4801;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -139,6 +362,7 @@
   --analytics-success: oklch(0.49 0.1 160);
   --analytics-latency: oklch(0.54 0.13 292);
   --analytics-credits: oklch(0.55 0.11 82);
+  --analytics-cost: oklch(0.55 0.13 350);
   --analytics-timeout: oklch(0.56 0.17 48);
 }
 .dark .dashboard-analytics {
@@ -148,6 +372,7 @@
   --analytics-success: oklch(0.76 0.12 160);
   --analytics-latency: oklch(0.76 0.12 292);
   --analytics-credits: oklch(0.82 0.14 88);
+  --analytics-cost: oklch(0.76 0.13 350);
   --analytics-timeout: oklch(0.76 0.17 53);
 }
 
@@ -165,4 +390,137 @@
       grid-template-columns: minmax(0, 1fr) repeat(3, 9rem);
     }
   }
+}
+
+/* ==== Theme-style fit & finish ==== */
+
+/* Shape and typographic signatures for the non-classic theme styles —
+   classic intentionally gets none of these. Unlayered so they win over
+   Tailwind's utility layer; both styles share pill geometry but scale
+   radius, control heights, weight, and elevation per spec:
+   - Endless Blue: 44px pill CTAs (button spec: 12×20 @ 44px; inputs 48px),
+     ≈24px cards, weight-400 editorial display with tight tracking,
+     flat hairline cards (single shadow tier unused at rest), circular
+     icon plates, tabular numerals with 1.5 body leading.
+   - Fresh Green: 40–44px pills with 14px/600 button labels (button-md),
+     44px inputs, 12px cards, weight-500 headings, 1.55 body leading.
+*/
+
+/* Pill geometry: every control is a full pill; badges follow the pill
+   badge spec, sidebar rows match. */
+:is(
+    [data-theme-style="endless-blue"],
+    [data-theme-style="fresh-green"],
+    [data-theme-style="ember"]
+  )
+  :is(
+    [data-slot="button"],
+    [data-slot="select-trigger"],
+    [data-slot="badge"],
+    [data-slot="sidebar-menu-button"],
+    [data-slot="sidebar-menu-sub-button"]
+  ) {
+  border-radius: 9999px;
+}
+
+/* Endless Blue icon plates are full circles (asset-glyph rule). */
+[data-theme-style="endless-blue"]
+  :is([data-slot="avatar"], [data-slot="avatar-fallback"]) {
+  border-radius: 9999px;
+}
+
+/* CTA stance — Endless Blue: 44px standard pills, 40px compact, inputs 48px. */
+[data-theme-style="endless-blue"]
+  :is(
+    [data-slot="button"][data-size="default"],
+    [data-slot="button"][data-size="lg"],
+    [data-slot="select-trigger"]
+  ) {
+  height: 2.75rem;
+  padding-inline: 1.25rem;
+}
+
+[data-theme-style="endless-blue"] [data-slot="button"][data-size="sm"] {
+  height: 2.5rem;
+  padding-inline: 1.125rem;
+}
+
+[data-theme-style="endless-blue"] [data-slot="input"] {
+  height: 3rem;
+}
+
+/* CTA stance — Fresh Green: 40px standard pills with the 14px/600
+   button-md label, 44px pills for lg, inputs 44px. */
+[data-theme-style="fresh-green"]
+  :is([data-slot="button"][data-size="default"], [data-slot="select-trigger"]) {
+  height: 2.5rem;
+  padding-inline: 1.375rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+[data-theme-style="fresh-green"] [data-slot="button"][data-size="lg"] {
+  height: 2.75rem;
+  padding-inline: 1.375rem;
+  font-weight: 600;
+}
+
+[data-theme-style="fresh-green"] [data-slot="input"] {
+  height: 2.75rem;
+}
+
+/* Cards: exact spec radii, flat hairline surfaces at rest. */
+[data-theme-style="endless-blue"] [data-slot="card"] {
+  border-radius: var(--radius-xl);
+  box-shadow: none;
+}
+
+[data-theme-style="fresh-green"] [data-slot="card"] {
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+}
+
+/* Ember: 12px card containers per spec, strictly flat — no decorative
+   shadows, hairline separation only. Inputs keep the dim hairline border. */
+[data-theme-style="ember"] [data-slot="card"] {
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+}
+
+/* Typography for Ember: Medium (500) headlines with tight tracking per the
+   hierarchy table, 400 body at 1.5 leading. */
+[data-theme-style="ember"] :is(h1, h2) {
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+[data-theme-style="ember"] h3 {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+[data-theme-style="ember"] body {
+  line-height: 1.5;
+}
+
+/* Typography: display weight and tracking per spec; body leading set on
+   the canvas so running text and leading tighten to the doc rhythm.
+   Geist stays the family (documented substitute for both brand fonts). */
+[data-theme-style="endless-blue"] :is(h1, h2, h3) {
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+[data-theme-style="endless-blue"] body {
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-theme-style="fresh-green"] :is(h1, h2, h3) {
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+[data-theme-style="fresh-green"] body {
+  line-height: 1.55;
 }

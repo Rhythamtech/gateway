@@ -2,9 +2,16 @@ import * as React from "react"
 import { ArrowUpRight, UserRound } from "lucide-react"
 import { toast } from "sonner"
 
-import { cacheUser, getLogRetention, updateLogRetention, updateMyPreferences, type CurrentUser, type LogRetention } from "@/lib/auth"
-import { useTheme } from "@/hooks/use-theme"
-import type { Theme } from "@/lib/theme"
+import {
+  cacheUser,
+  getLogRetention,
+  updateLogRetention,
+  updateMyPreferences,
+  type CurrentUser,
+  type LogRetention,
+} from "@/lib/auth"
+import { useTheme, useThemeStyle } from "@/hooks/use-theme"
+import type { Theme, ThemeStyle } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -71,22 +78,26 @@ function PreferenceRow({
 
 export function SettingsContent({ user }: { user: CurrentUser }) {
   const { theme, setTheme } = useTheme()
+  const { themeStyle, setThemeStyle } = useThemeStyle()
   const [profile, setProfile] = React.useState(user)
   const [tracing, setTracing] = React.useState(user.tracing_enabled)
   const [telemetry, setTelemetry] = React.useState(user.telemetry_enabled)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [retention, setRetention] = React.useState<LogRetention>("never")
-  const [retentionDraft, setRetentionDraft] = React.useState<LogRetention>("never")
+  const [retentionDraft, setRetentionDraft] =
+    React.useState<LogRetention>("never")
   const [retentionSaving, setRetentionSaving] = React.useState(false)
   const tracingChanged = tracing !== profile.tracing_enabled
   const telemetryChanged = telemetry !== profile.telemetry_enabled
   const dirty = tracingChanged || telemetryChanged
   React.useEffect(() => {
-    getLogRetention().then(({ log_retention }) => {
-      setRetention(log_retention)
-      setRetentionDraft(log_retention)
-    }).catch(() => {})
+    getLogRetention()
+      .then(({ log_retention }) => {
+        setRetention(log_retention)
+        setRetentionDraft(log_retention)
+      })
+      .catch(() => {})
   }, [])
 
   async function saveRetention() {
@@ -97,7 +108,11 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
       setRetentionDraft(result.log_retention)
       toast.success("Log retention policy saved.")
     } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : "Unable to save log retention.")
+      toast.error(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to save log retention."
+      )
     } finally {
       setRetentionSaving(false)
     }
@@ -194,30 +209,61 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
             Personalize the dashboard on this browser.
           </p>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 sm:px-5">
-          <div>
-            <label htmlFor="settings-theme" className="text-sm font-medium">
-              Theme
-            </label>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Changes apply immediately.
-            </p>
+        <div className="min-w-0 divide-y rounded-xl border bg-card">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:px-5">
+            <div>
+              <label htmlFor="settings-theme" className="text-sm font-medium">
+                Theme
+              </label>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Light, dark, or follow the system.
+              </p>
+            </div>
+            <Select
+              value={theme}
+              onValueChange={(value) => setTheme(value as Theme)}
+            >
+              <SelectTrigger id="settings-theme" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="system">System</SelectItem>
+                  <SelectItem value="light">Light</SelectItem>
+                  <SelectItem value="dark">Dark</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </div>
-          <Select
-            value={theme}
-            onValueChange={(value) => setTheme(value as Theme)}
-          >
-            <SelectTrigger id="settings-theme" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="system">System</SelectItem>
-                <SelectItem value="light">Light</SelectItem>
-                <SelectItem value="dark">Dark</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:px-5">
+            <div>
+              <label
+                htmlFor="settings-theme-style"
+                className="text-sm font-medium"
+              >
+                Theme style
+              </label>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Color palette for the interface.
+              </p>
+            </div>
+            <Select
+              value={themeStyle}
+              onValueChange={(value) => setThemeStyle(value as ThemeStyle)}
+            >
+              <SelectTrigger id="settings-theme-style" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="classic">Classic</SelectItem>
+                  <SelectItem value="endless-blue">Endless Blue</SelectItem>
+                  <SelectItem value="fresh-green">Fresh Green</SelectItem>
+                  <SelectItem value="ember">Ember</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </section>
 
@@ -286,18 +332,48 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
         </form>
       </section>
       {profile.role === "superuser" && (
-        <section aria-labelledby="settings-retention" className="grid min-w-0 gap-4 border-t pt-6 @min-[680px]/settings:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-          <div><h3 id="settings-retention" className="text-sm font-semibold">Data retention</h3></div>
+        <section
+          aria-labelledby="settings-retention"
+          className="grid min-w-0 gap-4 border-t pt-6 @min-[680px]/settings:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
+        >
+          <div>
+            <h3 id="settings-retention" className="text-sm font-semibold">
+              Data retention
+            </h3>
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 sm:px-5">
-            <label htmlFor="settings-retention-policy" className="text-sm font-medium">Automatic log deletion</label>
+            <label
+              htmlFor="settings-retention-policy"
+              className="text-sm font-medium"
+            >
+              Automatic log deletion
+            </label>
             <div className="flex items-center gap-2">
-              <Select value={retentionDraft} onValueChange={(value) => setRetentionDraft(value as LogRetention)}>
-                <SelectTrigger id="settings-retention-policy" className="w-36"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectGroup>
-                  <SelectItem value="never">Never</SelectItem><SelectItem value="24h">24 hours</SelectItem><SelectItem value="7d">7 days</SelectItem><SelectItem value="30d">30 days</SelectItem>
-                </SelectGroup></SelectContent>
+              <Select
+                value={retentionDraft}
+                onValueChange={(value) =>
+                  setRetentionDraft(value as LogRetention)
+                }
+              >
+                <SelectTrigger id="settings-retention-policy" className="w-36">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="never">Never</SelectItem>
+                    <SelectItem value="24h">24 hours</SelectItem>
+                    <SelectItem value="7d">7 days</SelectItem>
+                    <SelectItem value="30d">30 days</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
               </Select>
-              <Button size="sm" disabled={retentionDraft === retention || retentionSaving} onClick={saveRetention}>{retentionSaving ? "Saving…" : "Save"}</Button>
+              <Button
+                size="sm"
+                disabled={retentionDraft === retention || retentionSaving}
+                onClick={saveRetention}
+              >
+                {retentionSaving ? "Saving…" : "Save"}
+              </Button>
             </div>
           </div>
         </section>

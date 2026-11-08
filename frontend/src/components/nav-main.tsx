@@ -20,8 +20,12 @@ import {
 export function NavMain({
   items,
   label,
+  flush = false,
 }: {
   label?: string
+  /** Drop the SidebarGroup padding so the nav aligns when placed inside
+      the padded SidebarFooter (it would otherwise be double-indented). */
+  flush?: boolean
   items: {
     title: string
     url: string
@@ -34,7 +38,7 @@ export function NavMain({
   }[]
 }) {
   return (
-    <SidebarGroup>
+    <SidebarGroup className={flush ? "p-0" : undefined}>
       {label && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
       <SidebarMenu>
         {items.map((item) => (

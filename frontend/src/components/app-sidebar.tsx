@@ -152,6 +152,7 @@ export function AppSidebar({
       </SidebarContent>
       <SidebarFooter>
         <NavMain
+          flush
           items={navItems.filter((item) => item.url === "/dashboard/settings")}
         />
         <NavUser user={{ ...user, avatar: user.avatar ?? "" }} />
