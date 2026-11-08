@@ -118,6 +118,24 @@ class HourlyCallActivity(BaseModel):
     failed_call_count: int
 
 
+# Daily credits charged per subject, from actual settled credit usage.
+# Decimal credit strings follow the credit-ledger contract (six fractional
+# digits); only days with charges appear, and ``cost`` is ``None`` for
+# subjects the ledger cannot attribute (per-gateway-model analytics).
+class DailyCostEntry(BaseModel):
+    date: str
+    charged_credits: str
+
+
+class UsageCostTotals(BaseModel):
+    charged_credits: str
+
+
+class UsageCost(BaseModel):
+    totals: UsageCostTotals
+    daily: list[DailyCostEntry]
+
+
 class UsageAnalytics(BaseModel):
     subject_type: SubjectType
     subject_id: UUID
@@ -126,3 +144,4 @@ class UsageAnalytics(BaseModel):
     totals: UsageTotals
     daily: list[DailyUsageEntry]
     hourly: list[HourlyCallActivity] | None = None
+    cost: UsageCost | None = None

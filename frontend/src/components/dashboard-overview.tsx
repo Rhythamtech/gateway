@@ -261,6 +261,8 @@ function PersonalOverview({ user }: { user: CurrentUser }) {
   }, [subject, range, requestKey, scopeKey, user.id, user.role])
   const totals = data?.totals
   const daily = data?.daily ?? []
+  const cost = data?.cost
+  const costDaily = cost?.daily ?? []
   const hourly = data?.hourly?.map((bucket) => ({
     ...bucket,
     label: `${String(bucket.hour).padStart(2, "0")}:00`,
@@ -815,6 +817,31 @@ function PersonalOverview({ user }: { user: CurrentUser }) {
               </ChartContainer>
             </section>
           </>
+        )}
+        {costDaily.length > 0 && cost && (
+          <section className="min-w-0 rounded-xl border bg-card p-4 sm:p-6">
+            <h3 className="font-semibold">Cost over time</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Credits charged per day · settled usage, independent of tracing
+            </p>
+            <p className="mt-4 mb-6 text-2xl font-semibold tracking-tight tabular-nums">
+              {formatCredits(cost.totals.charged_credits)}
+              <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+                credits
+              </span>
+            </p>
+            <OverviewAreaChart
+              data={costDaily}
+              formatLabel={dateLabel}
+              series={{
+                charged_credits: {
+                  label: "Credits charged",
+                  color: "var(--analytics-cost)",
+                },
+              }}
+              className="aspect-auto h-52 w-full"
+            />
+          </section>
         )}
         <DashboardCreditTrend refreshTick={tick} />
       </section>

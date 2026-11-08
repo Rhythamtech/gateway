@@ -624,6 +624,20 @@ export type DailyUsageEntry = {
 
 export type UsageSubjectType = "api_key" | "gateway_model" | "user"
 
+// Daily credits actually charged (settled credit usage), aggregated
+// read-side from the ledger. Decimal credit strings follow the credit
+// contract; cost is null for subjects the ledger cannot attribute
+// (per-gateway-model analytics).
+export type DailyCostEntry = {
+  date: string
+  charged_credits: string
+}
+
+export type UsageCost = {
+  totals: { charged_credits: string }
+  daily: DailyCostEntry[]
+}
+
 export type UsageAnalytics = {
   subject_type: UsageSubjectType
   subject_id: string
@@ -638,6 +652,7 @@ export type UsageAnalytics = {
         failed_call_count: number
       }[]
     | null
+  cost?: UsageCost | null
 }
 
 export type UsageRange = {

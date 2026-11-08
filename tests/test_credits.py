@@ -704,6 +704,84 @@ def test_user_usage_is_scoped_to_the_authenticated_user(client, credits_db):
     assert client.get("/credits/usage", headers=user_token()).status_code == 403
 
 
+def test_usage_analytics_report_charged_credits(client, credits_db):
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+    from backend.api_keys.models import APIKey
+
+    user_id = str(uuid4())
+    other_id = str(uuid4())
+    key_id = str(uuid4())
+    with credits_db.writes.begin() as db:
+        db.add_all(
+            [
+                User(
+                    id=user_id,
+                    email="cost-user@example.com",
+                    hashed_password="x",
+                    role=UserRole.USER,
+                ),
+                User(
+                    id=other_id,
+                    email="cost-other@example.com",
+                    hashed_password="x",
+                    role=UserRole.USER,
+                ),
+            ]
+        )
+        db.flush()
+        db.add(
+            APIKey(
+                id=key_id,
+                owner_id=user_id,
+                name="cost key",
+                key_hash=hashlib.sha256(b"cost-key").hexdigest(),
+                key_prefix="cost",
+            )
+        )
+
+    # Fund the new user and settle one request's token usage (150 tokens at
+    # 10 tokens per credit → 15 credits actually charged).
+    service.add_credits("user", user_id, addition(), "admin")
+    service.add_credits("provider", "provider", addition(), "admin")
+    configure_rate()
+    hold = service.reserve_request_credits(
+        candidate(), user_id, key_id, "request-cost", 100, 100
+    )
+    service.mark_dispatched(hold.usage_id)
+    service.record_usage(hold.usage_id, 100, 50, "upstream-id")
+    service.settle_request_usage(hold.usage_id)
+    today = datetime.now(timezone.utc).date().isoformat()
+
+    body = client.get("/traces/usage/me", headers=user_token(user_id)).json()
+    assert body["cost"]["totals"]["charged_credits"] == "15.000000"
+    assert body["cost"]["daily"] == [
+        {"date": today, "charged_credits": "15.000000"}
+    ]
+
+    # The same charge is attributed to the API key that made the request.
+    body = client.get(
+        f"/traces/usage/api-keys/{key_id}", headers=user_token(user_id)
+    ).json()
+    assert body["cost"]["totals"]["charged_credits"] == "15.000000"
+
+    # Each subject sees only its own ledger.
+    body = client.get("/traces/usage/me", headers=user_token(other_id)).json()
+    assert body["cost"]["totals"]["charged_credits"] == "0.000000"
+    assert body["cost"]["daily"] == []
+
+    # A window outside the charge day yields an empty cost summary.
+    tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+    body = client.get(
+        "/traces/usage/me",
+        params={"from": tomorrow, "to": tomorrow},
+        headers=user_token(user_id),
+    ).json()
+    assert body["cost"]["totals"]["charged_credits"] == "0.000000"
+    assert body["cost"]["daily"] == []
+
+
 @pytest.mark.parametrize("protocol", ["openai", "anthropic"])
 def test_incomplete_streams_keep_holds(client, credits_db, monkeypatch, protocol):
     import json

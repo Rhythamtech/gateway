@@ -20,6 +20,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from backend.core.database import SessionLocal
+from backend.credits.calculation import format_credits
+from backend.credits.models import CreditUsage
 from backend.gateway.model_groups.models import ModelGroup
 from backend.gateway.provider_models.models import ProviderModel
 from backend.gateway.providers.models import Provider
@@ -841,3 +843,40 @@ def usage_date_bounds(subject_created_at: datetime) -> tuple[date, date]:
         date.fromisoformat(utc_date_for(subject_created_at)),
         datetime.now(timezone.utc).date(),
     )
+
+
+def daily_charged_credits(
+    db: Session,
+    subject_column,
+    subject_id: str,
+    from_date: date | None,
+    to_date: date | None,
+) -> dict[str, Any]:
+    """Daily credits a subject was actually charged, from the credit ledger.
+
+    Aggregates settled ``credit_usage.charged`` (microcredits, user side) by
+    the UTC date of reservation creation — the same UTC-date basis the daily
+    usage tables use. Unsettled and released usage charges zero and is
+    therefore absent. Charges exist independently of tracing, so cost days
+    need not align with trace analytics days.
+    """
+
+    day = func.strftime("%Y-%m-%d", CreditUsage.created_at)
+    query = db.query(day, func.sum(CreditUsage.charged)).filter(
+        subject_column == subject_id,
+        CreditUsage.charged > 0,
+    )
+    if from_date:
+        query = query.filter(CreditUsage.created_at >= day_start(from_date))
+    if to_date:
+        query = query.filter(CreditUsage.created_at < day_end_inclusive(to_date))
+    rows = query.group_by(day).order_by(day).all()
+
+    total_micros = sum(int(micros or 0) for _, micros in rows)
+    return {
+        "totals": {"charged_credits": format_credits(total_micros)},
+        "daily": [
+            {"date": charged_date, "charged_credits": format_credits(int(micros or 0))}
+            for charged_date, micros in rows
+        ],
+    }

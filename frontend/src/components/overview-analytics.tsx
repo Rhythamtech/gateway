@@ -75,14 +75,16 @@ export function OverviewAreaChart<T extends { date: string }>({
   data,
   formatLabel,
   series,
+  className = "aspect-auto h-64 w-full sm:h-72",
 }: {
   data: T[]
   formatLabel: (value: string) => string
   series: Record<string, { label: string; color: string }>
+  className?: string
 }) {
   const id = React.useId()
   return (
-    <ChartContainer config={series} className="aspect-auto h-64 w-full sm:h-72">
+    <ChartContainer config={series} className={className}>
       <AreaChart accessibilityLayer data={data} margin={{ right: 12, left: 4 }}>
         <defs>
           {Object.keys(series).map((key) => (

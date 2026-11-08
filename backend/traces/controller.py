@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from backend.api_keys.models import APIKey
 from backend.auth.models import User, UserRole
+from backend.credits.models import CreditUsage
 from backend.core.database import SessionLocal, get_db, write_engine
 from backend.dependencies import get_current_user
 from backend.gateway.model_groups.models import ModelGroup
@@ -37,6 +38,7 @@ from backend.traces.dtos import (
     MessagesPage,
     ProviderModelRef,
     UsageAnalytics,
+    UsageCost,
     UsageTotals,
 )
 from backend.traces.models import (
@@ -360,6 +362,7 @@ def _usage_response(
     default_from: date,
     default_to: date,
     hourly: list[dict[str, int]] | None = None,
+    cost: dict | None = None,
 ) -> UsageAnalytics:
     return UsageAnalytics(
         subject_type=subject_type,
@@ -369,6 +372,7 @@ def _usage_response(
         totals=UsageTotals(**data["totals"]),
         daily=[DailyUsageEntry(**entry) for entry in data["daily"]],
         hourly=[HourlyCallActivity(**entry) for entry in hourly] if hourly is not None else None,
+        cost=UsageCost(**cost) if cost is not None else None,
     )
 
 
@@ -396,6 +400,7 @@ def api_key_usage(
     data = service.usage_for_subject(
         db, LLMAPIKeyUsageDaily, "api_key_id", key.id, from_date, to_date
     )
+    cost = service.daily_charged_credits(db, CreditUsage.api_key_id, key.id, from_date, to_date)
     defaults = service.usage_date_bounds(key.created_at)
     hourly = (
         service.hourly_call_activity(
@@ -413,6 +418,7 @@ def api_key_usage(
         default_from=defaults[0],
         default_to=defaults[1],
         hourly=hourly,
+        cost=cost,
     )
 
 
@@ -481,6 +487,7 @@ def user_usage(
     data = service.usage_for_subject(
         db, LLMUserUsageDaily, "user_id", subject.id, from_date, to_date
     )
+    cost = service.daily_charged_credits(db, CreditUsage.user_id, subject.id, from_date, to_date)
     defaults = service.usage_date_bounds(subject.created_at)
     hourly = (
         service.hourly_call_activity(
@@ -498,6 +505,7 @@ def user_usage(
         default_from=defaults[0],
         default_to=defaults[1],
         hourly=hourly,
+        cost=cost,
     )
 
 
@@ -514,6 +522,7 @@ def my_usage(
     data = service.usage_for_subject(
         db, LLMUserUsageDaily, "user_id", user.id, from_date, to_date
     )
+    cost = service.daily_charged_credits(db, CreditUsage.user_id, user.id, from_date, to_date)
     defaults = service.usage_date_bounds(user.created_at)
     hourly = (
         service.hourly_call_activity(
@@ -531,6 +540,7 @@ def my_usage(
         default_from=defaults[0],
         default_to=defaults[1],
         hourly=hourly,
+        cost=cost,
     )
     defaults = service.usage_date_bounds(subject.created_at)
     hourly = (
