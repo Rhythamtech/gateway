@@ -1,0 +1,57 @@
+---
+import "@/styles/landing.css"
+import { APP_NAME } from "@/lib/site"
+
+interface Props {
+  title?: string
+  description?: string
+}
+
+const {
+  title = `${APP_NAME} — Intelligence Designed To Evolve`,
+  description = "Manage providers, model groups, API keys and credits through one production-ready LLM gateway with tracing built in.",
+} = Astro.props
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content={description} />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/brand/favicon-32.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="192x192"
+      href="/brand/favicon-192.png"
+    />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/brand/apple-touch-icon.png"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://db.onlinewebfonts.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://db.onlinewebfonts.com/c/8cb707a9b8a73f8a7403336b861c3074?family=BubbledotICG-FinePos"
+      rel="stylesheet"
+    />
+    <title>{title}</title>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

@@ -1,0 +1,171 @@
+---
+import "@/styles/offline-footer.css"
+import { APP_DESCRIPTION, APP_NAME } from "@/lib/site"
+
+const apiBaseUrl = (
+  import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+).replace(/\/$/, "")
+
+const year = new Date().getFullYear()
+---
+
+<footer class="of-footer" data-offline-footer>
+  <div class="of-scene" aria-hidden="true">
+    <canvas class="of-sky" aria-hidden="true"></canvas>
+    <video
+      class="of-video"
+      muted
+      playsinline
+      preload="auto"
+      poster="https://d2ol7oe51mr4n9.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/af6deff1-d678-4dc6-ae24-2880b16cdb20.jpg"
+    >
+      <source
+        media="(max-width: 900px)"
+        src="https://d2ol7oe51mr4n9.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/15017aa7-135b-471f-a8a1-42a208bc61b2.mp4"
+        type="video/mp4"
+      />
+      <source
+        src="https://d2ol7oe51mr4n9.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/abdab52e-bb1b-477d-ae7c-26c5f8915433.mp4"
+        type="video/mp4"
+      />
+    </video>
+    <div class="of-tint"></div>
+    <canvas class="of-overlay" aria-hidden="true"></canvas>
+  </div>
+
+  <div class="of-content">
+    <div class="of-brand">
+      <div class="of-brand-lockup of-reveal" style="--i: 0">
+        <button
+          class="of-power"
+          type="button"
+          aria-pressed="false"
+          aria-label="Take the scene offline"
+          title="Take the scene offline"
+        >
+          <svg
+            class="of-power-o"
+            viewBox="0 0 50 62"
+            fill="none"
+            aria-hidden="true"
+          >
+            <circle class="of-halo" cx="25" cy="33.5" r="23"></circle>
+            <path
+              class="of-power-ring"
+              d="M14.2 22.6 A19 19 0 1 0 35.8 22.6"
+            ></path>
+            <path class="of-power-tick" d="M25 6.5 V33"></path>
+          </svg>
+        </button>
+        <a class="of-wordmark" href="/" aria-label={`${APP_NAME} home`}>
+          <span class="of-wordmark-text">{APP_NAME}</span>
+        </a>
+      </div>
+
+      <p class="of-tagline of-reveal" style="--i: 1">
+        {APP_DESCRIPTION}
+      </p>
+      <p class="of-copyright of-reveal" style="--i: 2">
+        © {year} {APP_NAME}. All rights reserved.
+      </p>
+    </div>
+
+    <nav class="of-col of-reveal" style="--i: 3" aria-labelledby="of-product">
+      <h2 id="of-product">Product</h2>
+      <ul class="of-links">
+        <li>
+          <a class="of-link" href="/dashboard">
+            Dashboard
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/dashboard/playground">
+            Playground
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/dashboard/providers">
+            Providers
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/dashboard/model-groups">
+            Model Groups
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+    <nav class="of-col of-reveal" style="--i: 4" aria-labelledby="of-workspace">
+      <h2 id="of-workspace">Workspace</h2>
+      <ul class="of-links">
+        <li>
+          <a class="of-link" href="/dashboard/api-keys">
+            API Keys
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/dashboard/credits">
+            Credits
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/dashboard/traces">
+            Request traces
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/dashboard/settings">
+            Settings
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+    <nav class="of-col of-reveal" style="--i: 5" aria-labelledby="of-resources">
+      <h2 id="of-resources">Resources</h2>
+      <ul class="of-links">
+        <li>
+          <a
+            class="of-link"
+            href={`${apiBaseUrl}/docs`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            API Docs
+          </a>
+        </li>
+        <li>
+          <a
+            class="of-link"
+            href={`${apiBaseUrl}/openapi.json`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            OpenAPI
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/login">
+            Sign in
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/signup">
+            Get Started
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+
+  <div class="of-dot" aria-hidden="true"></div>
+</footer>
+
+<script>
+  import { initOfflineFooter } from "../scripts/offline-footer"
+
+  document
+    .querySelectorAll<HTMLElement>("[data-offline-footer]")
+    .forEach(initOfflineFooter)
+</script>

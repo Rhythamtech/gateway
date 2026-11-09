@@ -1,31 +1,188 @@
 ---
-import Layout from "@/layouts/main.astro"
-import { BrandMark } from "@/components/brand"
-import { ThemeToggle } from "@/components/theme-toggle"
-import { APP_NAME, APP_TAGLINE } from "@/lib/site"
+import LandingLayout from "@/layouts/landing.astro"
+import OfflineFooter from "@/components/offline-footer.astro"
+import { APP_NAME } from "@/lib/site"
+
+const apiBaseUrl = (
+  import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+).replace(/\/$/, "")
+
+const navItems = [
+  { label: "Home", href: "/", current: true },
+  { label: "Dashboard", href: "/dashboard" },
+  { label: "Playground", href: "/dashboard/playground" },
+  { label: "API Docs", href: `${apiBaseUrl}/docs` },
+]
+
+const stats = [
+  { icon: "{}", target: "3", decimals: "0", suffix: "", label: "API Formats" },
+  {
+    icon: "<>",
+    target: "2",
+    decimals: "0",
+    suffix: "",
+    label: "Provider Protocols",
+  },
+  {
+    icon: "#",
+    target: "60",
+    decimals: "0",
+    suffix: "/min",
+    label: "Per API Key",
+  },
+  {
+    icon: "%",
+    target: "100",
+    decimals: "0",
+    suffix: "%",
+    label: "Secrets Encrypted",
+  },
+]
 ---
 
-<Layout>
-  <div class="relative flex min-h-svh flex-col items-center justify-center gap-6 p-6 text-center">
-    <ThemeToggle client:load className="absolute top-4 right-4 z-10" />
-    <BrandMark className="size-28" alt="" />
-    <div class="flex flex-col gap-2">
-      <h1 class="text-2xl font-semibold">{APP_NAME}</h1>
-      <p class="text-sm text-muted-foreground">{APP_TAGLINE}</p>
+<LandingLayout title={`${APP_NAME} — Intelligence Designed To Evolve`}>
+  <div class="landing-hero">
+    <div class="bg" aria-hidden="true">
+      <video class="bg-video" autoplay muted loop playsinline>
+        <source
+          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260809_012548_ef22562c-c0ae-4816-ad9d-f8922af4e6a7.mp4"
+          type="video/mp4"
+        />
+      </video>
     </div>
-    <div class="flex items-center gap-3 text-sm font-medium">
-      <a
-        href="/login"
-        class="rounded-md bg-primary px-4 py-2 text-primary-foreground transition-colors hover:bg-primary/90"
+
+    <div class="page">
+      <header class="site-header">
+        <a class="brand" href="/" aria-label={`${APP_NAME} home`}>
+          <img src="/brand/logo.webp" alt="" width="52" height="52" />
+        </a>
+
+        <nav class="nav" aria-label="Primary">
+          {navItems.map((item) => (
+            <a
+              class:list={["nav-link", { "is-active": item.current }]}
+              href={item.href}
+              aria-current={item.current ? "page" : undefined}
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
+
+        <a class="signin" href="/login">
+          Sign in
+        </a>
+
+        <button
+          class="burger"
+          type="button"
+          aria-label="Open menu"
+          aria-expanded="false"
+          aria-controls="mobile-menu"
+        >
+          <span class="burger-bars" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+        </button>
+      </header>
+
+      <main class="hero">
+        <div class="trust anim" style="--d: 0.05s">
+          <div class="trust-avatars" aria-hidden="true">
+            <span class="trust-avatar">
+              <span class="trust-mark">O</span>
+            </span>
+            <span class="trust-avatar">
+              <span class="trust-mark">A</span>
+            </span>
+            <span class="trust-avatar">
+              <span class="trust-mark trust-mark--plus">+</span>
+            </span>
+          </div>
+          <span class="trust-pill">OpenAI · Anthropic · compatible</span>
+        </div>
+
+        <h1 class="headline anim">
+          <span class="headline-line" style="--line-delay: 0.12s">
+            Intelligence
+          </span>
+          <span class="headline-line" style="--line-delay: 0.3s">
+            Designed To Evolve
+          </span>
+        </h1>
+
+        <p class="subhead anim" style="--d: 0.28s">
+          Manage providers, model groups, API keys and credits through one
+          production-ready LLM gateway with tracing built in.
+        </p>
+
+        <a class="cta anim" href="/signup" style="--d: 0.4s">
+          Get Started
+        </a>
+      </main>
+
+      <footer class="stats" aria-label="Platform statistics">
+        {stats.map((stat, index) => (
+          <div
+            class="stat anim"
+            style={`--d: ${(0.5 + index * 0.08).toFixed(2)}s`}
+          >
+            <div class="stat-icon" aria-hidden="true">
+              {stat.icon}
+            </div>
+            <div class="stat-value">
+              <span
+                class="stat-number"
+                data-target={stat.target}
+                data-decimals={stat.decimals}
+              >
+                0
+              </span>
+              <span class="stat-suffix">{stat.suffix}</span>
+            </div>
+            <div class="stat-label">{stat.label}</div>
+          </div>
+        ))}
+      </footer>
+    </div>
+
+    <div class="menu-overlay" id="mobile-menu" hidden>
+      <div
+        class="mobile-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Mobile navigation"
       >
-        Sign in
-      </a>
-      <a
-        href="/signup"
-        class="rounded-md border px-4 py-2 transition-colors hover:bg-accent"
-      >
-        Create account
-      </a>
+        <nav class="mobile-nav" aria-label="Mobile primary">
+          {navItems.map((item, index) => (
+            <a
+              class:list={["mobile-link", { "is-active": item.current }]}
+              href={item.href}
+              aria-current={item.current ? "page" : undefined}
+              style={`--i: ${index}`}
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
+        <a
+          class="mobile-signin"
+          href="/login"
+          style={`--i: ${navItems.length}`}
+        >
+          Sign in
+        </a>
+      </div>
     </div>
   </div>
-</Layout>
+
+  <OfflineFooter />
+</LandingLayout>
+
+<script>
+  import { initLanding } from "../scripts/landing"
+
+  initLanding()
+</script>
