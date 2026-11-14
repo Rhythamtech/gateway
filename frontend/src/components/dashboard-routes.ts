@@ -79,6 +79,15 @@ const routes = [
     import("@/components/credits").then((m) => ({ default: m.CreditsContent }))
   ),
   route(
+    "/dashboard/coupons",
+    "Coupons",
+    () =>
+      import("@/components/coupons").then((m) => ({
+        default: m.CouponsContent,
+      })),
+    true
+  ),
+  route(
     "/dashboard/credit-review",
     "Credit review",
     () =>

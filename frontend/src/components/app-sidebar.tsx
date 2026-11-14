@@ -30,6 +30,12 @@ import {
 } from "@/components/ui/sidebar"
 
 const navigation = [
+  {
+    title: "Coupons",
+    url: "/dashboard/coupons",
+    icon: Coins,
+    superuserOnly: true,
+  },
   { title: "Dashboard", url: "/dashboard", icon: Gauge },
   { title: "Playground", url: "/dashboard/playground", icon: Sparkles },
   { title: "API Keys", url: "/dashboard/api-keys", icon: KeyRound },

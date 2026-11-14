@@ -1,3 +1,4 @@
+import { CouponRedeem } from "@/components/coupon-redeem"
 import * as React from "react"
 import {
   ArrowDownLeft,
@@ -296,6 +297,7 @@ export function CreditsContent() {
           </div>
         </div>
       )}
+      <CouponRedeem onRedeemed={refresh} />
       <section className="@container/ledger min-w-0 overflow-hidden rounded-xl border">
         <Tabs
           value={activeTab}

@@ -102,6 +102,34 @@ def entry_response(entry: CreditEntry) -> CreditEntryResponse:
     )
 
 
+def grant_credits(
+    db: Session,
+    owner_type: Literal["user", "provider"],
+    owner_id: str,
+    amount: int,
+    actor_id: str,
+    reason: str,
+    *,
+    idempotency_key: str | None = None,
+) -> CreditEntry:
+    """Grant within the caller's write transaction; caller owns deduplication/audit."""
+    if amount <= 0:
+        raise ValueError("Credit grant must be positive")
+    get_owner(db, owner_type, owner_id)
+    balance = get_credit_balance(db, owner_type, owner_id, create=True)
+    if balance.remaining + amount > MAX_AMOUNT:
+        raise HTTPException(409, "Credit balance exceeds the supported range")
+    balance.remaining += amount
+    entry = CreditEntry(
+        owner_type=owner_type, owner_id=owner_id, amount=amount,
+        remaining_after=balance.remaining, idempotency_key=idempotency_key,
+        actor_id=actor_id, reason=reason,
+    )
+    db.add(entry)
+    db.flush()
+    return entry
+
+
 def add_credits(
     owner_type: Literal["user", "provider"],
     owner_id: str,
@@ -127,20 +155,8 @@ def add_credits(
                     "Idempotency key was already used for a different credit addition",
                 )
             return entry_response(existing)
-        balance = get_credit_balance(db, owner_type, owner_id, create=True)
-        if balance.remaining + amount > MAX_AMOUNT:
-            raise HTTPException(409, "Credit balance exceeds the supported range")
-        balance.remaining += amount
-        entry = CreditEntry(
-            owner_type=owner_type,
-            owner_id=owner_id,
-            amount=amount,
-            remaining_after=balance.remaining,
-            idempotency_key=data.idempotency_key,
-            actor_id=actor_id,
-            reason=data.reason,
-        )
-        db.add(entry)
+        entry = grant_credits(db, owner_type, owner_id, amount, actor_id, data.reason,
+                              idempotency_key=data.idempotency_key)
         if owner_type == "user":
             from backend.users.audit import UserAdminAudit
 

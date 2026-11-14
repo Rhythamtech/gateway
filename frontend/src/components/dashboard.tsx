@@ -129,6 +129,7 @@ export function Dashboard({
   const usesPageContent =
     path === "/dashboard" ||
     path === "/dashboard/credits" ||
+    path === "/dashboard/coupons" ||
     path === "/dashboard/credit-review" ||
     path === "/dashboard/users/detail" ||
     path === "/dashboard/settings"

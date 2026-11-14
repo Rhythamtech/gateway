@@ -1132,3 +1132,87 @@ export async function listV1Models(apiKey: string): Promise<GatewayModelList> {
   }
   return response.json() as Promise<GatewayModelList>
 }
+
+// --- Fixed-credit coupons ---
+export interface Coupon {
+  id: string
+  code: string
+  name: string
+  credits: string
+  enabled: boolean
+  starts_at: string | null
+  expires_at: string | null
+  max_redemptions: number | null
+  per_user_limit: number
+  redemption_count: number
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CouponCreation {
+  code: string
+  name: string
+  credits: string
+  enabled: boolean
+  starts_at: string | null
+  expires_at: string | null
+  max_redemptions: number | null
+  per_user_limit: number
+}
+
+export interface CouponRedemption {
+  id: string
+  coupon_id: string
+  code: string
+  user_id: string
+  credits: string
+  created_at: string
+  credit_entry: CreditEntry
+}
+
+export interface CouponPage<T> {
+  items: T[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export function redeemCoupon(code: string, idempotencyKey: string) {
+  return authenticatedRequest<CouponRedemption>("/coupons/redeem", {
+    method: "POST",
+    body: JSON.stringify({ code, idempotency_key: idempotencyKey }),
+  })
+}
+
+export function listCoupons(page = 1) {
+  return authenticatedRequest<CouponPage<Coupon>>(
+    `/coupons${creditPageQuery(page, 20)}`
+  )
+}
+
+export function createCoupon(data: CouponCreation) {
+  return authenticatedRequest<Coupon>("/coupons", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateCoupon(
+  id: string,
+  data: { name?: string; enabled?: boolean }
+) {
+  return authenticatedRequest<Coupon>(`/coupons/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  })
+}
+
+export function listCouponRedemptions(page = 1, couponId?: string) {
+  const path = couponId
+    ? `/coupons/${encodeURIComponent(couponId)}/redemptions`
+    : "/coupons/me/redemptions"
+  return authenticatedRequest<CouponPage<CouponRedemption>>(
+    `${path}${creditPageQuery(page, 20)}`
+  )
+}

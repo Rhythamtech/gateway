@@ -51,6 +51,10 @@ def credits_db(monkeypatch, tmp_path):
         connection.execute("PRAGMA foreign_keys=ON")
 
     Base.metadata.create_all(writer)
+    # Lifespan retention reads this migration-owned (non-ORM) table.
+    from backend.core.migrations import _migration_0017_gateway_log_retention
+    with writer.begin() as connection:
+        _migration_0017_gateway_log_retention(connection)
     writes = sessionmaker(writer, expire_on_commit=False)
     reads = sessionmaker(reader)
     for module in (

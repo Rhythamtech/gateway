@@ -22,6 +22,8 @@ from backend.api_keys.controller import router as api_keys_router
 from backend.api_keys.middleware import APIKeyAuthMiddleware
 from backend.core.database import Base, write_engine
 from backend.core.errors import GatewayError
+from backend.coupons import models as coupon_models  # noqa: F401
+from backend.coupons.controller import router as coupons_router
 from backend.credits.controller import router as credits_router
 from backend.credits.models import CreditUsage as CreditUsage
 from backend.credits.reconciliation import reconcile_credits
@@ -119,6 +121,7 @@ app.include_router(providers_router)
 app.include_router(provider_models_router)
 app.include_router(traces_router)
 app.include_router(credits_router)
+app.include_router(coupons_router)
 
 
 # ---------------------------------------------------------------------------

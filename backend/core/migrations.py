@@ -666,6 +666,54 @@ def _migration_0018_user_admin_audit(connection: Connection) -> None:
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_admin_audit_user_created ON user_admin_audit (user_id, created_at)"))
 
 
+def _migration_0019_credit_coupons(connection: Connection) -> None:
+    # Freeze this schema here so future model edits cannot change migration 0019.
+    connection.execute(text("""
+        CREATE TABLE IF NOT EXISTS coupons (
+            id VARCHAR(36) PRIMARY KEY,
+            code VARCHAR(64) NOT NULL UNIQUE,
+            name VARCHAR(150) NOT NULL,
+            amount BIGINT NOT NULL CHECK (amount > 0 AND amount <= 9000000000000000000),
+            enabled BOOLEAN NOT NULL,
+            starts_at DATETIME,
+            expires_at DATETIME,
+            max_redemptions INTEGER CHECK (max_redemptions IS NULL OR max_redemptions >= 1),
+            per_user_limit INTEGER NOT NULL CHECK (per_user_limit >= 1),
+            created_by VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            CHECK (starts_at IS NULL OR expires_at IS NULL OR expires_at > starts_at),
+            CHECK (code = UPPER(TRIM(code)) AND length(code) BETWEEN 3 AND 64)
+        )
+    """))
+    connection.execute(text("""
+        CREATE TABLE IF NOT EXISTS coupon_redemptions (
+            id VARCHAR(36) PRIMARY KEY,
+            coupon_id VARCHAR(36) NOT NULL REFERENCES coupons(id) ON DELETE RESTRICT,
+            user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            amount BIGINT NOT NULL CHECK (amount > 0),
+            idempotency_key VARCHAR(128) NOT NULL,
+            credit_entry_id VARCHAR(36) NOT NULL UNIQUE REFERENCES credit_entries(id) ON DELETE RESTRICT,
+            created_at DATETIME NOT NULL,
+            UNIQUE (user_id, idempotency_key)
+        )
+    """))
+    connection.execute(text("""
+        CREATE TABLE IF NOT EXISTS coupon_audit (
+            id VARCHAR(36) PRIMARY KEY,
+            coupon_id VARCHAR(36) NOT NULL REFERENCES coupons(id) ON DELETE RESTRICT,
+            actor_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+            action VARCHAR(20) NOT NULL,
+            old_values JSON,
+            new_values JSON NOT NULL,
+            created_at DATETIME NOT NULL
+        )
+    """))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_coupon_redemptions_coupon_user ON coupon_redemptions (coupon_id, user_id)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_coupon_redemptions_user_created ON coupon_redemptions (user_id, created_at)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_coupon_audit_coupon_id ON coupon_audit (coupon_id)"))
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -691,6 +739,7 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0016_optional_model_token_ceiling", _migration_0016_optional_model_token_ceiling),
     ("0017_gateway_log_retention", _migration_0017_gateway_log_retention),
     ("0018_user_admin_audit", _migration_0018_user_admin_audit),
+    ("0019_credit_coupons", _migration_0019_credit_coupons),
 ]
 
 
