@@ -1,17 +1,19 @@
 import * as React from "react"
 import { cn } from "cn"
 
-import { BrandMark } from "@/components/brand"
-import { ApiError, login } from "@/lib/auth"
-import { APP_NAME } from "@/lib/site"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
+  ApiError,
+  clearAuthTokens,
+  getCachedUser,
+  hasAuthTokens,
+  login,
+  validateSession,
+  type CurrentUser,
+} from "@/lib/auth"
+import { APP_NAME } from "@/lib/site"
+import { postLoginPath } from "@/lib/navigation"
+import { Button } from "@/components/ui/button"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 
 export function LoginForm({
@@ -20,6 +22,17 @@ export function LoginForm({
 }: React.ComponentProps<"div">) {
   const [error, setError] = React.useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [existingUser, setExistingUser] = React.useState<CurrentUser | null>(
+    () => getCachedUser()
+  )
+
+  React.useEffect(() => {
+    if (hasAuthTokens()) {
+      void validateSession().then((user) => {
+        setExistingUser(user)
+      })
+    }
+  }, [])
 
   async function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -35,10 +48,7 @@ export function LoginForm({
       const requestedPath = new URLSearchParams(window.location.search).get(
         "next"
       )
-      const nextPath =
-        requestedPath?.startsWith("/") && !requestedPath.startsWith("//")
-          ? requestedPath
-          : "/dashboard"
+      const nextPath = postLoginPath(requestedPath, window.location.origin)
       window.location.assign(nextPath)
     } catch (requestError) {
       setError(
@@ -52,55 +62,86 @@ export function LoginForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card className="overflow-hidden p-0">
-        <CardContent className="grid p-0 md:grid-cols-2">
-          <form className="p-6 md:p-8" onSubmit={handleSubmit}>
-            <FieldGroup>
-              <div className="flex flex-col items-center gap-2 text-center">
-                <BrandMark alt="" className="mb-1 size-10 md:hidden" />
-                <h1 className="text-2xl font-bold">Welcome back</h1>
-                <p className="text-balance text-muted-foreground">
-                  Login to your {APP_NAME} account
-                </p>
-              </div>
-              <Field>
-                <FieldLabel htmlFor="email">Email</FieldLabel>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="m@example.com"
-                  required
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="password">Password</FieldLabel>
-                <Input id="password" name="password" type="password" required />
-              </Field>
-              {error ? (
-                <p className="text-sm text-destructive" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              <Field>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Signing in…" : "Login"}
-                </Button>
-              </Field>
-              <FieldDescription className="text-center">
-                Don&apos;t have an account? <a href="/signup">Sign up</a>
-              </FieldDescription>
-            </FieldGroup>
-          </form>
-          <div className="relative hidden items-center justify-center bg-muted md:flex">
-            <BrandMark alt="" className="size-40" />
+      <div className="flex flex-col gap-2 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Welcome to {APP_NAME}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Don&apos;t have an account?{" "}
+          <a
+            href="/signup"
+            className="font-medium text-foreground underline underline-offset-4"
+          >
+            Sign up
+          </a>
+        </p>
+      </div>
+      {existingUser ? (
+        <div className="rounded-md border border-border p-4 text-center">
+          <p className="text-sm text-muted-foreground">
+            Signed in as{" "}
+            <strong className="font-medium text-foreground">
+              {existingUser.email}
+            </strong>
+          </p>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <Button asChild size="sm">
+              <a href="/dashboard">Open Dashboard</a>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={() => {
+                clearAuthTokens()
+                setExistingUser(null)
+              }}
+            >
+              Use another account
+            </Button>
           </div>
-        </CardContent>
-      </Card>
-      <FieldDescription className="px-6 text-center">
-        By clicking continue, you agree to our <a href="#">Terms of Service</a>{" "}
-        and <a href="#">Privacy Policy</a>.
-      </FieldDescription>
+        </div>
+      ) : null}
+      <form onSubmit={handleSubmit}>
+        <FieldGroup className="gap-6">
+          <Field>
+            <FieldLabel htmlFor="email">Email</FieldLabel>
+            <Input
+              id="email"
+              name="email"
+              autoComplete="email"
+              type="email"
+              placeholder="m@example.com"
+              className="h-10"
+              required
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="password">Password</FieldLabel>
+            <Input
+              id="password"
+              name="password"
+              autoComplete="current-password"
+              type="password"
+              className="h-10"
+              required
+            />
+          </Field>
+          {error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Signing in…" : "Login"}
+          </Button>
+        </FieldGroup>
+      </form>
     </div>
   )
 }

@@ -1,17 +1,19 @@
 import * as React from "react"
 import { cn } from "cn"
 
-import { BrandMark } from "@/components/brand"
-import { ApiError, login, register } from "@/lib/auth"
+import {
+  ApiError,
+  clearAuthTokens,
+  getCachedUser,
+  hasAuthTokens,
+  login,
+  register,
+  validateSession,
+  type CurrentUser,
+} from "@/lib/auth"
 import { APP_NAME } from "@/lib/site"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 
 export function SignupForm({
@@ -19,11 +21,22 @@ export function SignupForm({
   ...props
 }: React.ComponentProps<"div">) {
   const [error, setError] = React.useState<string | null>(null)
+  const [existingUser, setExistingUser] = React.useState<CurrentUser | null>(
+    () => getCachedUser()
+  )
   const [retryCredentials, setRetryCredentials] = React.useState<{
     email: string
     password: string
   } | null>(null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  React.useEffect(() => {
+    if (hasAuthTokens()) {
+      void validateSession().then((user) => {
+        setExistingUser(user)
+      })
+    }
+  }, [])
 
   async function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -82,102 +95,113 @@ export function SignupForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card className="overflow-hidden p-0">
-        <CardContent className="grid p-0 md:grid-cols-2">
-          <form className="p-6 md:p-8" onSubmit={handleSubmit}>
-            <FieldGroup>
-              <div className="flex flex-col items-center gap-2 text-center">
-                <BrandMark alt="" className="mb-1 size-10 md:hidden" />
-                <h1 className="text-2xl font-bold">Create your account</h1>
-                <p className="text-sm text-balance text-muted-foreground">
-                  Enter your email below to create your {APP_NAME} account
-                </p>
-              </div>
-              <Field>
-                <FieldLabel htmlFor="email">Email</FieldLabel>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="m@example.com"
-                  required
-                />
-                <FieldDescription>
-                  We&apos;ll use this to contact you. We will not share your
-                  email with anyone else.
-                </FieldDescription>
-              </Field>
-              <Field>
-                <Field className="grid grid-cols-2 gap-4">
-                  <Field>
-                    <FieldLabel htmlFor="password">Password</FieldLabel>
-                    <Input
-                      id="password"
-                      name="password"
-                      type="password"
-                      minLength={8}
-                      maxLength={128}
-                      required
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="confirm-password">
-                      Confirm Password
-                    </FieldLabel>
-                    <Input
-                      id="confirm-password"
-                      name="confirm-password"
-                      type="password"
-                      minLength={8}
-                      maxLength={128}
-                      required
-                    />
-                  </Field>
-                </Field>
-                <FieldDescription>
-                  Must be at least 8 characters long.
-                </FieldDescription>
-              </Field>
-              {error ? (
-                <p className="text-sm text-destructive" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              {retryCredentials ? (
-                <p className="text-sm" role="status">
-                  Account created. <a href="/login">Sign in</a> if the automatic
-                  retry continues to fail.
-                </p>
-              ) : null}
-              <Field>
-                {retryCredentials ? (
-                  <Button
-                    type="button"
-                    disabled={isSubmitting}
-                    onClick={retryLogin}
-                  >
-                    {isSubmitting ? "Signing in…" : "Retry sign in"}
-                  </Button>
-                ) : (
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? "Creating account…" : "Create Account"}
-                  </Button>
-                )}
-              </Field>
-              <FieldDescription className="text-center">
-                Already have an account? <a href="/login">Sign in</a>
-              </FieldDescription>
-            </FieldGroup>
-          </form>
-          <div className="relative hidden items-center justify-center bg-muted md:flex">
-            <BrandMark alt="" className="size-40" />
+      <div className="flex flex-col gap-2 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Create your {APP_NAME} account
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Already have an account?{" "}
+          <a
+            href="/login"
+            className="font-medium text-foreground underline underline-offset-4"
+          >
+            Sign in
+          </a>
+        </p>
+      </div>
+      {existingUser ? (
+        <div className="rounded-md border border-border p-4 text-center">
+          <p className="text-sm text-muted-foreground">
+            Signed in as{" "}
+            <strong className="font-medium text-foreground">
+              {existingUser.email}
+            </strong>
+          </p>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <Button asChild size="sm">
+              <a href="/dashboard">Open Dashboard</a>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={() => {
+                clearAuthTokens()
+                setExistingUser(null)
+              }}
+            >
+              Use another account
+            </Button>
           </div>
-        </CardContent>
-      </Card>
-      <FieldDescription className="px-6 text-center">
-        By clicking continue, you agree to our <a href="#">Terms of Service</a>{" "}
-        and <a href="#">Privacy Policy</a>.
-      </FieldDescription>
+        </div>
+      ) : null}
+      <form onSubmit={handleSubmit}>
+        <FieldGroup className="gap-6">
+          <Field>
+            <FieldLabel htmlFor="email">Email</FieldLabel>
+            <Input
+              id="email"
+              name="email"
+              autoComplete="email"
+              type="email"
+              placeholder="m@example.com"
+              className="h-10"
+              required
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="password">Password</FieldLabel>
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              maxLength={128}
+              className="h-10"
+              required
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="confirm-password">Confirm password</FieldLabel>
+            <Input
+              id="confirm-password"
+              name="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              maxLength={128}
+              className="h-10"
+              required
+            />
+          </Field>
+          {error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {retryCredentials ? (
+            <Button
+              type="button"
+              size="lg"
+              className="w-full"
+              disabled={isSubmitting}
+              onClick={retryLogin}
+            >
+              {isSubmitting ? "Signing in…" : "Retry sign in"}
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              size="lg"
+              className="w-full"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Creating account…" : "Create Account"}
+            </Button>
+          )}
+        </FieldGroup>
+      </form>
     </div>
   )
 }

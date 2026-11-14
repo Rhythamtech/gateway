@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 from backend.auth import service
 from backend.auth.dtos import (
@@ -9,7 +11,9 @@ from backend.auth.dtos import (
     TokenResponse,
     UserResponse,
 )
-from backend.core.database import get_db
+from backend.core.database import get_db, get_write_db
+from backend.dependencies import require_superuser
+from backend.auth.models import User
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -21,10 +25,34 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 )
 def register(
     data: RegisterRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_write_db),
 ):
     user = service.register_user(db, data)
     return user
+
+
+class SignupSettings(BaseModel):
+    signups_enabled: bool
+
+
+@router.get("/signup-settings", response_model=SignupSettings)
+def get_signup_settings(
+    user: User = Depends(require_superuser), db: Session = Depends(get_db)
+):
+    enabled = db.execute(text("SELECT signups_enabled FROM gateway_settings WHERE id=1")).scalar_one()
+    return SignupSettings(signups_enabled=bool(enabled))
+
+
+@router.patch("/signup-settings", response_model=SignupSettings)
+def update_signup_settings(
+    data: SignupSettings,
+    user: User = Depends(require_superuser),
+    db: Session = Depends(get_write_db),
+):
+    db.execute(text("UPDATE gateway_settings SET signups_enabled=:enabled WHERE id=1"),
+               {"enabled": int(data.signups_enabled)})
+    db.commit()
+    return data
 
 
 @router.post(

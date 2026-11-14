@@ -40,12 +40,12 @@ export function DashboardLoading({
           <Skeleton key={index} className="h-8 w-full" />
         ))}
       </aside>
-      <div className="min-w-0 flex-1">
+      <main className="min-w-0 flex-1">
         <div className="flex h-12 items-center border-b px-6">
-          <span className="text-sm font-medium">Gateway</span>
+          <h1 className="text-sm font-medium">Gateway</h1>
         </div>
         <DashboardPageLoading label={label} />
-      </div>
+      </main>
     </div>
   )
 }

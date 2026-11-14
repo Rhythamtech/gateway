@@ -1,0 +1,12 @@
+---
+import { TubeNavbar, type TubeNavbarProps } from "@/components/tube-navbar"
+
+interface Props {
+  current?: TubeNavbarProps["current"]
+}
+
+const { current } = Astro.props
+---
+
+<TubeNavbar client:load current={current} />
+<div class="h-16 sm:h-20" aria-hidden="true"></div>

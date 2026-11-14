@@ -193,14 +193,21 @@ export function UsageAnalyticsDrawer({
           ) : null}
 
           <div className="flex flex-col gap-2">
-            <label className="text-xs font-medium text-muted-foreground">
+            <label
+              htmlFor="usage-window"
+              className="text-xs font-medium text-muted-foreground"
+            >
               Window
             </label>
             <Select
               value={range}
               onValueChange={(value) => setRange(value as RangeValue)}
             >
-              <SelectTrigger className="w-full sm:w-44" size="sm">
+              <SelectTrigger
+                id="usage-window"
+                className="w-full sm:w-44"
+                size="sm"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

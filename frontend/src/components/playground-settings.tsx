@@ -18,6 +18,7 @@ import {
 import { Slider } from "@/components/ui/slider"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 type SettingsProps = {
   open: boolean
@@ -32,6 +33,8 @@ type SettingsProps = {
   onTopPChange: (value: number) => void
   stream: boolean
   onStreamChange: (value: boolean) => void
+  assistantFormat?: "md" | "text"
+  onAssistantFormatChange?: (value: "md" | "text") => void
   onExport: () => void
 }
 
@@ -136,6 +139,40 @@ export function PlaygroundSettings(props: SettingsProps) {
                   </FieldDescription>
                 </div>
               </Field>
+              {props.assistantFormat && props.onAssistantFormatChange ? (
+                <Field>
+                  <FieldLabel>Default assistant format</FieldLabel>
+                  <FieldDescription>
+                    Choose whether assistant responses format markdown or display as raw plain text.
+                  </FieldDescription>
+                  <ToggleGroup
+                    type="single"
+                    value={props.assistantFormat}
+                    onValueChange={(value) => {
+                      if (value === "md" || value === "text") {
+                        props.onAssistantFormatChange?.(value)
+                      }
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-fit gap-0"
+                    aria-label="Default assistant format"
+                  >
+                    <ToggleGroupItem
+                      value="md"
+                      className="h-8 px-3 text-xs font-medium"
+                    >
+                      MD
+                    </ToggleGroupItem>
+                    <ToggleGroupItem
+                      value="text"
+                      className="h-8 px-3 text-xs font-medium"
+                    >
+                      Plain text
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </Field>
+              ) : null}
             </FieldGroup>
           </TabsContent>
         </Tabs>

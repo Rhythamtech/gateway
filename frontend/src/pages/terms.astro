@@ -1,0 +1,142 @@
+---
+import Layout from "@/layouts/main.astro"
+import PublicHeader from "@/components/public-header.astro"
+import OfflineFooter from "@/components/offline-footer.astro"
+import { APP_NAME } from "@/lib/site"
+
+const lastUpdated = "November 14, 2026"
+
+const sections = [
+  {
+    id: "acceptance",
+    title: "1. Acceptance of Terms",
+    content: `These Terms of Service ("Terms") constitute a legally binding agreement between you and ${APP_NAME} ("we", "us", or "our"). By registering an account, generating an API key, or routing AI requests through our gateway, you agree to be bound by these Terms. If you do not agree, you must immediately cease accessing or using our services.`,
+  },
+  {
+    id: "eligibility",
+    title: "2. Eligibility & Accounts",
+    content: `You must be at least 18 years old or possess legal majority in your jurisdiction to use our platform. When creating an account, you agree to provide accurate registration information. You are solely responsible for maintaining the confidentiality of your account credentials and any API keys generated under your account. All requests signed with your API keys will be deemed authorized by you.`,
+  },
+  {
+    id: "service",
+    title: "3. Gateway Service & Proxy Architecture",
+    content: `${APP_NAME} provides developer routing infrastructure, model group management, and failover proxies for third-party artificial intelligence models. While we strive for high uptime and minimal latency, model responses, outputs, and availability are provided by third-party upstream hosts. We do not guarantee uninterrupted availability of any specific model or provider.`,
+  },
+  {
+    id: "credits-and-billing",
+    title: "4. Usage Credits, Rates & Atomic Reservations",
+    content: `• Credit System: Platform inference is funded via usage credits denominated in microcredits ($1.00 USD = 1,000,000 microcredits).
+• Upstream Rates: Each model has versioned token rates for input tokens, prompt cache reads, and completion tokens.
+• Atomic Reservations: To prevent overdrafts and ensure provider funding, an atomic reservation hold is reserved before an inference request is dispatched. Once the stream concludes, the final token count is settled using banker's rounding, and unused reservation amounts are immediately released.
+• Coupons & Promotional Grants: Promotional credits or coupon codes are subject to expiration dates, per-user redemption limits, and non-transferability.
+• Refunds: Unused purchased balances may be refunded upon review within 30 days of purchase by submitting a support ticket.`,
+  },
+  {
+    id: "acceptable-use",
+    title: "5. Acceptable Use Policy & Restrictions",
+    content: `You agree not to use ${APP_NAME} to:
+
+• Violate any applicable local, national, or international laws or regulations.
+• Generate, transmit, or promote illegal, abusive, defamatory, or harmful content.
+• Attempt to probe, scan, or exploit vulnerabilities in our routing engine, sandbox, or rate-limiting middleware.
+• Circumvent rate limits (e.g. 60 requests/minute per API key) through multi-account spoofing or botting.
+• Deploy denial-of-service (DDoS) traffic or conduct malicious prompt injection attacks against gateway infrastructure.`,
+  },
+  {
+    id: "upstream-terms",
+    title: "6. Compliance with Upstream Provider Terms",
+    content: `When routing traffic through Gateway to specific providers (including OpenAI, Anthropic, Google Vertex, Mistral, or others), you agree to comply with the respective provider's terms of service and acceptable use policies. Gateway reserves the right to terminate routing to any provider if upstream terms are breached.`,
+  },
+  {
+    id: "intellectual-property",
+    title: "7. User Content & Intellectual Property",
+    content: `• Your Content: You retain all rights, title, and ownership in and to your prompt inputs and model completions.
+• Gateway Rights: All software, platform source code, APIs, trademarks, logos, and documentation related to ${APP_NAME} remain the exclusive property of ${APP_NAME} and its licensors.`,
+  },
+  {
+    id: "disclaimers",
+    title: "8. Disclaimers & Limitation of Liability",
+    content: `THE SERVICE IS PROVIDED ON AN "AS-IS" AND "AS-AVAILABLE" BASIS WITHOUT WARRANTIES OF ANY KIND, WHETHER EXPRESS OR IMPLIED. WE DISCLAIM ALL WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+IN NO EVENT SHALL ${APP_NAME} BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS, DATA, OR GOODWILL, ARISING OUT OF OR IN CONNECTION WITH MODEL OUTPUTS, SYSTEM LATENCY, UPSTREAM PROVIDER OUTAGES, OR UNAUTHORIZED ACCOUNT ACCESS.`,
+  },
+  {
+    id: "termination",
+    title: "9. Account Suspension & Termination",
+    content: `We reserve the right to suspend or terminate your account, revoke API keys, or block IP addresses immediately without prior notice if we reasonably believe you have violated these Terms, engaged in fraudulent billing activity, or endangered system stability.`,
+  },
+  {
+    id: "disputes",
+    title: "10. Governing Law & Dispute Resolution",
+    content: `These Terms shall be governed by and construed in accordance with the laws of the jurisdiction where the service operates, without regard to conflict of law principles. Any dispute arising out of or relating to these Terms shall be resolved through binding individual arbitration, and you waive any right to participate in a class-action lawsuit.`,
+  },
+  {
+    id: "modifications",
+    title: "11. Modifications to Terms",
+    content: `We may revise these Terms from time to time to reflect changes in service architecture, upstream policies, or applicable laws. Continued use of Gateway following published updates constitutes acceptance of the amended Terms.`,
+  },
+  {
+    id: "contact",
+    title: "12. Contact Information",
+    content: `For legal notices or questions regarding these Terms, please submit a ticket through our Support Desk (/support) or contact support@gateway.local.`,
+  },
+]
+---
+
+<Layout title={`Terms of Service — ${APP_NAME}`}>
+  <PublicHeader current="terms" />
+
+  <main class="min-h-screen bg-background text-foreground py-12 sm:py-16">
+    <div class="mx-auto max-w-4xl px-4 sm:px-6">
+      {/* Header */}
+      <div class="border-b border-border/60 pb-8">
+        <span class="text-xs font-semibold uppercase tracking-wider text-primary">
+          Legal Agreement
+        </span>
+        <h1 class="mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">
+          Terms of Service
+        </h1>
+        <p class="mt-2 text-xs text-muted-foreground">
+          Last Updated: {lastUpdated}
+        </p>
+        <p class="mt-4 text-sm leading-relaxed text-muted-foreground">
+          Please read these Terms carefully before using {APP_NAME}. They govern
+          your API access, credit balances, routing policies, and platform
+          responsibilities.
+        </p>
+      </div>
+
+      {/* Sections */}
+      <div class="mt-10 space-y-12">
+        {sections.map((sec) => (
+          <section id={sec.id} class="scroll-mt-20">
+            <h2 class="text-lg font-bold text-foreground sm:text-xl">
+              {sec.title}
+            </h2>
+            <div class="mt-3 text-xs sm:text-sm leading-relaxed text-muted-foreground whitespace-pre-line">
+              {sec.content}
+            </div>
+          </section>
+        ))}
+      </div>
+
+      {/* Contact box */}
+      <div class="mt-16 rounded-2xl border border-border/80 bg-muted/20 p-6 text-center">
+        <h3 class="text-sm font-semibold text-foreground">
+          Need legal clarification or enterprise terms?
+        </h3>
+        <p class="mt-1 text-xs text-muted-foreground">
+          Our team is available through the Support Desk.
+        </p>
+        <a
+          href="/support"
+          class="mt-4 inline-flex items-center justify-center rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-xs hover:bg-primary/90 transition-all"
+        >
+          Contact Support
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <OfflineFooter />
+</Layout>

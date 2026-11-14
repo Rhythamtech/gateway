@@ -62,12 +62,12 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground: oklch(0.53 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --input: #858585;
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -102,7 +102,7 @@
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  --input: #929292;
   --ring: oklch(0.556 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -140,7 +140,7 @@
   --accent-foreground: #0a0b0d;
   --destructive: #cf202f;
   --border: #dee1e6;
-  --input: #dee1e6;
+  --input: #7c8697;
   --ring: #0052ff;
   --chart-1: #0052ff;
   --chart-2: #05b169;
@@ -166,8 +166,8 @@
   --card-foreground: #ffffff;
   --popover: #16181c;
   --popover-foreground: #ffffff;
-  --primary: #0052ff;
-  --primary-foreground: #ffffff;
+  --primary: #6699ff;
+  --primary-foreground: #0a0b0d;
   --secondary: #1e2126;
   --secondary-foreground: #ffffff;
   --muted: #1e2126;
@@ -176,7 +176,7 @@
   --accent-foreground: #ffffff;
   --destructive: #ff5c66;
   --border: rgb(255 255 255 / 10%);
-  --input: rgb(255 255 255 / 15%);
+  --input: #9da4b0;
   --ring: #0052ff;
   --chart-1: #3375ff;
   --chart-2: #19c37d;
@@ -204,8 +204,8 @@
   --card-foreground: #001e2b;
   --popover: #ffffff;
   --popover-foreground: #001e2b;
-  --primary: #00ed64;
-  --primary-foreground: #001e2b;
+  --primary: #00684a;
+  --primary-foreground: #ffffff;
   --secondary: #f5f6f7;
   --secondary-foreground: #001e2b;
   --muted: #f5f6f7;
@@ -214,7 +214,7 @@
   --accent-foreground: #001e2b;
   --destructive: #cf202f;
   --border: #dee4e7;
-  --input: #cfd9dd;
+  --input: #6f818b;
   --ring: #00684a;
   --chart-1: #00684a;
   --chart-2: #001e2b;
@@ -250,7 +250,7 @@
   --accent-foreground: #ffffff;
   --destructive: #ff5c66;
   --border: rgb(255 255 255 / 10%);
-  --input: rgb(255 255 255 / 15%);
+  --input: #8ca8b3;
   --ring: #00ed64;
   --chart-1: #00ed64;
   --chart-2: #651fff;
@@ -279,7 +279,7 @@
   --card-foreground: #121212;
   --popover: #ffffff;
   --popover-foreground: #121212;
-  --primary: #ff4801;
+  --primary: #b93200;
   --primary-foreground: #ffffff;
   --secondary: #f0e3de;
   --secondary-foreground: #121212;
@@ -289,7 +289,7 @@
   --accent-foreground: #121212;
   --destructive: #ed1641;
   --border: #f0e3de;
-  --input: #f0e3de;
+  --input: #938278;
   --chart-1: #ff4801;
   --chart-2: #0a95ff;
   --chart-3: #5a524c;
@@ -297,7 +297,7 @@
   --chart-5: #f14602;
   --sidebar: #fffbf5;
   --sidebar-foreground: #121212;
-  --sidebar-primary: #ff4801;
+  --sidebar-primary: #b93200;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #f0e3de;
   --sidebar-accent-foreground: #121212;
@@ -316,7 +316,7 @@
   --popover: #121212;
   --popover-foreground: #fffbf5;
   --primary: #ff4801;
-  --primary-foreground: #ffffff;
+  --primary-foreground: #121212;
   --secondary: #191817;
   --secondary-foreground: #fffbf5;
   --muted: #191817;
@@ -325,7 +325,7 @@
   --accent-foreground: #fffbf5;
   --destructive: #ed1641;
   --border: #2a2927;
-  --input: #2a2927;
+  --input: #99918a;
   --ring: #ff4801;
   --chart-1: #ff4801;
   --chart-2: #ff6d33;
@@ -335,11 +335,54 @@
   --sidebar: #121212;
   --sidebar-foreground: #fffbf5;
   --sidebar-primary: #ff4801;
-  --sidebar-primary-foreground: #ffffff;
+  --sidebar-primary-foreground: #121212;
   --sidebar-accent: #191817;
   --sidebar-accent-foreground: #fffbf5;
   --sidebar-border: #2a2927;
   --sidebar-ring: #ff4801;
+}
+
+/* DevLog — Terminal-inspired, dark-mode design system:
+   Navy-black foundation (#0F172A), elevated surface (#1E293B),
+   surface raised (#334155), phosphor green primary actions (#4ADE80),
+   amber warnings (#FBBF24), cyan info accents (#22D3EE), and phosphor
+   monitor glow. Rule 4: Never invert to light backgrounds. */
+[data-theme-style="devlog"],
+.dark[data-theme-style="devlog"] {
+  color-scheme: dark;
+  --radius: 0.25rem;
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+  --card: #1e293b;
+  --card-foreground: #f1f5f9;
+  --popover: #1e293b;
+  --popover-foreground: #f1f5f9;
+  --primary: #4ade80;
+  --primary-foreground: #0f172a;
+  --secondary: #1e293b;
+  --secondary-foreground: #f1f5f9;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #334155;
+  --accent-foreground: #f1f5f9;
+  --destructive: #f87171;
+  --destructive-foreground: #0f172a;
+  --border: #334155;
+  --input: #334155;
+  --ring: #4ade80;
+  --chart-1: #4ade80;
+  --chart-2: #22d3ee;
+  --chart-3: #fbbf24;
+  --chart-4: #f87171;
+  --chart-5: #94a3b8;
+  --sidebar: #0f172a;
+  --sidebar-foreground: #f1f5f9;
+  --sidebar-primary: #4ade80;
+  --sidebar-primary-foreground: #0f172a;
+  --sidebar-accent: #1e293b;
+  --sidebar-accent-foreground: #f1f5f9;
+  --sidebar-border: #1e293b;
+  --sidebar-ring: #4ade80;
 }
 
 @layer base {
@@ -374,6 +417,18 @@
   --analytics-credits: oklch(0.82 0.14 88);
   --analytics-cost: oklch(0.76 0.13 350);
   --analytics-timeout: oklch(0.76 0.17 53);
+}
+
+:is([data-theme-style="devlog"], .dark[data-theme-style="devlog"])
+  .dashboard-analytics {
+  --analytics-volume: #4ade80;
+  --analytics-tokens: #22d3ee;
+  --analytics-output: #4ade80;
+  --analytics-success: #4ade80;
+  --analytics-latency: #fbbf24;
+  --analytics-credits: #22d3ee;
+  --analytics-cost: #f87171;
+  --analytics-timeout: #f87171;
 }
 
 /* Keep toolbar layout in the shared stylesheet before lazy route code loads. */
@@ -523,4 +578,322 @@
 
 [data-theme-style="fresh-green"] body {
   line-height: 1.55;
+}
+
+/* ==== DevLog fit & finish ==== */
+
+/* Sharp terminal geometry: DevLog strictly avoids rounded pills; buttons,
+   inputs, cards, badges, tabs, and menus use a tight 4px radius per spec Rule 9. */
+[data-theme-style="devlog"]
+  :is(
+    [data-slot="button"],
+    [data-slot="select-trigger"],
+    [data-slot="badge"],
+    [data-slot="sidebar-menu-button"],
+    [data-slot="sidebar-menu-sub-button"],
+    [data-slot="card"],
+    [data-slot="input"],
+    [data-slot="textarea"],
+    [data-slot="tabs-list"],
+    [data-slot="tabs-trigger"]
+  ) {
+  border-radius: 4px;
+}
+
+[data-theme-style="devlog"] [data-slot="dialog-content"] {
+  border-radius: 8px;
+}
+
+[data-theme-style="devlog"]
+  :is([data-slot="avatar"], [data-slot="avatar-fallback"]) {
+  border-radius: 9999px;
+}
+
+/* Typography: JetBrains Mono for display headings, code blocks, and badges.
+   Inter for body text and UI controls. */
+[data-theme-style="devlog"] :is(h1, h2, h3, h4, h5, h6) {
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+[data-theme-style="devlog"] h1 {
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+[data-theme-style="devlog"] h2 {
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+[data-theme-style="devlog"] h3 {
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+[data-theme-style="devlog"] body {
+  font-family:
+    "Inter",
+    -apple-system,
+    "Segoe UI",
+    Helvetica,
+    sans-serif;
+  line-height: 1.7;
+}
+
+[data-theme-style="devlog"] :is(code, pre, kbd, samp) {
+  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  line-height: 1.65;
+}
+
+/* Code blocks: generous 24px padding, #1E293B surface, 6px radius */
+[data-theme-style="devlog"] pre {
+  background-color: #1e293b !important;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 1.5rem;
+}
+
+/* Cards: #1E293B base with #334155 border at rest, subtle green phosphor
+   glow on hover per shadow tier spec. */
+[data-theme-style="devlog"] [data-slot="card"] {
+  background-color: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  box-shadow: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+[data-theme-style="devlog"] [data-slot="card"]:hover {
+  border-color: #475569;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.08);
+}
+
+/* Buttons: primary green with dark ink; secondary raised slate; subtle glow on hover */
+[data-theme-style="devlog"] [data-slot="button"][data-variant="default"] {
+  background-color: #4ade80;
+  color: #0f172a;
+  border: 1px solid #4ade80;
+  font-weight: 600;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+[data-theme-style="devlog"] [data-slot="button"][data-variant="default"]:hover {
+  background-color: #22c55e;
+  box-shadow: 0 0 16px rgba(74, 222, 128, 0.2);
+}
+
+[data-theme-style="devlog"]
+  [data-slot="button"][data-variant="default"]:active {
+  background-color: #16a34a;
+}
+
+[data-theme-style="devlog"]
+  :is(
+    [data-slot="button"][data-variant="secondary"],
+    [data-slot="button"][data-variant="outline"]
+  ) {
+  background-color: #1e293b;
+  color: #f1f5f9;
+  border: 1px solid #334155;
+  font-weight: 600;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+[data-theme-style="devlog"]
+  :is(
+    [data-slot="button"][data-variant="secondary"],
+    [data-slot="button"][data-variant="outline"]
+  ):hover {
+  background-color: #334155;
+  border-color: #475569;
+}
+
+[data-theme-style="devlog"]
+  :is(
+    [data-slot="button"][data-variant="secondary"],
+    [data-slot="button"][data-variant="outline"]
+  ):active {
+  background-color: #475569;
+}
+
+[data-theme-style="devlog"] [data-slot="button"][data-variant="ghost"] {
+  background-color: transparent;
+  color: #94a3b8;
+  border: none;
+  font-weight: 600;
+  border-radius: 4px;
+}
+
+[data-theme-style="devlog"] [data-slot="button"][data-variant="ghost"]:hover {
+  background-color: #1e293b;
+  color: #f1f5f9;
+}
+
+[data-theme-style="devlog"] [data-slot="button"][data-variant="ghost"]:active {
+  background-color: #334155;
+}
+
+[data-theme-style="devlog"] [data-slot="button"][data-variant="destructive"] {
+  background-color: #f87171;
+  color: #0f172a;
+  border: 1px solid #f87171;
+  font-weight: 600;
+  border-radius: 4px;
+}
+
+[data-theme-style="devlog"]
+  [data-slot="button"][data-variant="destructive"]:hover {
+  background-color: #ef4444;
+  box-shadow: 0 0 16px rgba(248, 113, 113, 0.2);
+}
+
+[data-theme-style="devlog"]
+  [data-slot="button"][data-variant="destructive"]:active {
+  background-color: #dc2626;
+}
+
+[data-theme-style="devlog"] [data-slot="button"]:disabled {
+  opacity: 0.35;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
+
+/* Inputs: 40px (2.5rem) height, navy-black base, green glow on focus */
+[data-theme-style="devlog"]
+  :is([data-slot="input"], [data-slot="select-trigger"]) {
+  height: 2.5rem;
+  background-color: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #f1f5f9;
+}
+
+[data-theme-style="devlog"] [data-slot="input"]::placeholder {
+  color: #64748b;
+}
+
+[data-theme-style="devlog"]
+  :is([data-slot="input"], [data-slot="select-trigger"]):focus-visible {
+  border-color: #4ade80;
+  box-shadow: 0 0 12px rgba(74, 222, 128, 0.15);
+  outline: none;
+}
+
+/* Visible phosphor green focus ring on interactive elements */
+[data-theme-style="devlog"]
+  :is(
+    button,
+    [role="button"],
+    input,
+    select,
+    textarea,
+    [data-slot="checkbox"],
+    [data-slot="radio-group-item"],
+    [data-slot="tabs-trigger"]
+  ):focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px #0f172a,
+    0 0 0 4px #4ade80,
+    0 0 12px rgba(74, 222, 128, 0.2);
+}
+
+/* Chips & Badges: JetBrains Mono uppercase with semi-transparent tints */
+[data-theme-style="devlog"] [data-slot="badge"] {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  border-radius: 4px;
+}
+
+[data-theme-style="devlog"] [data-slot="badge"][data-variant="default"] {
+  background-color: rgba(74, 222, 128, 0.12);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.25);
+}
+
+[data-theme-style="devlog"] [data-slot="badge"][data-variant="destructive"] {
+  background-color: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.25);
+}
+
+[data-theme-style="devlog"] [data-slot="badge"][data-variant="secondary"] {
+  background-color: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+}
+
+/* Checkboxes */
+[data-theme-style="devlog"] [data-slot="checkbox"] {
+  background-color: #0f172a;
+  border: 1.5px solid #475569;
+  border-radius: 3px;
+}
+
+[data-theme-style="devlog"] [data-slot="checkbox"]:hover {
+  border-color: #4ade80;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.1);
+}
+
+[data-theme-style="devlog"] [data-slot="checkbox"][data-state="checked"] {
+  background-color: #4ade80;
+  border-color: #4ade80;
+  color: #0f172a;
+}
+
+/* Tooltips */
+[data-theme-style="devlog"] [data-slot="tooltip-content"] {
+  background-color: #f1f5f9;
+  color: #0f172a;
+  border-radius: 4px;
+  font-family: "Inter", sans-serif;
+  font-weight: 500;
+  box-shadow: 0 0 12px rgba(74, 222, 128, 0.1);
+}
+
+/* Overlays, menus & popovers */
+[data-theme-style="devlog"]
+  :is(
+    [data-slot="dropdown-menu-content"],
+    [data-slot="popover-content"],
+    [data-slot="select-content"],
+    [data-slot="sheet-content"]
+  ) {
+  background-color: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  box-shadow:
+    0 0 0 1px rgba(241, 245, 249, 0.06),
+    0 24px 48px rgba(0, 0, 0, 0.5);
+}
+
+/* Custom terminal scrollbars */
+[data-theme-style="devlog"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+[data-theme-style="devlog"] ::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+[data-theme-style="devlog"] ::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+[data-theme-style="devlog"] ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }

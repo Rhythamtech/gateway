@@ -5,6 +5,8 @@ import { toast } from "sonner"
 import {
   cacheUser,
   getLogRetention,
+  getSignupSettings,
+  updateSignupSettings,
   updateLogRetention,
   updateMyPreferences,
   type CurrentUser,
@@ -88,17 +90,88 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
   const [retentionDraft, setRetentionDraft] =
     React.useState<LogRetention>("never")
   const [retentionSaving, setRetentionSaving] = React.useState(false)
+  const [retentionLoaded, setRetentionLoaded] = React.useState(false)
+  const [retentionError, setRetentionError] = React.useState<string | null>(
+    null
+  )
+  const [retentionRetry, setRetentionRetry] = React.useState(0)
+  const [signupsEnabled, setSignupsEnabled] = React.useState<boolean | null>(
+    null
+  )
+  const [signupsSaving, setSignupsSaving] = React.useState(false)
+  const [signupsError, setSignupsError] = React.useState<string | null>(null)
+  const [signupsRetry, setSignupsRetry] = React.useState(0)
+  React.useEffect(() => {
+    if (user.role !== "superuser") return
+    let active = true
+    getSignupSettings()
+      .then((result) => {
+        if (active) {
+          setSignupsEnabled(result.signups_enabled)
+          setSignupsError(null)
+        }
+      })
+      .catch((reason: unknown) => {
+        if (active)
+          setSignupsError(
+            reason instanceof Error
+              ? reason.message
+              : "Unable to load signup settings."
+          )
+      })
+    return () => {
+      active = false
+    }
+  }, [user.role, signupsRetry])
+
+  async function toggleSignups() {
+    if (signupsEnabled === null || signupsSaving) return
+    setSignupsSaving(true)
+    try {
+      const result = await updateSignupSettings(!signupsEnabled)
+      setSignupsEnabled(result.signups_enabled)
+      toast.success(
+        result.signups_enabled
+          ? "New signups enabled."
+          : "New signups disabled."
+      )
+    } catch (reason) {
+      toast.error(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to update signup settings."
+      )
+    } finally {
+      setSignupsSaving(false)
+    }
+  }
+
   const tracingChanged = tracing !== profile.tracing_enabled
   const telemetryChanged = telemetry !== profile.telemetry_enabled
   const dirty = tracingChanged || telemetryChanged
   React.useEffect(() => {
+    if (user.role !== "superuser") return
+    let active = true
     getLogRetention()
       .then(({ log_retention }) => {
+        if (!active) return
         setRetention(log_retention)
         setRetentionDraft(log_retention)
+        setRetentionLoaded(true)
+        setRetentionError(null)
       })
-      .catch(() => {})
-  }, [])
+      .catch((reason: unknown) => {
+        if (active)
+          setRetentionError(
+            reason instanceof Error
+              ? reason.message
+              : "Unable to load the retention policy."
+          )
+      })
+    return () => {
+      active = false
+    }
+  }, [user.role, retentionRetry])
 
   async function saveRetention() {
     setRetentionSaving(true)
@@ -251,7 +324,7 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
               value={themeStyle}
               onValueChange={(value) => setThemeStyle(value as ThemeStyle)}
             >
-              <SelectTrigger id="settings-theme-style" className="w-32">
+              <SelectTrigger id="settings-theme-style" className="w-36">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -260,6 +333,7 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
                   <SelectItem value="endless-blue">Endless Blue</SelectItem>
                   <SelectItem value="fresh-green">Fresh Green</SelectItem>
                   <SelectItem value="ember">Ember</SelectItem>
+                  <SelectItem value="devlog">DevLog</SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -333,6 +407,48 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
       </section>
       {profile.role === "superuser" && (
         <section
+          aria-labelledby="settings-signups"
+          className="grid min-w-0 gap-4 border-t pt-6 @min-[680px]/settings:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
+        >
+          <div>
+            <h3 id="settings-signups" className="text-sm font-semibold">
+              Registration
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Control access for new accounts.
+            </p>
+          </div>
+          <div className="rounded-xl border bg-card">
+            <PreferenceRow
+              title="Allow new signups"
+              description="When disabled, existing users can still sign in."
+              checked={signupsEnabled ?? false}
+              disabled={signupsEnabled === null || signupsSaving}
+              onToggle={() => void toggleSignups()}
+            />
+            {signupsError && (
+              <div
+                role="alert"
+                className="flex items-center gap-2 px-4 pb-4 text-sm text-destructive"
+              >
+                <p>{signupsError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSignupsError(null)
+                    setSignupsRetry((value) => value + 1)
+                  }}
+                >
+                  Try again
+                </Button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+      {profile.role === "superuser" && (
+        <section
           aria-labelledby="settings-retention"
           className="grid min-w-0 gap-4 border-t pt-6 @min-[680px]/settings:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
         >
@@ -350,13 +466,16 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
             </label>
             <div className="flex items-center gap-2">
               <Select
+                disabled={!retentionLoaded || retentionSaving}
                 value={retentionDraft}
                 onValueChange={(value) =>
                   setRetentionDraft(value as LogRetention)
                 }
               >
                 <SelectTrigger id="settings-retention-policy" className="w-36">
-                  <SelectValue />
+                  <SelectValue>
+                    {retentionLoaded ? undefined : "Loading…"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
@@ -369,12 +488,34 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
               </Select>
               <Button
                 size="sm"
-                disabled={retentionDraft === retention || retentionSaving}
+                disabled={
+                  !retentionLoaded ||
+                  retentionDraft === retention ||
+                  retentionSaving
+                }
                 onClick={saveRetention}
               >
                 {retentionSaving ? "Saving…" : "Save"}
               </Button>
             </div>
+            {retentionError && (
+              <div
+                role="alert"
+                className="flex w-full flex-wrap items-center gap-2 text-sm text-destructive"
+              >
+                <p>{retentionError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setRetentionError(null)
+                    setRetentionRetry((value) => value + 1)
+                  }}
+                >
+                  Try again
+                </Button>
+              </div>
+            )}
           </div>
         </section>
       )}

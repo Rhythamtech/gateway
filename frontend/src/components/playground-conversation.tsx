@@ -18,6 +18,7 @@ export function PlaygroundConversation({
   generating,
   canRetry,
   onRetry,
+  defaultFormat = "md",
 }: {
   conversationId: number
   messages: ChatMessage[]
@@ -25,6 +26,7 @@ export function PlaygroundConversation({
   generating: boolean
   canRetry: boolean
   onRetry: () => void
+  defaultFormat?: "md" | "text"
 }) {
   const lastMessageId = messages.at(-1)?.id
   return (
@@ -45,6 +47,7 @@ export function PlaygroundConversation({
                 <PlaygroundMessage
                   message={message}
                   modelId={modelId}
+                  defaultFormat={defaultFormat}
                   onRetry={
                     !generating &&
                     !message.isStreaming &&

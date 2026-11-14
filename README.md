@@ -52,3 +52,69 @@ bodies, reservations, and recovery.
 ```bash
 uv run pytest
 ```
+
+## Docker deployment
+
+Docker Engine with Compose v2 is required. The API runs as an unprivileged user,
+with SQLite stored in the `gateway-data` volume. The static dashboard and API
+share one origin through nginx. The image uses the committed uv and npm locks.
+
+1. Create a configuration file and set stable, independent secrets:
+
+   ```bash
+   cp .env.example .env
+   # Generate a JWT secret:
+   openssl rand -hex 32
+   # Generate a Fernet key for PROVIDER_ENCRYPTION_KEY:
+   openssl rand -base64 32 | tr '+/' '-_'
+   ```
+
+   Put the generated values in `JWT_SECRET_KEY` and
+   `PROVIDER_ENCRYPTION_KEY` in `.env`. Keep both safe and retain the same
+   encryption key across restarts and restores. Compose overrides `DATABASE_URL`
+   with the persistent volume path; other settings come from `.env`.
+
+2. Start the services:
+
+   ```bash
+   docker compose up -d --build
+   docker compose ps
+   ```
+
+   Visit <http://localhost:8080>. The API documentation is at `/api/docs` and
+   SDK clients can use `http://localhost:8080/v1` as their base URL. Set
+   `GATEWAY_PORT` or `GATEWAY_BIND_ADDRESS` in `.env` to change the published
+   port or bind address. The default binds only to localhost; for production,
+   put a TLS-terminating reverse proxy in front of it. Run one API instance:
+   SQLite and startup migrations are intended for a single host, and database
+   files must remain on a filesystem that supports SQLite locking.
+
+3. Register the first user before exposing the service publicly: that user is
+   automatically a superuser. Disable further signups in Settings if they are
+   not needed.
+
+Back up the SQLite database using SQLite's online backup facility and keep the
+backup and secrets separately. `docker compose down` preserves the volume;
+`docker compose down -v` deletes it and all stored data. Update images and
+rebuild deliberately, and review the application configuration and access
+controls before making the service public.
+
+### Temporary Cloudflare quick tunnel
+
+To share the same stack temporarily without a domain or Cloudflare account:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose-cf.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose-cf.yml logs cloudflared
+```
+
+Open the `https://...trycloudflare.com` URL in the logs. It changes when the
+quick tunnel is recreated and is publicly accessible to anyone who has it. The
+SDK base URL is `https://...trycloudflare.com/v1`. Stop the whole stack with
+`docker compose -f docker-compose.yml -f docker-compose-cf.yml down`.
+
+[Cloudflare quick tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
+are for testing, have no uptime guarantee, are limited to 200 concurrent
+requests, and do not support server-sent events, so streaming inference and the
+streaming playground cannot be used through them. For production, use a named
+Cloudflare Tunnel with a stable hostname or a TLS reverse proxy instead.

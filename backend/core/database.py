@@ -13,7 +13,6 @@ def resolve_database_url(url: str) -> str:
         return url
 
     parsed = make_url(url)
-
     if not parsed.database or parsed.database == ":memory:":
         return url
 

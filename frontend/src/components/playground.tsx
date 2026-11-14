@@ -190,6 +190,7 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
   const [maxTokens, setMaxTokens] = React.useState<number>(2048)
   const [topP, setTopP] = React.useState<number>(1.0)
   const [stream, setStream] = React.useState<boolean>(true)
+  const [assistantFormat, setAssistantFormat] = React.useState<"md" | "text">("md")
 
   // Metrics state
   const [totalLatencyMs, setTotalLatencyMs] = React.useState<number | null>(
@@ -1146,6 +1147,7 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
               modelId={activeModelId}
               generating={isGenerating}
               canRetry={Boolean(lastPayload)}
+              defaultFormat={assistantFormat}
               onRetry={() => void handleSendMessage(undefined, true)}
             />
           ) : (
@@ -1259,6 +1261,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
         onTopPChange={setTopP}
         stream={stream}
         onStreamChange={setStream}
+        assistantFormat={assistantFormat}
+        onAssistantFormatChange={setAssistantFormat}
         onExport={() => {
           setExportDraft(true)
           setCodeDrawerOpen(true)

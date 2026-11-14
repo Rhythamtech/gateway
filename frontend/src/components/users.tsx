@@ -366,6 +366,8 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
                           <TableCell>
                             <button
                               type="button"
+                              aria-label={`Request tracing for ${user.email}`}
+                              aria-pressed={user.tracing_enabled}
                               onClick={() => handleToggleTracing(user)}
                               disabled={pendingUserId === user.id}
                               className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"

@@ -3,6 +3,11 @@ import "@/styles/global.css"
 import { APP_DESCRIPTION, APP_NAME, APP_TAGLINE } from "@/lib/site"
 import { ClientRouter } from "astro:transitions"
 import { Toaster } from "@/components/ui/sonner"
+
+interface Props {
+  title?: string
+}
+const { title = `${APP_NAME} — ${APP_TAGLINE}` } = Astro.props
 ---
 
 <html lang="en" transition:animate="none">
@@ -40,6 +45,7 @@ import { Toaster } from "@/components/ui/sonner"
               "endless-blue": "#0a0b0d",
               "fresh-green": "#001e2b",
               ember: "#000000",
+              devlog: "#0f172a",
             }
             const style = localStorage.getItem("gateway-theme-style")
             if (style !== null && style in darkCanvas)
@@ -49,7 +55,11 @@ import { Toaster } from "@/components/ui/sonner"
               ?.forEach((meta) =>
                 meta.setAttribute(
                   "content",
-                  isDark ? (darkCanvas[style] ?? "#0a0a0a") : "#ffffff"
+                  style === "devlog"
+                    ? "#0f172a"
+                    : isDark
+                      ? (darkCanvas[style] ?? "#0a0a0a")
+                      : "#ffffff"
                 )
               )
           } catch {
@@ -82,7 +92,13 @@ import { Toaster } from "@/components/ui/sonner"
       sizes="180x180"
       href="/brand/apple-touch-icon.png"
     />
-    <title>{APP_NAME} — {APP_TAGLINE}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>{title}</title>
     <!-- Swap pages client-side instead of full document reloads. The swap is
          instant: the root crossfade is disabled via transition:animate="none". -->
     <ClientRouter />

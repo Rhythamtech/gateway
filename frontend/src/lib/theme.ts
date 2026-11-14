@@ -34,9 +34,11 @@ const DARK_CANVAS_META: Record<ThemeStyle, string> = {
   "endless-blue": "#0a0b0d",
   "fresh-green": "#001e2b",
   ember: "#000000",
+  devlog: "#0f172a",
 }
 
 function getMetaColor(resolved: ResolvedTheme): string {
+  if (getStoredThemeStyle() === "devlog") return "#0f172a"
   if (resolved === "light") return "#ffffff"
   return DARK_CANVAS_META[getStoredThemeStyle()]
 }
@@ -92,7 +94,8 @@ export function setTheme(theme: Theme) {
   applyTheme(theme, { persist: true })
 }
 
-export type ThemeStyle = "classic" | "endless-blue" | "fresh-green" | "ember"
+export type ThemeStyle =
+  "classic" | "endless-blue" | "fresh-green" | "ember" | "devlog"
 
 export const THEME_STYLE_STORAGE_KEY = "gateway-theme-style"
 export const THEME_STYLE_CHANGE_EVENT = "gateway-theme-style-change"
@@ -106,6 +109,7 @@ const THEME_STYLES: ThemeStyle[] = [
   "endless-blue",
   "fresh-green",
   "ember",
+  "devlog",
 ]
 
 function isThemeStyle(value: string | null): value is ThemeStyle {

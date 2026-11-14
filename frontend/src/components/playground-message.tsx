@@ -14,6 +14,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { PlaygroundMarkdown } from "@/components/playground-markdown"
 import { cn } from "cn"
 
 export type ChatMessage = {
@@ -35,21 +37,33 @@ export type ChatMessage = {
   }
 }
 
-function copyMessageContent(text: string) {
-  void navigator.clipboard.writeText(text)
-  toast.success("Copied to clipboard.")
+async function copyMessageContent(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success("Copied to clipboard.")
+  } catch {
+    toast.error("Unable to copy. Select the message text and copy it manually.")
+  }
 }
 
 export const PlaygroundMessage = React.memo(function PlaygroundMessage({
   message,
   modelId,
   onRetry,
+  defaultFormat = "md",
 }: {
   message: ChatMessage
   modelId: string
   onRetry?: () => void
+  defaultFormat?: "md" | "text"
 }) {
   const isUser = message.role === "user"
+  const [format, setFormat] = React.useState<"md" | "text">(defaultFormat)
+
+  React.useEffect(() => {
+    setFormat(defaultFormat)
+  }, [defaultFormat])
+
   return (
     <Message
       align={isUser ? "end" : "start"}
@@ -57,19 +71,51 @@ export const PlaygroundMessage = React.memo(function PlaygroundMessage({
       aria-label={isUser ? "Your message" : "Assistant response"}
     >
       <MessageContent>
-        <MessageHeader className="gap-3">
+        <MessageHeader className="justify-between gap-3">
           <span className="min-w-0 [overflow-wrap:anywhere]">
             {isUser ? "You" : message.modelId || modelId || "Assistant"}
           </span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={isUser ? "Copy your message" : "Copy answer"}
-            disabled={!message.content}
-            onClick={() => copyMessageContent(message.content)}
-          >
-            <Copy />
-          </Button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {!isUser && message.content ? (
+              <ToggleGroup
+                type="single"
+                value={format}
+                onValueChange={(value) => {
+                  if (value === "md" || value === "text") {
+                    setFormat(value)
+                  }
+                }}
+                variant="outline"
+                size="sm"
+                className="h-7 gap-0"
+                aria-label="Assistant message format"
+              >
+                <ToggleGroupItem
+                  value="md"
+                  aria-label="Format as markdown"
+                  className="h-7 px-2 text-xs font-medium"
+                >
+                  MD
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="text"
+                  aria-label="Format as plain text"
+                  className="h-7 px-2 text-xs font-medium"
+                >
+                  Plain text
+                </ToggleGroupItem>
+              </ToggleGroup>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={isUser ? "Copy your message" : "Copy answer"}
+              disabled={!message.content}
+              onClick={() => copyMessageContent(message.content)}
+            >
+              <Copy />
+            </Button>
+          </div>
         </MessageHeader>
         {!isUser && message.reasoning?.trim() ? (
           <Collapsible className="min-w-0 rounded-lg border bg-muted/20">
@@ -113,14 +159,27 @@ export const PlaygroundMessage = React.memo(function PlaygroundMessage({
             align={isUser ? "end" : "start"}
             variant={message.error ? "destructive" : isUser ? "muted" : "ghost"}
           >
-            <BubbleContent className="[overflow-wrap:anywhere] whitespace-pre-wrap">
-              {message.content}
-            </BubbleContent>
+            {isUser || format === "text" ? (
+              <BubbleContent
+                className={cn(
+                  "[overflow-wrap:anywhere] whitespace-pre-wrap",
+                  !isUser &&
+                    "font-mono text-xs sm:text-sm text-foreground/90 leading-relaxed"
+                )}
+              >
+                {message.content}
+              </BubbleContent>
+            ) : (
+              <BubbleContent className="[overflow-wrap:anywhere] max-w-full">
+                <PlaygroundMarkdown content={message.content} />
+              </BubbleContent>
+            )}
           </Bubble>
         ) : null}
         <MessageFooter className="flex-col items-start gap-2">
           {message.runStatus || (message.isStreaming && !message.content) ? (
             <p
+              role={message.error ? "alert" : "status"}
               className={cn(
                 "text-xs [overflow-wrap:anywhere]",
                 message.error && "text-destructive"

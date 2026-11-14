@@ -28,6 +28,8 @@ from backend.credits.controller import router as credits_router
 from backend.credits.models import CreditUsage as CreditUsage
 from backend.credits.reconciliation import reconcile_credits
 from backend.core.migrations import run_pending_migrations
+from backend.support import models as support_models  # noqa: F401
+from backend.support.controller import router as support_router
 from backend.gateway.chat.controller import router as chat_router
 from backend.gateway.messages.controller import router as messages_router
 from backend.gateway.model_groups import models as model_group_models  # noqa: F401
@@ -122,6 +124,7 @@ app.include_router(provider_models_router)
 app.include_router(traces_router)
 app.include_router(credits_router)
 app.include_router(coupons_router)
+app.include_router(support_router)
 
 
 # ---------------------------------------------------------------------------

@@ -7,8 +7,8 @@ import {
   Coins,
   Gauge,
   KeyRound,
+  LifeBuoy,
   ListChecks,
-  PlusCircle,
   Server,
   Settings,
   Sparkles,
@@ -69,6 +69,7 @@ const navigation = [
     icon: ListChecks,
     superuserOnly: true,
   },
+  { title: "Support", url: "/dashboard/support", icon: LifeBuoy },
   { title: "Settings", url: "/dashboard/settings", icon: Settings },
 ]
 
@@ -120,30 +121,6 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarMenu className="px-2">
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              tooltip={
-                role === "superuser" ? "Review credits" : "Open Playground"
-              }
-              className="bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90 hover:text-sidebar-primary-foreground dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90"
-            >
-              <a
-                href={
-                  role === "superuser"
-                    ? "/dashboard/credit-review"
-                    : "/dashboard/playground"
-                }
-              >
-                <PlusCircle />
-                <span>
-                  {role === "superuser" ? "Review credits" : "Open Playground"}
-                </span>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
         <NavMain
           items={navItems.filter(
             (item) => !item.superuserOnly && item.url !== "/dashboard/settings"

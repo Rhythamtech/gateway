@@ -25,7 +25,7 @@ type ErrorPayload = {
 }
 
 export const API_BASE_URL = (
-  import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+  import.meta.env?.PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "")
 const ACCESS_TOKEN_KEY = "gateway.access_token"
 const REFRESH_TOKEN_KEY = "gateway.refresh_token"
@@ -106,6 +106,26 @@ function getTokens() {
   const refreshToken = window.sessionStorage.getItem(REFRESH_TOKEN_KEY)
   if (!accessToken && !refreshToken) return null
   return { accessToken, refreshToken }
+}
+
+export function hasAuthTokens(): boolean {
+  return Boolean(getTokens())
+}
+
+export async function validateSession(): Promise<CurrentUser | null> {
+  if (!hasAuthTokens()) return null
+  const cached = getCachedUser()
+  try {
+    const user = await getCurrentUser()
+    cacheUser(user)
+    return user
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      clearAuthTokens()
+      return null
+    }
+    return cached
+  }
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -1215,4 +1235,137 @@ export function listCouponRedemptions(page = 1, couponId?: string) {
   return authenticatedRequest<CouponPage<CouponRedemption>>(
     `${path}${creditPageQuery(page, 20)}`
   )
+}
+
+export type SupportCategory =
+  "billing" | "api_keys" | "model_routing" | "latency" | "account" | "other"
+
+export type SupportPriority = "low" | "normal" | "high" | "urgent"
+export type SupportStatus = "open" | "in_progress" | "resolved" | "closed"
+
+export type SupportTicketItem = {
+  id: string
+  user_id: string
+  user_email: string | null
+  subject: string
+  category: SupportCategory
+  priority: SupportPriority
+  status: SupportStatus
+  message_count: number
+  last_message_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type SupportTicketMessageItem = {
+  id: string
+  ticket_id: string
+  sender_id: string
+  sender_role: "user" | "superuser"
+  sender_email: string | null
+  message: string
+  created_at: string
+}
+
+export type SupportTicketDetail = SupportTicketItem & {
+  messages: SupportTicketMessageItem[]
+}
+
+export type SupportTicketList = {
+  items: SupportTicketItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type SupportStats = {
+  total: number
+  open: number
+  in_progress: number
+  resolved: number
+  closed: number
+}
+
+export function createSupportTicket(data: {
+  subject: string
+  category: SupportCategory
+  priority?: SupportPriority
+  message: string
+}): Promise<SupportTicketItem> {
+  return authenticatedRequest<SupportTicketItem>("/support/tickets", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export function listSupportTickets(params?: {
+  page?: number
+  page_size?: number
+  status?: string
+  category?: string
+  priority?: string
+  search?: string
+}): Promise<SupportTicketList> {
+  const query = new URLSearchParams()
+  if (params?.page) query.set("page", String(params.page))
+  if (params?.page_size) query.set("page_size", String(params.page_size))
+  if (params?.status) query.set("status", params.status)
+  if (params?.category) query.set("category", params.category)
+  if (params?.priority) query.set("priority", params.priority)
+  if (params?.search) query.set("search", params.search)
+  const qs = query.toString()
+  return authenticatedRequest<SupportTicketList>(
+    `/support/tickets${qs ? `?${qs}` : ""}`
+  )
+}
+
+export function getSupportTicket(
+  ticketId: string
+): Promise<SupportTicketDetail> {
+  return authenticatedRequest<SupportTicketDetail>(
+    `/support/tickets/${encodeURIComponent(ticketId)}`
+  )
+}
+
+export function addSupportTicketMessage(
+  ticketId: string,
+  message: string
+): Promise<SupportTicketMessageItem> {
+  return authenticatedRequest<SupportTicketMessageItem>(
+    `/support/tickets/${encodeURIComponent(ticketId)}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }
+  )
+}
+
+export function updateSupportTicketStatus(
+  ticketId: string,
+  status: SupportStatus
+): Promise<SupportTicketItem> {
+  return authenticatedRequest<SupportTicketItem>(
+    `/support/tickets/${encodeURIComponent(ticketId)}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }
+  )
+}
+
+export function getSupportStats(): Promise<SupportStats> {
+  return authenticatedRequest<SupportStats>("/support/stats")
+}
+
+export function getSignupSettings(): Promise<{ signups_enabled: boolean }> {
+  return authenticatedRequest("/auth/signup-settings")
+}
+
+export function updateSignupSettings(
+  signupsEnabled: boolean
+): Promise<{ signups_enabled: boolean }> {
+  return authenticatedRequest("/auth/signup-settings", {
+    method: "PATCH",
+    body: JSON.stringify({ signups_enabled: signupsEnabled }),
+  })
 }

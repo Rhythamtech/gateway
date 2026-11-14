@@ -33,10 +33,22 @@ export function DashboardShell({
         } as React.CSSProperties
       }
     >
+      <a
+        href="#dashboard-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-foreground focus:ring-2 focus:ring-ring"
+      >
+        Skip to main content
+      </a>
       <AppSidebar role={role} currentPath={currentPath} user={user} />
       <SidebarInset className="min-w-0 md:rounded-2xl">
         <SiteHeader title={pageTitle} />
-        {children}
+        <div
+          id="dashboard-content"
+          tabIndex={-1}
+          className="flex min-w-0 flex-1 flex-col"
+        >
+          {children}
+        </div>
       </SidebarInset>
     </SidebarProvider>
   )

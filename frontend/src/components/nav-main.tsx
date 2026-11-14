@@ -49,7 +49,11 @@ export function NavMain({
                 isActive={item.isActive}
                 tooltip={item.title}
               >
-                <a href={item.url} data-astro-prefetch="hover">
+                <a
+                  href={item.url}
+                  aria-current={item.isActive ? "page" : undefined}
+                  data-astro-prefetch="hover"
+                >
                   <item.icon />
                   <span>{item.title}</span>
                 </a>

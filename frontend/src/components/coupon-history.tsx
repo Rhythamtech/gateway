@@ -75,41 +75,48 @@ export function CouponHistory({
         ) : error ? (
           <p role="alert">{error}</p>
         ) : (
-          <Table>
-            <TableHeader>
+          <Table aria-label="Coupon redemptions">
+            <TableHeader className="bg-muted/40">
               <TableRow>
-                <TableHead>Code</TableHead>
-                {couponId && <TableHead>User</TableHead>}
-                <TableHead>Credits</TableHead>
-                <TableHead>Redeemed</TableHead>
-                <TableHead>Ledger entry</TableHead>
+                <TableHead className="min-w-[130px]">Code</TableHead>
+                {couponId && <TableHead className="min-w-[180px]">User</TableHead>}
+                <TableHead className="min-w-[100px]">Credits</TableHead>
+                <TableHead className="min-w-[160px]">Redeemed</TableHead>
+                <TableHead className="min-w-[180px]">Ledger entry</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data?.items.length ? (
                 data.items.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell>{item.code}</TableCell>
+                    <TableCell className="font-mono font-medium">{item.code}</TableCell>
                     {couponId && (
-                      <TableCell className="break-all">
+                      <TableCell className="font-mono text-xs text-muted-foreground break-all">
                         {item.user_id}
                       </TableCell>
                     )}
-                    <TableCell>{formatCredits(item.credits)}</TableCell>
-                    <TableCell>
-                      {formatTimestampInDeviceZone(
-                        parseApiTimestamp(item.created_at) ??
-                          new Date(item.created_at)
-                      )}
+                    <TableCell className="font-mono tabular-nums font-medium">
+                      {formatCredits(item.credits)}
                     </TableCell>
-                    <TableCell className="break-all">
+                    <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      {(() => {
+                        const date = parseApiTimestamp(item.created_at)
+                        return date === null
+                          ? (item.created_at ?? "—")
+                          : formatTimestampInDeviceZone(date)
+                      })()}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground break-all">
                       {item.credit_entry.id}
                     </TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={couponId ? 5 : 4}>
+                  <TableCell
+                    colSpan={couponId ? 5 : 4}
+                    className="h-24 text-center text-muted-foreground"
+                  >
                     No redemptions yet.
                   </TableCell>
                 </TableRow>

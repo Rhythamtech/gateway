@@ -51,7 +51,7 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 function formatDateTime(value: string): string {
   const date = parseApiTimestamp(value)
@@ -625,7 +625,9 @@ function ModelRateForm({
     () => existing?.tokens_per_credit ?? ""
   )
   const [maxRequestTokens, setMaxRequestTokens] = React.useState(() =>
-    existing?.max_request_tokens == null ? "" : String(existing.max_request_tokens)
+    existing?.max_request_tokens == null
+      ? ""
+      : String(existing.max_request_tokens)
   )
   const [fieldErrors, setFieldErrors] = React.useState<RateFieldErrors>({})
   const [pending, setPending] = React.useState(false)
@@ -1066,124 +1068,168 @@ export function ReviewEvidenceDrawer({
                       Release
                     </TabsTrigger>
                   </TabsList>
-                </Tabs>
-
-                <p className="text-xs text-muted-foreground">
-                  {action === "settle"
-                    ? `Settles verified token counts at ${formatCredits(usage.tokens_per_credit)} tokens/credit. Unused hold is returned to user and provider.`
-                    : `Releases the full hold (${formatCredits(usage.reserved_credits)} credits) back to user and provider with zero charge.`}
-                </p>
-
-                {action === "settle" ? (
-                  <>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="review-input-tokens">Input tokens</Label>
-                      <Input
-                        id="review-input-tokens"
-                        inputMode="numeric"
-                        value={inputTokens}
-                        onChange={(event) => setInputTokens(event.target.value)}
-                      />
-                      {fieldErrors.inputTokens ? (
-                        <p className="text-xs text-destructive">
-                          {fieldErrors.inputTokens}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          The verified input token count reported for this
-                          request.
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="review-output-tokens">
-                        Output tokens
-                      </Label>
-                      <Input
-                        id="review-output-tokens"
-                        inputMode="numeric"
-                        value={outputTokens}
-                        onChange={(event) =>
-                          setOutputTokens(event.target.value)
-                        }
-                      />
-                      {fieldErrors.outputTokens ? (
-                        <p className="text-xs text-destructive">
-                          {fieldErrors.outputTokens}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          The verified output token count reported for this
-                          request.
-                        </p>
-                      )}
-                    </div>
-                    {parsedInput.valid && parsedOutput.valid ? (
-                      <p className="text-xs text-muted-foreground">
-                        Settlement charges{" "}
-                        <span className="tabular-nums">
-                          {calculateChargePreview(
-                            parsedInput.tokens,
-                            parsedOutput.tokens,
-                            usage.tokens_per_credit
-                          ) ?? "—"}
-                        </span>{" "}
-                        credits against the recorded rate, from both the user
-                        and provider holds.
-                      </p>
-                    ) : null}
-                  </>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-start gap-2">
-                      <Checkbox
-                        id="review-release-confirm"
-                        checked={confirmRelease}
-                        onCheckedChange={(checked) => {
-                          setConfirmRelease(Boolean(checked))
-                          setFieldErrors((prev) => ({
-                            ...prev,
-                            confirm: undefined,
-                          }))
-                        }}
-                      />
-                      <Label
-                        htmlFor="review-release-confirm"
-                        className="text-sm leading-snug font-normal"
-                      >
-                        I confirm no charge should occur for this request and
-                        that releasing returns the full hold to both balances.
-                      </Label>
-                    </div>
-                    {fieldErrors.confirm ? (
-                      <p className="text-xs text-destructive">
-                        {fieldErrors.confirm}
-                      </p>
-                    ) : null}
-                  </div>
-                )}
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="review-reason">Reason</Label>
-                  <Textarea
-                    id="review-reason"
-                    value={reason}
-                    onChange={(event) => setReason(event.target.value)}
-                    placeholder="Recorded in the audit trail for this decision."
-                    maxLength={1000}
-                  />
-                  {fieldErrors.reason ? (
-                    <p className="text-xs text-destructive">
-                      {fieldErrors.reason}
+                  <TabsContent value={action} className="flex flex-col gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      {action === "settle"
+                        ? `Settles verified token counts at ${formatCredits(usage.tokens_per_credit)} tokens/credit. Unused hold is returned to user and provider.`
+                        : `Releases the full hold (${formatCredits(usage.reserved_credits)} credits) back to user and provider with zero charge.`}
                     </p>
-                  ) : null}
-                </div>
 
-                {error ? (
-                  <p className="text-sm text-destructive" role="alert">
-                    {error}
-                  </p>
-                ) : null}
+                    {action === "settle" ? (
+                      <>
+                        <div className="flex flex-col gap-1.5">
+                          <Label htmlFor="review-input-tokens">
+                            Input tokens
+                          </Label>
+                          <Input
+                            id="review-input-tokens"
+                            aria-invalid={Boolean(fieldErrors.inputTokens)}
+                            aria-describedby={
+                              fieldErrors.inputTokens
+                                ? "review-input-tokens-error"
+                                : undefined
+                            }
+                            inputMode="numeric"
+                            value={inputTokens}
+                            onChange={(event) =>
+                              setInputTokens(event.target.value)
+                            }
+                          />
+                          {fieldErrors.inputTokens ? (
+                            <p
+                              id="review-input-tokens-error"
+                              role="alert"
+                              className="text-xs text-destructive"
+                            >
+                              {fieldErrors.inputTokens}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              The verified input token count reported for this
+                              request.
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <Label htmlFor="review-output-tokens">
+                            Output tokens
+                          </Label>
+                          <Input
+                            id="review-output-tokens"
+                            aria-invalid={Boolean(fieldErrors.outputTokens)}
+                            aria-describedby={
+                              fieldErrors.outputTokens
+                                ? "review-output-tokens-error"
+                                : undefined
+                            }
+                            inputMode="numeric"
+                            value={outputTokens}
+                            onChange={(event) =>
+                              setOutputTokens(event.target.value)
+                            }
+                          />
+                          {fieldErrors.outputTokens ? (
+                            <p
+                              id="review-output-tokens-error"
+                              role="alert"
+                              className="text-xs text-destructive"
+                            >
+                              {fieldErrors.outputTokens}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              The verified output token count reported for this
+                              request.
+                            </p>
+                          )}
+                        </div>
+                        {parsedInput.valid && parsedOutput.valid ? (
+                          <p className="text-xs text-muted-foreground">
+                            Settlement charges{" "}
+                            <span className="tabular-nums">
+                              {calculateChargePreview(
+                                parsedInput.tokens,
+                                parsedOutput.tokens,
+                                usage.tokens_per_credit
+                              ) ?? "—"}
+                            </span>{" "}
+                            credits against the recorded rate, from both the
+                            user and provider holds.
+                          </p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-start gap-2">
+                          <Checkbox
+                            id="review-release-confirm"
+                            aria-invalid={Boolean(fieldErrors.confirm)}
+                            aria-describedby={
+                              fieldErrors.confirm
+                                ? "review-release-confirm-error"
+                                : undefined
+                            }
+                            checked={confirmRelease}
+                            onCheckedChange={(checked) => {
+                              setConfirmRelease(Boolean(checked))
+                              setFieldErrors((prev) => ({
+                                ...prev,
+                                confirm: undefined,
+                              }))
+                            }}
+                          />
+                          <Label
+                            htmlFor="review-release-confirm"
+                            className="text-sm leading-snug font-normal"
+                          >
+                            I confirm no charge should occur for this request
+                            and that releasing returns the full hold to both
+                            balances.
+                          </Label>
+                        </div>
+                        {fieldErrors.confirm ? (
+                          <p
+                            id="review-release-confirm-error"
+                            role="alert"
+                            className="text-xs text-destructive"
+                          >
+                            {fieldErrors.confirm}
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="review-reason">Reason</Label>
+                      <Textarea
+                        id="review-reason"
+                        aria-invalid={Boolean(fieldErrors.reason)}
+                        aria-describedby={
+                          fieldErrors.reason ? "review-reason-error" : undefined
+                        }
+                        value={reason}
+                        onChange={(event) => setReason(event.target.value)}
+                        placeholder="Recorded in the audit trail for this decision."
+                        maxLength={1000}
+                      />
+                      {fieldErrors.reason ? (
+                        <p
+                          id="review-reason-error"
+                          role="alert"
+                          className="text-xs text-destructive"
+                        >
+                          {fieldErrors.reason}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {error ? (
+                      <p className="text-sm text-destructive" role="alert">
+                        {error}
+                      </p>
+                    ) : null}
+                  </TabsContent>
+                </Tabs>
               </section>
             ) : null}
           </div>

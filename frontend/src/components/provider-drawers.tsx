@@ -123,7 +123,7 @@ export function ProviderFormDrawer({
         return
       }
     }
-    if (!nextApiKey) {
+    if (!isEdit && !nextApiKey) {
       setError("Enter an API key.")
       return
     }

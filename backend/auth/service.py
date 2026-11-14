@@ -1,5 +1,6 @@
 import jwt
 from fastapi import HTTPException, status
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.auth.dtos import RegisterRequest
@@ -18,6 +19,10 @@ def get_user_by_email(db: Session, email: str) -> User | None:
 
 
 def register_user(db: Session, data: RegisterRequest) -> User:
+    enabled = db.execute(text("SELECT signups_enabled FROM gateway_settings WHERE id=1")).scalar_one()
+    if not enabled:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="New signups are disabled. Please sign in.")
+
     if get_user_by_email(db, data.email):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

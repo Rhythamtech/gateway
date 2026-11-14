@@ -440,7 +440,10 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
               </DrawerHeader>
               <div className="flex flex-col gap-3 px-4 text-sm">
                 <div className="flex items-center gap-2 rounded-lg border bg-muted p-2 pl-3">
-                  <code className="min-w-0 flex-1 overflow-x-auto font-mono text-xs leading-6 whitespace-nowrap select-all">
+                  <code
+                    tabIndex={0}
+                    className="min-w-0 flex-1 overflow-x-auto font-mono text-xs leading-6 whitespace-nowrap select-all focus-visible:outline-2 focus-visible:outline-ring"
+                  >
                     {drawerState.secret}
                   </code>
                   <Button

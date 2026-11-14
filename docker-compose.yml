@@ -1,0 +1,29 @@
+services:
+  api:
+    build:
+      context: .
+      target: api
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////data/app.db
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      PROVIDER_ENCRYPTION_KEY: ${PROVIDER_ENCRYPTION_KEY:?Set PROVIDER_ENCRYPTION_KEY in .env}
+    volumes:
+      - gateway-data:/data
+    restart: unless-stopped
+    init: true
+
+  web:
+    build:
+      context: .
+      target: web
+    ports:
+      - "${GATEWAY_BIND_ADDRESS:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+
+volumes:
+  gateway-data:

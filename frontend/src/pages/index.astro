@@ -1,188 +1,271 @@
 ---
-import LandingLayout from "@/layouts/landing.astro"
+import Layout from "@/layouts/main.astro"
+import PublicHeader from "@/components/public-header.astro"
 import OfflineFooter from "@/components/offline-footer.astro"
+import { LandingHeroActions } from "@/components/landing-hero-actions"
+import { LandingCodePreview } from "@/components/landing-code-preview"
+import { Badge } from "@/components/ui/badge"
+import { buttonVariants } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { APP_NAME } from "@/lib/site"
+import {
+  ArrowRight,
+  Cpu,
+  Layers,
+  Lock,
+  Route,
+  Terminal,
+  Zap,
+} from "lucide-react"
 
 const apiBaseUrl = (
   import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "")
 
-const navItems = [
-  { label: "Home", href: "/", current: true },
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Playground", href: "/dashboard/playground" },
-  { label: "API Docs", href: `${apiBaseUrl}/docs` },
+const clientFeatures = [
+  {
+    icon: Route,
+    title: "Universal Drop-in API",
+    description:
+      "Full compatibility with official OpenAI and Anthropic SDKs. Switch models simply by changing the model parameter without changing your application code.",
+  },
+  {
+    icon: Layers,
+    title: "Automated Resilient Failover",
+    description:
+      "Group models into resilient clusters. If an upstream provider hits rate limits (429) or an outage (5xx), Gateway seamlessly routes to healthy fallbacks.",
+  },
+  {
+    icon: Zap,
+    title: "Exact Upstream Token Billing",
+    description:
+      "Prepaid microcredits charged at true provider model rates with zero arbitrary markup. Atomic reservations ensure you only pay for completed tokens.",
+  },
+  {
+    icon: Lock,
+    title: "Zero Data Retention Guarantee",
+    description:
+      "All requests and completions stream in-flight. Prompts are never stored, logged, or used to train any model unless you opt into private tracing.",
+  },
+  {
+    icon: Terminal,
+    title: "Interactive Web Playground",
+    description:
+      "Test prompt variations, system instructions, and sampling parameters side-by-side in your dashboard before deploying keys to production.",
+  },
+  {
+    icon: Cpu,
+    title: "Sub-Millisecond Routing Overhead",
+    description:
+      "Ultra-low latency streaming with immediate Server-Sent Events (SSE) forwarding. Preserve optimal time-to-first-token (TTFT) across all models.",
+  },
 ]
 
-const stats = [
-  { icon: "{}", target: "3", decimals: "0", suffix: "", label: "API Formats" },
+const supportedModels = [
+  { name: "Google Gemma 4", badge: "Fast" },
+  { name: "Claude 3.5 Sonnet", badge: "Reasoning" },
+  { name: "OpenAI GPT-4o", badge: "Multimodal" },
+  { name: "Meta Llama 3.3", badge: "Open Weights" },
+  { name: "Mistral Large", badge: "Enterprise" },
+  { name: "DeepSeek V3", badge: "Cost Efficient" },
+]
+
+const clientSteps = [
   {
-    icon: "<>",
-    target: "2",
-    decimals: "0",
-    suffix: "",
-    label: "Provider Protocols",
+    step: "01",
+    title: "Create your API key",
+    description:
+      "Sign up in seconds, generate your scoped gateway API key, and configure rate limits or budgets.",
   },
   {
-    icon: "#",
-    target: "60",
-    decimals: "0",
-    suffix: "/min",
-    label: "Per API Key",
+    step: "02",
+    title: "Update your SDK baseURL",
+    description:
+      "Point standard OpenAI or Anthropic client libraries to Gateway with one line of configuration.",
   },
   {
-    icon: "%",
-    target: "100",
-    decimals: "0",
-    suffix: "%",
-    label: "Secrets Encrypted",
+    step: "03",
+    title: "Stream with built-in failover",
+    description:
+      "Deploy to production with confidence. Gateway handles health checks, retries, and token accounting automatically.",
   },
 ]
 ---
 
-<LandingLayout title={`${APP_NAME} — Intelligence Designed To Evolve`}>
-  <div class="landing-hero">
-    <div class="bg" aria-hidden="true">
-      <video class="bg-video" autoplay muted loop playsinline>
-        <source
-          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260809_012548_ef22562c-c0ae-4816-ad9d-f8922af4e6a7.mp4"
-          type="video/mp4"
-        />
-      </video>
-    </div>
+<Layout title={`${APP_NAME} — Unified LLM Gateway & Smart Router`}>
+  <PublicHeader current="home" />
 
-    <div class="page">
-      <header class="site-header">
-        <a class="brand" href="/" aria-label={`${APP_NAME} home`}>
-          <img src="/brand/logo.webp" alt="" width="52" height="52" />
-        </a>
-
-        <nav class="nav" aria-label="Primary">
-          {navItems.map((item) => (
-            <a
-              class:list={["nav-link", { "is-active": item.current }]}
-              href={item.href}
-              aria-current={item.current ? "page" : undefined}
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
-
-        <a class="signin" href="/login">
-          Sign in
-        </a>
-
-        <button
-          class="burger"
-          type="button"
-          aria-label="Open menu"
-          aria-expanded="false"
-          aria-controls="mobile-menu"
-        >
-          <span class="burger-bars" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-          </span>
-        </button>
-      </header>
-
-      <main class="hero">
-        <div class="trust anim" style="--d: 0.05s">
-          <div class="trust-avatars" aria-hidden="true">
-            <span class="trust-avatar">
-              <span class="trust-mark">O</span>
-            </span>
-            <span class="trust-avatar">
-              <span class="trust-mark">A</span>
-            </span>
-            <span class="trust-avatar">
-              <span class="trust-mark trust-mark--plus">+</span>
-            </span>
-          </div>
-          <span class="trust-pill">OpenAI · Anthropic · compatible</span>
+  <main class="min-h-screen bg-background text-foreground">
+    {/* 1. Minimal Hero Section */}
+    <section class="relative px-4 pt-12 pb-16 sm:px-6 sm:pt-20 sm:pb-24">
+      <div class="mx-auto max-w-4xl text-center">
+        <div class="flex justify-center">
+          <Badge
+            variant="outline"
+            className="gap-2 rounded-full border-border/80 bg-muted/40 px-3.5 py-1 text-xs font-normal text-muted-foreground"
+          >
+            <span class="size-1.5 rounded-full bg-emerald-500"></span>
+            Zero Data Retention · OpenAI & Anthropic Compatible
+          </Badge>
         </div>
 
-        <h1 class="headline anim">
-          <span class="headline-line" style="--line-delay: 0.12s">
-            Intelligence
-          </span>
-          <span class="headline-line" style="--line-delay: 0.3s">
-            Designed To Evolve
-          </span>
+        <h1 class="mt-6 text-4xl font-extrabold tracking-tight sm:text-6xl sm:leading-[1.1]">
+          One API for every model.
+          <br />
+          <span class="text-muted-foreground">Zero provider lock-in.</span>
         </h1>
 
-        <p class="subhead anim" style="--d: 0.28s">
-          Manage providers, model groups, API keys and credits through one
-          production-ready LLM gateway with tracing built in.
+        <p class="mx-auto mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg leading-relaxed">
+          Access 100+ state-of-the-art and open-weights LLMs through a unified
+          endpoint. Automatic failover across providers, exact token-rate
+          pricing, and atomic balance reservations.
         </p>
 
-        <a class="cta anim" href="/signup" style="--d: 0.4s">
-          Get Started
-        </a>
-      </main>
-
-      <footer class="stats" aria-label="Platform statistics">
-        {stats.map((stat, index) => (
-          <div
-            class="stat anim"
-            style={`--d: ${(0.5 + index * 0.08).toFixed(2)}s`}
-          >
-            <div class="stat-icon" aria-hidden="true">
-              {stat.icon}
-            </div>
-            <div class="stat-value">
-              <span
-                class="stat-number"
-                data-target={stat.target}
-                data-decimals={stat.decimals}
-              >
-                0
-              </span>
-              <span class="stat-suffix">{stat.suffix}</span>
-            </div>
-            <div class="stat-label">{stat.label}</div>
-          </div>
-        ))}
-      </footer>
-    </div>
-
-    <div class="menu-overlay" id="mobile-menu" hidden>
-      <div
-        class="mobile-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Mobile navigation"
-      >
-        <nav class="mobile-nav" aria-label="Mobile primary">
-          {navItems.map((item, index) => (
-            <a
-              class:list={["mobile-link", { "is-active": item.current }]}
-              href={item.href}
-              aria-current={item.current ? "page" : undefined}
-              style={`--i: ${index}`}
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
-        <a
-          class="mobile-signin"
-          href="/login"
-          style={`--i: ${navItems.length}`}
-        >
-          Sign in
-        </a>
+        <div class="mt-8">
+          <LandingHeroActions client:load apiDocsUrl={`${apiBaseUrl}/docs`} />
+        </div>
       </div>
-    </div>
-  </div>
+
+      {/* Code preview block */}
+      <div class="mx-auto mt-12 max-w-3xl sm:mt-16">
+        <LandingCodePreview client:load />
+      </div>
+    </section>
+
+    {/* 2. Supported Models Strip */}
+    <section class="border-y border-border/40 bg-muted/15 py-8">
+      <div class="mx-auto max-w-5xl px-4 sm:px-6 text-center">
+        <p class="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          Route across top frontier and open-weights models
+        </p>
+        <div class="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+          {supportedModels.map((m) => (
+            <Badge
+              variant="outline"
+              className="gap-1.5 rounded-full bg-background px-3 py-1 text-xs font-medium text-foreground border-border/70 shadow-2xs"
+            >
+              <span>{m.name}</span>
+              <span class="text-[10px] text-muted-foreground">({m.badge})</span>
+            </Badge>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    {/* 3. Client Value Grid (What Developers Get) */}
+    <section class="py-16 sm:py-24">
+      <div class="mx-auto max-w-5xl px-4 sm:px-6">
+        <div class="text-center max-w-2xl mx-auto">
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-primary">
+            Developer Capabilities
+          </h2>
+          <p class="mt-2 text-2xl font-bold tracking-tight sm:text-3xl text-foreground">
+            Everything your applications need from modern AI infrastructure
+          </p>
+          <p class="mt-3 text-sm text-muted-foreground">
+            Built for developers shipping production features who require
+            resilience, predictable billing, and complete architectural freedom.
+          </p>
+        </div>
+
+        <div class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {clientFeatures.map((feat) => {
+            const Icon = feat.icon
+            return (
+              <Card className="rounded-xl border border-border/70 bg-card shadow-xs transition-colors hover:border-primary/40">
+                <CardHeader className="p-5 pb-3">
+                  <div class="flex size-9 items-center justify-center rounded-lg bg-muted/60 text-foreground">
+                    <Icon className="size-4 text-primary" />
+                  </div>
+                  <CardTitle className="text-base font-semibold mt-3">
+                    {feat.title}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-5 pt-0">
+                  <CardDescription className="text-xs leading-relaxed text-muted-foreground">
+                    {feat.description}
+                  </CardDescription>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      </div>
+    </section>
+
+    {/* 4. Three Steps to Production */}
+    <section class="border-t border-border/40 bg-muted/10 py-16 sm:py-20">
+      <div class="mx-auto max-w-4xl px-4 sm:px-6">
+        <div class="text-center max-w-xl mx-auto">
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-primary">
+            Quickstart
+          </h2>
+          <p class="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+            From sign-up to streaming in 3 minutes
+          </p>
+        </div>
+
+        <div class="mt-10 grid gap-6 sm:grid-cols-3">
+          {clientSteps.map((s) => (
+            <div class="flex flex-col rounded-xl border border-border/60 bg-background p-5 shadow-2xs">
+              <span class="font-mono text-xs font-bold text-primary">
+                {s.step}
+              </span>
+              <h3 class="mt-2 text-sm font-semibold text-foreground">
+                {s.title}
+              </h3>
+              <p class="mt-2 text-xs leading-relaxed text-muted-foreground">
+                {s.description}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    {/* 5. Minimal Bottom CTA */}
+    <section class="border-t border-border/40 py-16 sm:py-20 text-center">
+      <div class="mx-auto max-w-2xl px-4 sm:px-6">
+        <h2 class="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">
+          Ready to route your AI traffic with zero lock-in?
+        </h2>
+        <p class="mt-3 text-sm text-muted-foreground">
+          Create an API key, test prompts in our Playground, or connect your
+          existing OpenAI or Anthropic SDK code today.
+        </p>
+        <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <a
+            href="/signup"
+            class={buttonVariants({
+              variant: "default",
+              size: "lg",
+              className: "rounded-full px-6 font-semibold shadow-xs",
+            })}
+          >
+            Get Started Free
+            <ArrowRight className="size-4" />
+          </a>
+          <a
+            href="/dashboard/playground"
+            class={buttonVariants({
+              variant: "outline",
+              size: "lg",
+              className: "rounded-full px-6 font-medium",
+            })}
+          >
+            <Terminal className="size-4" />
+            Test in Playground
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
 
   <OfflineFooter />
-</LandingLayout>
-
-<script>
-  import { initLanding } from "../scripts/landing"
-
-  initLanding()
-</script>
+</Layout>

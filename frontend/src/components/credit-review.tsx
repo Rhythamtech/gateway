@@ -154,16 +154,19 @@ export function CreditReviewContent() {
 
       <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-3.5 text-sm">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">
+          <label
+            htmlFor="review-status"
+            className="text-xs font-medium text-muted-foreground"
+          >
             Status:
-          </span>
+          </label>
           <Select
             value={statusFilter}
             onValueChange={(next) =>
               setStatusFilter(next as CreditUsageStatusFilter | "all")
             }
           >
-            <SelectTrigger className="h-8 w-40">
+            <SelectTrigger id="review-status" className="h-8 w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -177,10 +180,14 @@ export function CreditReviewContent() {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">
+          <label
+            htmlFor="review-user-id"
+            className="text-xs font-medium text-muted-foreground"
+          >
             User ID:
-          </span>
+          </label>
           <Input
+            id="review-user-id"
             value={userIdFilter}
             onChange={(e) => setUserIdFilter(e.target.value)}
             placeholder="User UUID…"

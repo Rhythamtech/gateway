@@ -77,21 +77,23 @@ export function AuthGate({
   if (!user && !error) {
     if (loadingFallback) return loadingFallback
     return (
-      <div
+      <main
         className="flex min-h-64 items-center justify-center p-6"
         role="status"
       >
         <p className="text-sm text-muted-foreground">Checking your session…</p>
-      </div>
+      </main>
     )
   }
 
   if (error) {
     return (
-      <div className="flex min-h-64 items-center justify-center p-6">
+      <main className="flex min-h-svh items-center justify-center p-6">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Unable to load your account</CardTitle>
+            <CardTitle>
+              <h1>Unable to load your account</h1>
+            </CardTitle>
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent>
@@ -106,16 +108,18 @@ export function AuthGate({
             </Button>
           </CardContent>
         </Card>
-      </div>
+      </main>
     )
   }
 
   if (requiresSuperuser && user?.role !== "superuser") {
     return (
-      <div className="flex min-h-64 items-center justify-center p-6">
+      <main className="flex min-h-svh items-center justify-center p-6">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Access denied</CardTitle>
+            <CardTitle>
+              <h1>Access denied</h1>
+            </CardTitle>
             <CardDescription>
               This page is available to superusers only.
             </CardDescription>
@@ -126,7 +130,7 @@ export function AuthGate({
             </Button>
           </CardContent>
         </Card>
-      </div>
+      </main>
     )
   }
 

@@ -714,6 +714,42 @@ def _migration_0019_credit_coupons(connection: Connection) -> None:
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_coupon_audit_coupon_id ON coupon_audit (coupon_id)"))
 
 
+def _migration_0020_support_tickets(connection: Connection) -> None:
+    connection.execute(text("""
+        CREATE TABLE IF NOT EXISTS support_tickets (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            subject VARCHAR(255) NOT NULL,
+            category VARCHAR(64) NOT NULL,
+            priority VARCHAR(32) NOT NULL DEFAULT 'normal',
+            status VARCHAR(32) NOT NULL DEFAULT 'open',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )
+    """))
+    connection.execute(text("""
+        CREATE TABLE IF NOT EXISTS support_ticket_messages (
+            id VARCHAR(36) PRIMARY KEY,
+            ticket_id VARCHAR(36) NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+            sender_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            sender_role VARCHAR(32) NOT NULL,
+            message TEXT NOT NULL,
+            created_at DATETIME NOT NULL
+        )
+    """))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_support_tickets_user_created ON support_tickets (user_id, created_at)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_support_tickets_status ON support_tickets (status)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_support_ticket_messages_ticket_created ON support_ticket_messages (ticket_id, created_at)"))
+
+
+def _migration_0021_signup_settings(connection: Connection) -> None:
+    if "signups_enabled" not in _sqlite_columns(connection, "gateway_settings"):
+        connection.execute(text(
+            "ALTER TABLE gateway_settings ADD COLUMN signups_enabled INTEGER NOT NULL DEFAULT 1 "
+            "CHECK (signups_enabled IN (0, 1))"
+        ))
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -740,6 +776,8 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0017_gateway_log_retention", _migration_0017_gateway_log_retention),
     ("0018_user_admin_audit", _migration_0018_user_admin_audit),
     ("0019_credit_coupons", _migration_0019_credit_coupons),
+    ("0020_support_tickets", _migration_0020_support_tickets),
+    ("0021_signup_settings", _migration_0021_signup_settings),
 ]
 
 

@@ -1126,13 +1126,13 @@ function ChartPlaceholder({
           <div className="flex size-11 items-center justify-center rounded-xl border bg-background">
             <Activity className="size-5 text-muted-foreground" />
           </div>
-          <h4 className="text-sm font-medium">
+          <p className="text-sm font-medium">
             {error
               ? "Activity could not be loaded"
               : !hasScope
                 ? "Select an API key to begin"
                 : "No recorded calls in this period"}
-          </h4>
+          </p>
           <p className="max-w-sm text-xs leading-5 text-muted-foreground">
             {error
               ? "Use Try again to reload this reporting scope."

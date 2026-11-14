@@ -62,6 +62,8 @@ import {
   ProviderFormDrawer,
 } from "@/components/provider-drawers"
 
+import { ProviderSetup } from "@/components/provider-setup"
+
 type DrawerState =
   | { mode: "form"; provider: Provider }
   | { mode: "disable"; provider: Provider }
@@ -84,6 +86,9 @@ function formatDateTime(value: string | null | undefined) {
 export function ProviderDetailContent() {
   const [providerId] = React.useState(() =>
     new URLSearchParams(window.location.search).get("id")
+  )
+  const [setupOpen, setSetupOpen] = React.useState(
+    () => new URLSearchParams(window.location.search).get("setup") === "1"
   )
   const [provider, setProvider] = React.useState<Provider | null>(null)
   const [providerError, setProviderError] = React.useState<string | null>(null)
@@ -312,6 +317,24 @@ export function ProviderDetailContent() {
     )
   }
 
+  if (setupOpen) {
+    return (
+      <ProviderSetup
+        provider={provider}
+        onExit={() => {
+          const url = new URL(window.location.href)
+          url.searchParams.delete("setup")
+          url.searchParams.delete("sync")
+          window.history.replaceState(null, "", url)
+          setSetupOpen(false)
+          refreshModels()
+          setBalanceTick((tick) => tick + 1)
+          setHistoryTick((tick) => tick + 1)
+        }}
+      />
+    )
+  }
+
   return (
     <>
       <div className="flex flex-col gap-4 px-4 lg:px-6">
@@ -356,7 +379,19 @@ export function ProviderDetailContent() {
                   ) : null}
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const url = new URL(window.location.href)
+                    url.searchParams.set("setup", "1")
+                    window.history.replaceState(null, "", url)
+                    setSetupOpen(true)
+                  }}
+                >
+                  Continue setup
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"

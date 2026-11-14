@@ -14,6 +14,7 @@ import {
   type ModelGroupInput,
   type ModelGroupMember,
   type ModelGroupUpdate,
+  type ProviderModel,
   type RoutingStrategy,
 } from "@/lib/auth"
 import { IconPlus, IconX } from "@tabler/icons-react"
@@ -49,6 +50,7 @@ const GROUP_MODEL_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]*\/\S+$/
 type ModelFormDrawerProps = {
   open: boolean
   group: ModelGroup | null
+  initialModel?: ProviderModel
   onClose: () => void
   onSaved: (group: ModelGroup) => void
 }
@@ -69,14 +71,19 @@ function parsePositiveInt(value: string) {
 export function ModelGroupFormDrawer({
   open,
   group,
+  initialModel,
   onClose,
   onSaved,
 }: ModelFormDrawerProps) {
   const isMobile = useIsMobile()
   const isEdit = group !== null
 
-  const [name, setName] = React.useState(() => group?.name ?? "")
-  const [modelId, setModelId] = React.useState(() => group?.model_id ?? "")
+  const [name, setName] = React.useState(
+    () => group?.name ?? initialModel?.model_name ?? ""
+  )
+  const [modelId, setModelId] = React.useState(
+    () => group?.model_id ?? initialModel?.model_id ?? ""
+  )
   const [modelIdTouched, setModelIdTouched] = React.useState(false)
   const [strategy, setStrategy] = React.useState<RoutingStrategy>(
     () => group?.routing_strategy ?? "round_robin"
@@ -84,7 +91,21 @@ export function ModelGroupFormDrawer({
   const [enabled, setEnabled] = React.useState(() => group?.is_enabled ?? true)
   const [memberRows, setMemberRows] = React.useState<
     { key: number; row: MemberRow }[]
-  >([])
+  >(() =>
+    initialModel && !group
+      ? [
+          {
+            key: 0,
+            row: {
+              providerId: initialModel.provider_id,
+              providerModelId: initialModel.id,
+              weight: "1",
+              priority: "1",
+            },
+          },
+        ]
+      : []
+  )
   const [error, setError] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
   const [providers, setProviders] = React.useState<Awaited<
@@ -92,7 +113,7 @@ export function ModelGroupFormDrawer({
   > | null>(null)
   const [modelsByProvider, setModelsByProvider] = React.useState<
     Record<string, Awaited<ReturnType<typeof listProviderModels>>>
-  >({})
+  >(() => (initialModel ? { [initialModel.provider_id]: [initialModel] } : {}))
   const nextKey = React.useRef(1)
 
   const totalWeight = React.useMemo(() => {
@@ -506,7 +527,10 @@ export function ModelGroupFormDrawer({
                             setProviderForRow(entry.key, value)
                           }
                         >
-                          <SelectTrigger className="w-full">
+                          <SelectTrigger
+                            aria-label={`Member ${entry.key} provider`}
+                            className="w-full"
+                          >
                             <SelectValue placeholder="Provider" />
                           </SelectTrigger>
                           <SelectContent>
@@ -528,7 +552,10 @@ export function ModelGroupFormDrawer({
                             )
                           }
                         >
-                          <SelectTrigger className="w-full">
+                          <SelectTrigger
+                            aria-label={`Member ${entry.key} model`}
+                            className="w-full"
+                          >
                             <SelectValue placeholder="Model" />
                           </SelectTrigger>
                           <SelectContent>
@@ -761,6 +788,7 @@ export function ModelGroupActionDrawer({
 type ModelGroupMemberFormDrawerProps = {
   open: boolean
   groupId: string
+  initialModel?: ProviderModel
   // Null while adding a member; set while editing an existing one.
   member: ModelGroupMember | null
   onClose: () => void
@@ -770,6 +798,7 @@ type ModelGroupMemberFormDrawerProps = {
 export function ModelGroupMemberFormDrawer({
   open,
   groupId,
+  initialModel,
   member,
   onClose,
   onSaved,
@@ -781,13 +810,13 @@ export function ModelGroupMemberFormDrawer({
     ReturnType<typeof listProviders>
   > | null>(null)
   const [providerId, setProviderId] = React.useState(
-    () => member?.provider_id ?? ""
+    () => member?.provider_id ?? initialModel?.provider_id ?? ""
   )
   const [models, setModels] = React.useState<Awaited<
     ReturnType<typeof listProviderModels>
   > | null>(null)
   const [providerModelId, setProviderModelId] = React.useState(
-    () => member?.provider_model_id ?? ""
+    () => member?.provider_model_id ?? initialModel?.id ?? ""
   )
   const [weight, setWeight] = React.useState(() =>
     member ? String(member.weight) : "1"

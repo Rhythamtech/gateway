@@ -198,3 +198,11 @@ def test_migration_upgrade_and_repeat(coupons_db):
         assert conn.execute(text("SELECT count(*) FROM users")).scalar() == 2
     create()
     redeem()
+
+
+def test_starts_at_defaults_to_now(coupons_db):
+    before = utcnow()
+    coupon = create(code="AUTOTIME")
+    after = utcnow()
+    assert coupon.starts_at is not None
+    assert before <= coupon.starts_at <= after

@@ -112,6 +112,11 @@ const routes = [
       import("@/components/users").then((m) => ({ default: m.UsersContent })),
     true
   ),
+  route("/dashboard/support", "Support", () =>
+    import("@/components/support").then((m) => ({
+      default: m.SupportDashboardContent,
+    }))
+  ),
   route("/dashboard/settings", "Settings", () =>
     import("@/components/settings").then((m) => ({
       default: m.SettingsContent,

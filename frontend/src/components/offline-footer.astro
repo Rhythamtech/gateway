@@ -123,8 +123,28 @@ const year = new Date().getFullYear()
     </nav>
 
     <nav class="of-col of-reveal" style="--i: 5" aria-labelledby="of-resources">
-      <h2 id="of-resources">Resources</h2>
+      <h2 id="of-resources">Resources & Legal</h2>
       <ul class="of-links">
+        <li>
+          <a class="of-link" href="/about">
+            About Us
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/support">
+            Support & FAQs
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/privacy">
+            Privacy Policy
+          </a>
+        </li>
+        <li>
+          <a class="of-link" href="/terms">
+            Terms of Service
+          </a>
+        </li>
         <li>
           <a
             class="of-link"
@@ -136,23 +156,8 @@ const year = new Date().getFullYear()
           </a>
         </li>
         <li>
-          <a
-            class="of-link"
-            href={`${apiBaseUrl}/openapi.json`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            OpenAPI
-          </a>
-        </li>
-        <li>
-          <a class="of-link" href="/login">
+          <a class="of-link" href="/login" data-footer-signin>
             Sign in
-          </a>
-        </li>
-        <li>
-          <a class="of-link" href="/signup">
-            Get Started
           </a>
         </li>
       </ul>

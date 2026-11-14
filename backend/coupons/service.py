@@ -36,6 +36,10 @@ def create_coupon(data: CouponCreate, actor_id: str) -> CouponResponse:
         if db.query(Coupon).filter_by(code=data.code).first():
             raise HTTPException(409, "Coupon code already exists")
         values = data.model_dump(exclude={"credits"})
+        if values.get("starts_at") is None and (
+            values.get("expires_at") is None or values.get("expires_at") > utcnow()
+        ):
+            values["starts_at"] = utcnow()
         coupon = Coupon(**values, amount=to_microcredits(data.credits), created_by=actor_id)
         db.add(coupon)
         db.flush()

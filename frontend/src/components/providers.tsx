@@ -9,7 +9,6 @@ import {
 import {
   ApiError,
   listProviders,
-  syncProviderModels,
   updateProvider,
   type Provider,
 } from "@/lib/auth"
@@ -111,32 +110,6 @@ export function ProvidersContent() {
       )
     } finally {
       setPendingProviderId(null)
-    }
-  }
-
-  // Auto-sync runs right after creation so the new provider's models are
-  // imported without a manual step; the Sync button stays available for
-  // refreshes afterwards. Progress is reported as side toast notifications.
-  async function handleCreated(provider: Provider) {
-    const toastId = toast.loading(
-      `Provider “${provider.name}” created — syncing models…`
-    )
-
-    try {
-      const result = await syncProviderModels(provider.id)
-      toast.success(
-        result.synced === 0
-          ? `“${provider.name}”: no models were found to sync.`
-          : `“${provider.name}”: ${result.synced} models synced.`,
-        { id: toastId }
-      )
-    } catch (error) {
-      toast.error(
-        error instanceof ApiError
-          ? `“${provider.name}” was created, but the model sync failed: ${error.message}`
-          : `“${provider.name}” was created, but the model sync failed.`,
-        { id: toastId, duration: 8000 }
-      )
     }
   }
 
@@ -375,7 +348,9 @@ export function ProvidersContent() {
             setDrawerState(null)
             refreshProviders()
             if (wasCreate) {
-              void handleCreated(provider)
+              window.location.assign(
+                `${detailHref(provider.id)}&setup=1&sync=1`
+              )
             } else {
               toast.success(`Provider “${provider.name}” updated.`)
             }
