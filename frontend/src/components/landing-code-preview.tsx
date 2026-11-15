@@ -8,12 +8,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 
-const CODE_EXAMPLES = {
-  python: `from openai import OpenAI
+function codeExamples(origin: string) {
+  return {
+    python: `from openai import OpenAI
 
 # 1. Point official OpenAI SDK to your Gateway endpoint
 client = OpenAI(
-    base_url="http://localhost:8000/v1",
+    base_url="${origin}/v1",
     api_key="gw-live-your_api_key_here",
 )
 
@@ -29,11 +30,11 @@ response = client.chat.completions.create(
 
 print(response.choices[0].message.content)`,
 
-  typescript: `import Anthropic from "@anthropic-ai/sdk"
+    typescript: `import Anthropic from "@anthropic-ai/sdk"
 
 // 1. Point official Anthropic SDK to your Gateway endpoint
 const client = new Anthropic({
-  baseURL: "http://localhost:8000/v1",
+  baseURL: "${origin}/v1",
   apiKey: "gw-live-your_api_key_here",
 })
 
@@ -49,7 +50,7 @@ for await (const chunk of stream) {
   process.stdout.write(chunk.delta?.text || "")
 }`,
 
-  curl: `curl -X POST http://localhost:8000/v1/chat/completions \\
+    curl: `curl -X POST ${origin}/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer gw-live-your_api_key_here" \\
   -d '{
@@ -59,6 +60,7 @@ for await (const chunk of stream) {
     ],
     "stream": false
   }'`,
+  }
 }
 
 export function LandingCodePreview() {
@@ -66,9 +68,16 @@ export function LandingCodePreview() {
     "python" | "typescript" | "curl"
   >("python")
   const [copied, setCopied] = React.useState(false)
+  const origin = React.useSyncExternalStore(
+    () => () => {},
+    () => window.location.origin,
+    () => ""
+  )
+
+  const examples = codeExamples(origin)
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(CODE_EXAMPLES[activeTab])
+    navigator.clipboard.writeText(examples[activeTab])
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -126,19 +135,19 @@ export function LandingCodePreview() {
 
           <TabsContent value="python" className="m-0 p-4">
             <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-foreground/90 selection:bg-primary/20">
-              <code>{CODE_EXAMPLES.python}</code>
+              <code>{examples.python}</code>
             </pre>
           </TabsContent>
 
           <TabsContent value="typescript" className="m-0 p-4">
             <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-foreground/90 selection:bg-primary/20">
-              <code>{CODE_EXAMPLES.typescript}</code>
+              <code>{examples.typescript}</code>
             </pre>
           </TabsContent>
 
           <TabsContent value="curl" className="m-0 p-4">
             <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-foreground/90 selection:bg-primary/20">
-              <code>{CODE_EXAMPLES.curl}</code>
+              <code>{examples.curl}</code>
             </pre>
           </TabsContent>
         </Tabs>

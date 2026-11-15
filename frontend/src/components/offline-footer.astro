@@ -2,10 +2,6 @@
 import "@/styles/offline-footer.css"
 import { APP_DESCRIPTION, APP_NAME } from "@/lib/site"
 
-const apiBaseUrl = (
-  import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000"
-).replace(/\/$/, "")
-
 const year = new Date().getFullYear()
 ---
 
@@ -143,16 +139,6 @@ const year = new Date().getFullYear()
         <li>
           <a class="of-link" href="/terms">
             Terms of Service
-          </a>
-        </li>
-        <li>
-          <a
-            class="of-link"
-            href={`${apiBaseUrl}/docs`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            API Docs
           </a>
         </li>
         <li>

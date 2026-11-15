@@ -1,6 +1,7 @@
 # Run with: docker compose -f docker-compose.yml -f docker-compose-cf.yml up -d --build
 services:
   cloudflared:
+    container_name: gateway-cloudflared
     image: cloudflare/cloudflared:2026.3.0
     command: tunnel --no-autoupdate --url http://web:8080
     depends_on:

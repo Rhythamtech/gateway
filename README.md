@@ -81,8 +81,7 @@ share one origin through nginx. The image uses the committed uv and npm locks.
    docker compose ps
    ```
 
-   Visit <http://localhost:8080>. The API documentation is at `/api/docs` and
-   SDK clients can use `http://localhost:8080/v1` as their base URL. Set
+   Visit <http://localhost:8080>. SDK clients can use `http://localhost:8080/v1` as their base URL. Set
    `GATEWAY_PORT` or `GATEWAY_BIND_ADDRESS` in `.env` to change the published
    port or bind address. The default binds only to localhost; for production,
    put a TLS-terminating reverse proxy in front of it. Run one API instance:
@@ -95,7 +94,9 @@ share one origin through nginx. The image uses the committed uv and npm locks.
 
 Back up the SQLite database using SQLite's online backup facility and keep the
 backup and secrets separately. `docker compose down` preserves the volume;
-`docker compose down -v` deletes it and all stored data. Update images and
+`docker compose down -v` deletes it and all stored data. Run `./clean.sh` to
+stop and remove this project’s containers, images, network, and volume in one
+command; this permanently deletes its stored database. Update images and
 rebuild deliberately, and review the application configuration and access
 controls before making the service public.
 

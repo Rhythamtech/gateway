@@ -89,21 +89,7 @@ const faqs = [
         <h2 class="text-xs font-semibold uppercase tracking-wider text-primary text-center">
           Developer Resources
         </h2>
-        <div class="mt-6 grid gap-4 sm:grid-cols-3">
-          <a
-            href={`${apiBaseUrl}/docs`}
-            target="_blank"
-            class="rounded-xl border border-border/80 bg-card p-5 shadow-xs transition-all hover:border-primary/50 hover:shadow-sm"
-          >
-            <span class="text-2xl">📖</span>
-            <h3 class="mt-3 text-sm font-semibold text-foreground">
-              API Documentation
-            </h3>
-            <p class="mt-1 text-xs text-muted-foreground">
-              Interactive Swagger API reference with request parameters,
-              schemas, and endpoints.
-            </p>
-          </a>
+        <div class="mt-6 grid gap-4 sm:grid-cols-2">
           <a
             href={`${apiBaseUrl}/openapi.json`}
             target="_blank"

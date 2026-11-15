@@ -1,5 +1,6 @@
 services:
   api:
+    container_name: gateway-api
     build:
       context: .
       target: api
@@ -14,6 +15,7 @@ services:
     init: true
 
   web:
+    container_name: gateway-web
     build:
       context: .
       target: web

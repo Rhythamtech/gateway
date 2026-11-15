@@ -24,10 +24,6 @@ import {
   Zap,
 } from "lucide-react"
 
-const apiBaseUrl = (
-  import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000"
-).replace(/\/$/, "")
-
 const clientPillars = [
   {
     icon: Route,
@@ -125,18 +121,6 @@ const clientGuarantees = [
           >
             Open Dashboard
             <ArrowRight className="size-4" />
-          </a>
-          <a
-            href={`${apiBaseUrl}/docs`}
-            target="_blank"
-            rel="noreferrer"
-            class={buttonVariants({
-              variant: "outline",
-              size: "lg",
-              className: "rounded-full px-6 font-medium",
-            })}
-          >
-            Explore API Docs ↗
           </a>
         </div>
       </div>

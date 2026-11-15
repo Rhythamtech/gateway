@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.openapi.docs import get_redoc_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -384,15 +384,6 @@ async def health() -> dict:
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon() -> FileResponse:
     return FileResponse(STATIC_DIR / "logo.png", media_type="image/png")
-
-
-@app.get("/docs", include_in_schema=False)
-async def swagger_ui() -> HTMLResponse:
-    return get_swagger_ui_html(
-        openapi_url=app.openapi_url,
-        title=f"{app.title} — Documentation",
-        swagger_favicon_url="/static/logo.png",
-    )
 
 
 @app.get("/redoc", include_in_schema=False)

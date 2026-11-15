@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ArrowRight, ExternalLink, Menu } from "lucide-react"
+import { ArrowRight, Menu } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -45,20 +45,10 @@ export function TubeNavbar({ current }: TubeNavbarProps) {
     return () => window.removeEventListener("storage", handleStorage)
   }, [])
 
-  const apiBaseUrl = (
-    import.meta.env?.PUBLIC_API_BASE_URL ?? "http://localhost:8000"
-  ).replace(/\/$/, "")
-
   const navLinks = [
     { label: "Home", href: "/", id: "home" },
     { label: "About", href: "/about", id: "about" },
     { label: "Support", href: "/support", id: "support" },
-    {
-      label: "API Docs",
-      href: `${apiBaseUrl}/docs`,
-      target: "_blank",
-      id: "docs",
-    },
   ]
 
   const handleSignOut = () => {
@@ -96,8 +86,6 @@ export function TubeNavbar({ current }: TubeNavbarProps) {
               <a
                 key={link.id}
                 href={link.href}
-                target={link.target}
-                rel={link.target ? "noreferrer" : undefined}
                 className={cn(
                   "rounded-full px-3.5 py-1.5 transition-colors",
                   isActive
@@ -191,8 +179,6 @@ export function TubeNavbar({ current }: TubeNavbarProps) {
                     <a
                       key={link.id}
                       href={link.href}
-                      target={link.target}
-                      rel={link.target ? "noreferrer" : undefined}
                       onClick={() => setIsOpen(false)}
                       className={cn(
                         "flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors",
@@ -202,9 +188,6 @@ export function TubeNavbar({ current }: TubeNavbarProps) {
                       )}
                     >
                       <span>{link.label}</span>
-                      {link.target ? (
-                        <ExternalLink className="size-3.5 opacity-50" />
-                      ) : null}
                     </a>
                   ))}
                   <a

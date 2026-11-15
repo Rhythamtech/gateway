@@ -6,11 +6,7 @@ import { ArrowRight, Terminal } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 import { hasAuthTokens } from "@/lib/auth"
 
-export interface LandingHeroActionsProps {
-  apiDocsUrl: string
-}
-
-export function LandingHeroActions({ apiDocsUrl }: LandingHeroActionsProps) {
+export function LandingHeroActions() {
   const [isAuth, setIsAuth] = React.useState(() => {
     if (typeof window !== "undefined") {
       return hasAuthTokens()
@@ -64,20 +60,6 @@ export function LandingHeroActions({ apiDocsUrl }: LandingHeroActionsProps) {
       >
         <Terminal className="size-4" />
         Try Playground
-      </a>
-
-      <a
-        href={apiDocsUrl}
-        target="_blank"
-        rel="noreferrer"
-        className={buttonVariants({
-          variant: "ghost",
-          size: "lg",
-          className:
-            "rounded-full px-4 text-xs font-medium text-muted-foreground hover:text-foreground",
-        })}
-      >
-        API Docs ↗
       </a>
     </div>
   )

@@ -24,10 +24,6 @@ import {
   Zap,
 } from "lucide-react"
 
-const apiBaseUrl = (
-  import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000"
-).replace(/\/$/, "")
-
 const clientFeatures = [
   {
     icon: Route,
@@ -128,7 +124,7 @@ const clientSteps = [
         </p>
 
         <div class="mt-8">
-          <LandingHeroActions client:load apiDocsUrl={`${apiBaseUrl}/docs`} />
+          <LandingHeroActions client:load />
         </div>
       </div>
 
