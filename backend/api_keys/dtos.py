@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.core.datetime_safety import UTCDateTime
@@ -6,6 +8,7 @@ from backend.core.datetime_safety import UTCDateTime
 class APIKeyCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
+    expires_in: Literal["1h", "24h", "1week", "never", ""] | None = None
 
 
 class APIKeyCreated(BaseModel):
@@ -16,6 +19,7 @@ class APIKeyCreated(BaseModel):
     owner_id: str
     created_at: UTCDateTime
     last_used_at: UTCDateTime | None
+    expires_at: UTCDateTime | None
     revoked: bool
     revoked_at: UTCDateTime | None
 
@@ -28,6 +32,7 @@ class APIKeyItem(BaseModel):
     owner_id: str
     created_at: UTCDateTime
     last_used_at: UTCDateTime | None
+    expires_at: UTCDateTime | None
     revoked: bool
     revoked_at: UTCDateTime | None
 

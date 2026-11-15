@@ -750,6 +750,11 @@ def _migration_0021_signup_settings(connection: Connection) -> None:
         ))
 
 
+def _migration_0022_api_key_expiry(connection: Connection) -> None:
+    if "expires_at" not in _sqlite_columns(connection, "api_keys"):
+        connection.execute(text("ALTER TABLE api_keys ADD COLUMN expires_at DATETIME"))
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -778,6 +783,7 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0019_credit_coupons", _migration_0019_credit_coupons),
     ("0020_support_tickets", _migration_0020_support_tickets),
     ("0021_signup_settings", _migration_0021_signup_settings),
+    ("0022_api_key_expiry", _migration_0022_api_key_expiry),
 ]
 
 

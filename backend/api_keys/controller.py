@@ -1,6 +1,6 @@
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
@@ -8,21 +8,34 @@ from sqlalchemy.orm import Session
 from backend.api_keys.dtos import APIKeyCreate, APIKeyCreated, APIKeyItem, APIKeyList, APIKeyRevoked
 from backend.api_keys.models import APIKey
 from backend.auth.models import User, UserRole
-from backend.core.database import get_db
+from backend.core.database import get_db, get_write_db
 from backend.dependencies import get_current_user
 
 router = APIRouter(prefix="/api-keys", tags=["API Keys"])
 
 
 @router.post("", response_model=APIKeyCreated, status_code=status.HTTP_201_CREATED)
-def create_api_key(data: APIKeyCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_api_key(data: APIKeyCreate, db: Session = Depends(get_write_db), user: User = Depends(get_current_user)):
     # Provider-style secret, modeled on the Anthropic/OpenAI shape ("sk-…"):
     # an Anthropic-like versioned namespace followed by 43 random URL-safe
     # characters (256-bit entropy, same as the previous format). The format has
     # no functional role — authentication stores and matches the SHA-256 hash —
     # so existing keys keep working unchanged.
     secret = "sk-gw-api01-" + secrets.token_urlsafe(32)
-    key = APIKey(name=data.name, key_hash=hashlib.sha256(secret.encode()).hexdigest(), key_prefix=secret[:16], owner_id=user.id)
+    now = datetime.now(timezone.utc)
+    duration = {
+        "1h": timedelta(hours=1),
+        "24h": timedelta(hours=24),
+        "1week": timedelta(weeks=1),
+    }.get(data.expires_in)
+    key = APIKey(
+        name=data.name,
+        key_hash=hashlib.sha256(secret.encode()).hexdigest(),
+        key_prefix=secret[:16],
+        owner_id=user.id,
+        created_at=now,
+        expires_at=now + duration if duration is not None else None,
+    )
     db.add(key)
     db.commit()
     db.refresh(key)

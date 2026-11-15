@@ -14,6 +14,7 @@ import {
   deleteApiKey,
   listApiKeys,
   revokeApiKey,
+  type ApiKeyExpiry,
   type ApiKeyItem,
 } from "@/lib/auth"
 import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
@@ -43,7 +44,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   Table,
   TableBody,
@@ -79,6 +86,8 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
   const [drawerError, setDrawerError] = React.useState<string | null>(null)
   const [pendingAction, setPendingAction] = React.useState(false)
   const [newKeyName, setNewKeyName] = React.useState("")
+  const [newKeyExpiry, setNewKeyExpiry] = React.useState<ApiKeyExpiry>("never")
+  const [now, setNow] = React.useState(Date.now)
   const [copied, setCopied] = React.useState(false)
 
   const isSuperuser = user.role === "superuser"
@@ -90,6 +99,7 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
       .then((result) => {
         if (cancelled) return
         setKeys(result.items)
+        setNow(Date.now())
         setLoadError(null)
       })
       .catch((error: unknown) => {
@@ -104,6 +114,21 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
     }
   }, [reloadTick])
 
+  React.useEffect(() => {
+    const nextExpiry = Math.min(
+      ...(keys ?? [])
+        .filter((key) => !key.revoked && key.expires_at)
+        .map((key) => parseApiTimestamp(key.expires_at!)?.getTime() ?? 0)
+        .filter((expiry) => expiry > now)
+    )
+    if (!Number.isFinite(nextExpiry)) return
+    const timer = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.min(Math.max(nextExpiry - Date.now(), 0), 2_147_483_647)
+    )
+    return () => window.clearTimeout(timer)
+  }, [keys, now])
+
   function refreshKeys() {
     setReloadTick((tick) => tick + 1)
   }
@@ -113,6 +138,7 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
     setDrawerError(null)
     setPendingAction(false)
     setNewKeyName("")
+    setNewKeyExpiry("never")
     setCopied(false)
   }
 
@@ -128,7 +154,7 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
     setDrawerError(null)
 
     try {
-      const created = await createApiKey(name)
+      const created = await createApiKey(name, newKeyExpiry)
       setDrawerState({
         mode: "secret",
         secret: created.api_key,
@@ -226,6 +252,7 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
               onClick={() => {
                 setDrawerError(null)
                 setNewKeyName("")
+                setNewKeyExpiry("never")
                 setDrawerState({ mode: "create" })
               }}
             >
@@ -255,6 +282,7 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
                     <TableHead>Key</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Created</TableHead>
+                    <TableHead>Expires</TableHead>
                     <TableHead>Last used</TableHead>
                     <TableHead>
                       <span className="sr-only">Actions</span>
@@ -265,7 +293,7 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
                   {keys === null ? (
                     <TableRow>
                       <TableCell
-                        colSpan={6}
+                        colSpan={7}
                         className="h-24 text-center text-muted-foreground"
                       >
                         Loading API keys…
@@ -274,7 +302,7 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
                   ) : keys.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={6}
+                        colSpan={7}
                         className="h-24 text-center text-muted-foreground"
                       >
                         No API keys yet. Create one to call the inference
@@ -282,87 +310,101 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    keys.map((key) => (
-                      <TableRow key={key.id}>
-                        <TableCell className="font-medium">
-                          {key.name}
-                        </TableCell>
-                        <TableCell>
-                          <code className="font-mono text-xs text-muted-foreground">
-                            {key.key_prefix}…
-                          </code>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className="px-1.5 text-muted-foreground"
-                          >
-                            {key.revoked ? (
-                              <IconBan />
-                            ) : (
-                              <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
-                            )}
-                            {key.revoked ? "Revoked" : "Active"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {formatDateTime(key.created_at)}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {formatDateTime(key.last_used_at)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="text-muted-foreground data-[state=open]:bg-muted"
-                              >
-                                <IconDotsVertical />
-                                <span className="sr-only">
-                                  Actions for {key.name}
-                                </span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-40">
-                              {!key.revoked ? (
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    setDrawerError(null)
-                                    setDrawerState({
-                                      mode: "revoke",
-                                      key,
-                                    })
-                                  }}
+                    keys.map((key) => {
+                      const expired = key.expires_at
+                        ? (parseApiTimestamp(key.expires_at)?.getTime() ??
+                            Infinity) <= now
+                        : false
+                      const inactive = key.revoked || expired
+                      return (
+                        <TableRow key={key.id}>
+                          <TableCell className="font-medium">
+                            {key.name}
+                          </TableCell>
+                          <TableCell>
+                            <code className="font-mono text-xs text-muted-foreground">
+                              {key.key_prefix}…
+                            </code>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className="px-1.5 text-muted-foreground"
+                            >
+                              {inactive ? (
+                                <IconBan />
+                              ) : (
+                                <IconCircleCheckFilled className="fill-green-500 dark:fill-green-400" />
+                              )}
+                              {key.revoked
+                                ? "Revoked"
+                                : expired
+                                  ? "Expired"
+                                  : "Active"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDateTime(key.created_at)}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDateTime(key.expires_at)}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDateTime(key.last_used_at)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="text-muted-foreground data-[state=open]:bg-muted"
                                 >
-                                  Revoke
-                                </DropdownMenuItem>
-                              ) : null}
-                              {isSuperuser ? (
-                                <>
-                                  {!key.revoked ? (
-                                    <DropdownMenuSeparator />
-                                  ) : null}
+                                  <IconDotsVertical />
+                                  <span className="sr-only">
+                                    Actions for {key.name}
+                                  </span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                {!key.revoked ? (
                                   <DropdownMenuItem
-                                    variant="destructive"
                                     onSelect={() => {
                                       setDrawerError(null)
                                       setDrawerState({
-                                        mode: "delete",
+                                        mode: "revoke",
                                         key,
                                       })
                                     }}
                                   >
-                                    Delete
+                                    Revoke
                                   </DropdownMenuItem>
-                                </>
-                              ) : null}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                                ) : null}
+                                {isSuperuser ? (
+                                  <>
+                                    {!key.revoked ? (
+                                      <DropdownMenuSeparator />
+                                    ) : null}
+                                    <DropdownMenuItem
+                                      variant="destructive"
+                                      onSelect={() => {
+                                        setDrawerError(null)
+                                        setDrawerState({
+                                          mode: "delete",
+                                          key,
+                                        })
+                                      }}
+                                    >
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </>
+                                ) : null}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -393,20 +435,47 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
                 className="flex flex-col gap-4 px-4 text-sm"
                 onSubmit={handleCreate}
               >
-                <div className="flex flex-col gap-3">
-                  <Label htmlFor="api-key-name">Name</Label>
-                  <Input
-                    id="api-key-name"
-                    name="name"
-                    value={newKeyName}
-                    onChange={(event) => setNewKeyName(event.target.value)}
-                    placeholder="e.g. Production server"
-                    minLength={1}
-                    maxLength={120}
-                    required
-                    autoFocus
-                  />
-                </div>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="api-key-name">Name</FieldLabel>
+                    <Input
+                      id="api-key-name"
+                      name="name"
+                      value={newKeyName}
+                      onChange={(event) => setNewKeyName(event.target.value)}
+                      placeholder="e.g. Production server"
+                      minLength={1}
+                      maxLength={120}
+                      required
+                      autoFocus
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel id="api-key-expiry-label">
+                      Expires after
+                    </FieldLabel>
+                    <ToggleGroup
+                      type="single"
+                      variant="outline"
+                      size="sm"
+                      value={newKeyExpiry}
+                      onValueChange={(value) =>
+                        setNewKeyExpiry((value || "never") as ApiKeyExpiry)
+                      }
+                      aria-labelledby="api-key-expiry-label"
+                      aria-describedby="api-key-expiry-help"
+                      disabled={pendingAction}
+                    >
+                      <ToggleGroupItem value="1h">1 hour</ToggleGroupItem>
+                      <ToggleGroupItem value="24h">24 hours</ToggleGroupItem>
+                      <ToggleGroupItem value="1week">1 week</ToggleGroupItem>
+                      <ToggleGroupItem value="never">Never</ToggleGroupItem>
+                    </ToggleGroup>
+                    <FieldDescription id="api-key-expiry-help">
+                      Starts when the key is created. Leave unset for no expiry.
+                    </FieldDescription>
+                  </Field>
+                </FieldGroup>
                 {drawerError ? (
                   <p className="text-sm text-destructive" role="alert">
                     {drawerError}

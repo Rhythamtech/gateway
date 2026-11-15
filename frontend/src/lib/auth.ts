@@ -239,6 +239,7 @@ export type ApiKeyItem = {
   owner_id: string
   created_at: string
   last_used_at: string | null
+  expires_at: string | null
   revoked: boolean
   revoked_at: string | null
 }
@@ -264,11 +265,16 @@ export function listApiKeys(): Promise<ApiKeyList> {
   return authenticatedRequest<ApiKeyList>("/api-keys")
 }
 
-export function createApiKey(name: string): Promise<ApiKeyCreated> {
+export type ApiKeyExpiry = "1h" | "24h" | "1week" | "never"
+
+export function createApiKey(
+  name: string,
+  expiresIn?: ApiKeyExpiry | "" | null
+): Promise<ApiKeyCreated> {
   return authenticatedRequest<ApiKeyCreated>("/api-keys", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, expires_in: expiresIn || null }),
   })
 }
 

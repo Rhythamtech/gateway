@@ -8,6 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from backend.api_keys.models import APIKey, APIKeyUsage
 from backend.auth.models import User
 from backend.core.database import SessionLocal
+from backend.core.datetime_safety import to_utc
 
 
 def _provider_error(path: str, status_code: int, code: str, message: str) -> JSONResponse:
@@ -52,6 +53,11 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 return _provider_error(
                     request.url.path, 401, "authentication_error", "Invalid or revoked API key"
                 )
+            now = datetime.now(timezone.utc)
+            if key.expires_at is not None and to_utc(key.expires_at) <= now:
+                return _provider_error(
+                    request.url.path, 401, "authentication_error", "API key has expired"
+                )
             owner = (
                 db.query(User)
                 .filter(User.id == key.owner_id, User.is_active.is_(True))
@@ -61,7 +67,6 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 return _provider_error(
                     request.url.path, 401, "authentication_error", "Invalid or revoked API key"
                 )
-            now = datetime.now(timezone.utc)
             cutoff = now - timedelta(minutes=1)
             count = (
                 db.query(APIKeyUsage)
