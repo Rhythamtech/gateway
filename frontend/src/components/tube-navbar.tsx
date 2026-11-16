@@ -18,7 +18,7 @@ import { APP_NAME } from "@/lib/site"
 import { clearAuthTokens, getCachedUser, hasAuthTokens } from "@/lib/auth"
 
 export interface TubeNavbarProps {
-  current?: "home" | "about" | "support" | "privacy" | "terms"
+  current?: "home" | "docs" | "about" | "support" | "privacy" | "terms"
 }
 
 export function TubeNavbar({ current }: TubeNavbarProps) {
@@ -47,6 +47,7 @@ export function TubeNavbar({ current }: TubeNavbarProps) {
 
   const navLinks = [
     { label: "Home", href: "/", id: "home" },
+    { label: "Docs", href: "/docs", id: "docs" },
     { label: "About", href: "/about", id: "about" },
     { label: "Support", href: "/support", id: "support" },
   ]
@@ -72,7 +73,7 @@ export function TubeNavbar({ current }: TubeNavbarProps) {
             alt=""
             className="size-6 object-contain dark:invert"
           />
-          <span className="font-semibold">{APP_NAME}</span>
+          <span className="font-semibold max-[360px]:hidden">{APP_NAME}</span>
         </a>
 
         {/* Desktop Navigation Links */}
