@@ -155,16 +155,15 @@ export function GatewayOverview() {
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
     .slice(0, 5)
   const sampleScope = sampled
-    ? `Latest ${calls.items.length} traced calls`
-    : "Selected period"
+    ? `Based on the latest ${calls.items.length} traced calls.`
+    : ""
   const latencySamples = latency.reduce(
     (total, bucket) => total + bucket.count,
     0
   )
   const charts = [
     {
-      title: "Unsuccessful calls by outcome",
-      description: "Failed and timed-out attempts · Selected period",
+      title: "Failed and timed-out calls",
       data:
         failures && data?.failed && data.timeouts
           ? [
@@ -184,7 +183,7 @@ export function GatewayOverview() {
     },
     {
       title: "Latency distribution",
-      description: `${sampleScope} · ${latencySamples.toLocaleString()} measured attempts`,
+      description: `${latencySamples.toLocaleString()} measured attempts.${sampleScope ? ` ${sampleScope}` : ""}`,
       data: latencySamples ? latency : [],
       emptyMessage: calls
         ? "No latency measurements in this period."
@@ -192,8 +191,8 @@ export function GatewayOverview() {
       color: "var(--analytics-latency)",
     },
     {
-      title: "Calls by provider",
-      description: `Up to 5 providers by traced calls · ${sampleScope}`,
+      title: "Top providers by call count",
+      description: sampleScope,
       data: providerActivity,
       emptyMessage: calls
         ? "No traced calls in this period."
@@ -266,8 +265,8 @@ export function GatewayOverview() {
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {sampled
-                ? `Latest ${calls.items.length} traced calls · First UTC day may be partial`
-                : "Recorded provider attempts across accounts · UTC"}
+                ? `Latest ${calls.items.length} traced calls. The first UTC day may be partial.`
+                : "Traced calls per UTC day"}
             </p>
           </div>
           <ToggleGroup
@@ -353,10 +352,14 @@ export function GatewayOverview() {
             key={chart.title}
             className="min-w-0 rounded-xl border bg-card p-4 sm:p-6 last:@min-[680px]/gateway:col-span-2 last:@min-[1080px]/gateway:col-span-1"
           >
-            <h3 className="font-semibold">{chart.title}</h3>
-            <p className="mt-1 mb-4 text-xs text-muted-foreground">
-              {chart.description}
-            </p>
+            <div className="mb-4">
+              <h3 className="font-semibold">{chart.title}</h3>
+              {chart.description && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {chart.description}
+                </p>
+              )}
+            </div>
             {!data ? (
               <Skeleton className="h-52 w-full" />
             ) : chart.data.length ? (

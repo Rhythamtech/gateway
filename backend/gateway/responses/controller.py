@@ -1,3 +1,4 @@
+from starlette.concurrency import run_in_threadpool
 import json
 import uuid
 from typing import Any
@@ -31,9 +32,9 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
     chat_payload = responses_to_chat(payload)
     capture = start_capture(request, payload)
     try:
-        execution = admit_request(request, chat_payload, capture)
+        execution = await run_in_threadpool(admit_request, request, chat_payload, capture)
     except GatewayError as exc:
-        capture.failure(exc)
+        await run_in_threadpool(capture.failure, exc)
         raise
 
     upstream_payload = execution.payload

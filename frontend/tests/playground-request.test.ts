@@ -71,3 +71,31 @@ test("long histories preserve intentional turns without UI states", () => {
   assert.equal(result.length, 1000)
   assert.deepEqual(result.at(-1), { role: "user", content: "prompt 999" })
 })
+
+test("exports resolve API paths against the dashboard origin", () => {
+  const payload: ChatPayload = {
+    model: "fixture/model",
+    messages: [],
+    temperature: 1,
+    max_tokens: 5,
+    top_p: 1,
+    stream: true,
+  }
+  for (const language of ["curl", "python", "typescript"] as const) {
+    for (const [base, expected] of [
+      ["/api", "https://gateway.example/v1/chat/completions"],
+      ["", "https://gateway.example/v1/chat/completions"],
+      ["https://api.example/", "https://api.example/v1/chat/completions"],
+      ["https://api.example/api", "https://api.example/v1/chat/completions"],
+    ]) {
+      assert.ok(
+        requestSnippet(
+          payload,
+          language,
+          base,
+          "https://gateway.example"
+        ).includes(expected)
+      )
+    }
+  }
+})

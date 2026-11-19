@@ -652,8 +652,8 @@ function ModelGroupDetailInner() {
       <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
         <div className="flex flex-col gap-1">
           <p className="text-sm text-muted-foreground">
-            Members are tried in ascending priority order — lower numbers first.
-            Weights spread traffic in weighted round-robin mode.
+            Priority routing tries lower priority numbers first. Weights spread
+            traffic in weighted round-robin mode.
           </p>
           {group.is_enabled && !hasEligibleMember ? (
             <p className="text-xs text-amber-700 dark:text-amber-400">

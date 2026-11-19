@@ -242,7 +242,7 @@ export function CreditReviewContent() {
           <div className="flex flex-col items-start gap-2 rounded-lg border bg-card p-6">
             <p className="text-sm font-medium">
               {isDefaultFilter
-                ? "You’re all caught up"
+                ? "No unresolved credit holds"
                 : "No usage records match the current filters."}
             </p>
             <p className="text-sm text-muted-foreground">

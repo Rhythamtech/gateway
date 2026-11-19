@@ -897,3 +897,80 @@
 [data-theme-style="devlog"] ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+
+/* A seamless announcement lane; controls stay outside the moving content. */
+.announcement-ticker {
+  width: 100%;
+  container-type: inline-size;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+.announcement-ticker:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.announcement-ticker-track {
+  display: flex;
+  width: max-content;
+  animation: announcement-scroll var(--announcement-duration, 45s) linear infinite;
+}
+.announcement-ticker-group {
+  display: flex;
+  flex-shrink: 0;
+  min-width: 100cqw;
+  justify-content: space-around;
+}
+.announcement-ticker-copy {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.75rem;
+  padding-inline: 1.5rem;
+  white-space: nowrap;
+}
+.announcement-ticker:hover .announcement-ticker-track,
+.announcement-ticker:focus-within .announcement-ticker-track,
+.announcement-ticker[data-paused="true"] .announcement-ticker-track {
+  animation-play-state: paused;
+}
+@keyframes announcement-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .announcement-ticker {
+    overflow-x: auto;
+  }
+  .announcement-ticker-track {
+    animation: none;
+  }
+  .announcement-ticker-group {
+    min-width: 0;
+  }
+  .announcement-ticker-group[aria-hidden="true"],
+  .announcement-ticker-copy[aria-hidden="true"] {
+    display: none;
+  }
+}
+
+.notice-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--foreground);
+}
+.notice-icon svg { width: 1rem; height: 1rem; }
+.notice-icon[data-severity="exhausted"] {
+  background: var(--destructive);
+  color: var(--primary-foreground);
+}

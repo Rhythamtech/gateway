@@ -257,11 +257,12 @@ function CouponOverviewSheet({
               </p>
             </div>
             <div className="rounded-lg border bg-muted/20 p-3.5">
-              <p className="text-xs font-medium text-muted-foreground">Per User Limit</p>
+              <p className="text-xs font-medium text-muted-foreground">
+                Per-user limit
+              </p>
               <p className="mt-1 text-lg font-bold tabular-nums text-foreground">
                 {current.per_user_limit}
               </p>
-              <p className="text-[11px] text-muted-foreground">Max per account</p>
             </div>
             <div className="rounded-lg border bg-muted/20 p-3.5">
               <p className="text-xs font-medium text-muted-foreground">Expires</p>
@@ -410,9 +411,6 @@ export function CouponsContent() {
     <div className="flex min-w-0 flex-col gap-6">
       <header>
         <h2 className="text-2xl font-semibold">Credit coupons</h2>
-        <p className="text-sm text-muted-foreground">
-          Create fixed-credit offers and track their redemptions.
-        </p>
       </header>
       <CreateCoupon
         onCreated={() => {

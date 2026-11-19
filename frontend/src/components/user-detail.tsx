@@ -311,9 +311,6 @@ export function UserDetailContent({ user }: { user: CurrentUser }) {
                   Refresh
                 </Button>
               </CardAction>
-              <CardDescription>
-                Recent balance changes for this account.
-              </CardDescription>
             </CardHeader>
             <CardContent>
               {history.value ? (
@@ -353,9 +350,6 @@ export function UserDetailContent({ user }: { user: CurrentUser }) {
           <Card>
             <CardHeader>
               <CardTitle>Admin activity</CardTitle>
-              <CardDescription>
-                Latest administrative changes recorded for this user.
-              </CardDescription>
             </CardHeader>
             <CardContent>
               {audit.loading ? (

@@ -174,11 +174,6 @@ export function UsersContent({ user: signedInUser }: { user: CurrentUser }) {
         </div>
       ) : (
         <>
-          <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
-            <p className="text-sm text-muted-foreground">
-              User accounts and access management.
-            </p>
-          </div>
           <div className="flex flex-col gap-3 px-4 lg:px-6">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-muted-foreground" role="status">

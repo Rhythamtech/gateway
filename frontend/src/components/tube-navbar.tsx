@@ -18,10 +18,11 @@ import { APP_NAME } from "@/lib/site"
 import { clearAuthTokens, getCachedUser, hasAuthTokens } from "@/lib/auth"
 
 export interface TubeNavbarProps {
+  inFlow?: boolean
   current?: "home" | "docs" | "about" | "support" | "privacy" | "terms"
 }
 
-export function TubeNavbar({ current }: TubeNavbarProps) {
+export function TubeNavbar({ current, inFlow = false }: TubeNavbarProps) {
   const [isAuth, setIsAuth] = React.useState(() => {
     if (typeof window !== "undefined") {
       return hasAuthTokens()
@@ -60,7 +61,12 @@ export function TubeNavbar({ current }: TubeNavbarProps) {
   }
 
   return (
-    <header className="fixed inset-x-0 top-3 z-50 mx-auto w-[calc(100%-1.5rem)] max-w-4xl transition-all duration-200 sm:top-5 sm:w-[calc(100%-3rem)]">
+    <header
+      className={cn(
+        "mx-auto w-[calc(100%-1.5rem)] max-w-4xl transition-all duration-200 sm:w-[calc(100%-3rem)]",
+        inFlow ? "relative" : "fixed inset-x-0 top-3 z-50 sm:top-5"
+      )}
+    >
       <div className="flex h-12 items-center justify-between rounded-full border border-border/70 bg-background/80 px-3 shadow-xs backdrop-blur-md transition-colors sm:h-13 sm:px-4">
         {/* Brand */}
         <a

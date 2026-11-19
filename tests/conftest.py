@@ -13,6 +13,8 @@ from backend.core.database import Base
 from backend.users import audit as user_audit_models  # noqa: F401
 from backend.coupons import models as coupon_models  # noqa: F401
 
+from backend.notifications import models as notification_models  # noqa: F401
+from backend.announcements import models as announcement_models  # noqa: F401
 
 @pytest.fixture(scope="function")
 def db_session(monkeypatch, tmp_path):

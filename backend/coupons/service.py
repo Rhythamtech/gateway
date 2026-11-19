@@ -9,6 +9,7 @@ from backend.coupons.models import Coupon, CouponAudit, CouponRedemption
 from backend.credits.calculation import format_credits, to_microcredits
 from backend.credits.models import CreditEntry, utcnow
 from backend.credits.service import entry_response, grant_credits
+from backend.auth.models import User
 
 
 def require_coupon(db: Session, coupon_id: str) -> Coupon:
@@ -82,15 +83,16 @@ def redemption_response(db: Session, row: CouponRedemption) -> RedemptionRespons
 
 
 def redeem(data: RedeemCoupon, user_id: str) -> RedemptionResponse:
-    # BEGIN IMMEDIATE serializes limit checks with grants, including retries.
+    # Serialize the user's retries and each coupon's global limit checks.
     # Check replay before current availability so a committed receipt stays retrievable.
     with SessionLocal.begin() as db:
+        db.query(User).filter(User.id == user_id).with_for_update().one()
         previous = db.query(CouponRedemption).filter_by(user_id=user_id, idempotency_key=data.idempotency_key).first()
         if previous:
             if db.get(Coupon, previous.coupon_id).code != data.code:
                 raise HTTPException(409, "Idempotency key was already used for a different coupon")
             return redemption_response(db, previous)
-        coupon = db.query(Coupon).filter_by(code=data.code).first()
+        coupon = db.query(Coupon).filter_by(code=data.code).with_for_update().first()
         if coupon is None:
             raise HTTPException(404, "Coupon not found")
         now = utcnow()
@@ -105,7 +107,7 @@ def redeem(data: RedeemCoupon, user_id: str) -> RedemptionResponse:
             raise HTTPException(409, "Coupon redemption limit reached")
         if redemptions.filter_by(user_id=user_id).count() >= coupon.per_user_limit:
             raise HTTPException(409, "Your coupon redemption limit was reached")
-        entry = grant_credits(db, "user", user_id, coupon.amount, user_id, f"Coupon {coupon.code}")
+        entry = grant_credits(db, "user", user_id, coupon.amount, user_id, f"Coupon {coupon.code}", coupon_code=coupon.code)
         row = CouponRedemption(coupon_id=coupon.id, user_id=user_id, amount=coupon.amount,
                                idempotency_key=data.idempotency_key, credit_entry_id=entry.id)
         db.add(row)

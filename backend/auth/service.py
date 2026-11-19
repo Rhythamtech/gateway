@@ -19,7 +19,7 @@ def get_user_by_email(db: Session, email: str) -> User | None:
 
 
 def register_user(db: Session, data: RegisterRequest) -> User:
-    enabled = db.execute(text("SELECT signups_enabled FROM gateway_settings WHERE id=1")).scalar_one()
+    enabled = db.execute(text("SELECT signups_enabled FROM gateway_settings WHERE id=1 FOR UPDATE") if db.bind.dialect.name == "postgresql" else text("SELECT signups_enabled FROM gateway_settings WHERE id=1")).scalar_one()
     if not enabled:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="New signups are disabled. Please sign in.")
 

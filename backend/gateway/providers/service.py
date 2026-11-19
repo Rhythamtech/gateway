@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from starlette.concurrency import run_in_threadpool
 from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -748,7 +749,7 @@ async def call_provider(
     payload: dict[str, Any],
     stream: bool,
 ) -> httpx.Response:
-    provider = get_provider(provider_name)
+    provider = await run_in_threadpool(get_provider, provider_name)
     suffix = "/messages" if provider.protocol == "anthropic" else "/chat/completions"
 
     try:

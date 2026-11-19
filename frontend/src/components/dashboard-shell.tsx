@@ -1,3 +1,5 @@
+import { AccountCreditAlert } from "@/components/account-credit-alert"
+import { AnnouncementBanner } from "@/components/announcement-banner"
 import * as React from "react"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -42,6 +44,8 @@ export function DashboardShell({
       <AppSidebar role={role} currentPath={currentPath} user={user} />
       <SidebarInset className="min-w-0 md:rounded-2xl">
         <SiteHeader title={pageTitle} />
+        <AnnouncementBanner />
+        <AccountCreditAlert />
         <div
           id="dashboard-content"
           tabIndex={-1}

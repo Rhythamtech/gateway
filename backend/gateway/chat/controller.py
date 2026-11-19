@@ -1,3 +1,4 @@
+from starlette.concurrency import run_in_threadpool
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -19,9 +20,9 @@ router = APIRouter(prefix="/v1", tags=["Gateway"])
 async def forward_chat(request: Request, payload: dict[str, Any]) -> Any:
     capture = start_capture(request, payload)
     try:
-        execution = admit_request(request, payload, capture)
+        execution = await run_in_threadpool(admit_request, request, payload, capture)
     except GatewayError as exc:
-        capture.failure(exc)
+        await run_in_threadpool(capture.failure, exc)
         raise
 
     upstream_payload = execution.payload

@@ -9,6 +9,8 @@ RUN uv sync --locked --no-dev --no-install-project && \
     useradd --system --uid 10001 --create-home app && \
     mkdir /data && chown app:app /data
 COPY --chown=app:app backend ./backend
+COPY --chown=app:app alembic.ini ./alembic.ini
+COPY --chown=app:app alembic ./alembic
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]

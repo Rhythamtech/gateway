@@ -14,7 +14,6 @@ import {
   Key,
   Layers,
   LifeBuoy,
-  Play,
   ShieldCheck,
   Sparkles,
   Terminal,
@@ -144,22 +143,15 @@ export function DocsView({ apiBaseUrl }: DocsViewProps) {
               </BreadcrumbList>
             </Breadcrumb>
 
-            <div className="flex shrink-0 items-center gap-2">
-              <Badge variant="outline" className="gap-1.5 font-mono text-xs">
-                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-                API v1 Active
-              </Badge>
-              <a
-                href="/dashboard/playground"
-                className={cn(
-                  buttonVariants({ variant: "outline", size: "sm" }),
-                  "hidden gap-1.5 sm:inline-flex"
-                )}
-              >
-                <Play className="h-3.5 w-3.5" />
-                Playground
-              </a>
-            </div>
+            <a
+              href="/dashboard/playground"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "hidden shrink-0 sm:inline-flex"
+              )}
+            >
+              Playground
+            </a>
           </div>
           <nav
             aria-label="Documentation sections"
@@ -271,10 +263,6 @@ export function DocsView({ apiBaseUrl }: DocsViewProps) {
               {/* SECTION: Quickstart */}
               <section id="quickstart" className="scroll-mt-24 space-y-4">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary">Getting Started</Badge>
-                    <Badge variant="outline">OpenAI Compatible</Badge>
-                  </div>
                   <h1 className="text-3xl font-bold tracking-tight">
                     Quickstart
                   </h1>
@@ -465,7 +453,6 @@ main();`}
               {/* SECTION: Authentication */}
               <section id="authentication" className="scroll-mt-24 space-y-4">
                 <div className="space-y-1">
-                  <Badge variant="secondary">Security</Badge>
                   <h2 className="text-2xl font-bold tracking-tight">
                     Authentication
                   </h2>
@@ -510,7 +497,6 @@ main();`}
               {/* SECTION: Models & Routing */}
               <section id="models" className="scroll-mt-24 space-y-4">
                 <div className="space-y-1">
-                  <Badge variant="secondary">Routing</Badge>
                   <h2 className="text-2xl font-bold tracking-tight">
                     Models & Addressing
                   </h2>
@@ -710,7 +696,6 @@ main();`}
                     <span className="font-mono text-xs text-muted-foreground">
                       /v1/messages
                     </span>
-                    <Badge variant="secondary">Anthropic SDK</Badge>
                   </div>
                   <h2 className="text-2xl font-bold tracking-tight">
                     Anthropic Messages Protocol
@@ -773,13 +758,12 @@ print(message.content[0].text)`}
               {/* SECTION: Streaming */}
               <section id="streaming" className="scroll-mt-24 space-y-4">
                 <div className="space-y-1">
-                  <Badge variant="secondary">Real-Time</Badge>
                   <h2 className="text-2xl font-bold tracking-tight">
                     Streaming (SSE)
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    Stream tokens in real-time using Server-Sent Events (SSE) by
-                    passing <code>"stream": true</code>.
+                    Set <code>"stream": true</code> to receive tokens as
+                    Server-Sent Events.
                   </p>
                 </div>
 
@@ -807,7 +791,6 @@ for chunk in stream:
               {/* SECTION: Error Reference */}
               <section id="errors" className="scroll-mt-24 space-y-4">
                 <div className="space-y-1">
-                  <Badge variant="destructive">Troubleshooting</Badge>
                   <h2 className="text-2xl font-bold tracking-tight">
                     Error Reference
                   </h2>

@@ -846,7 +846,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
     return requestSnippet(
       !exportDraft && lastPayload ? lastPayload : draft,
       codeLang,
-      API_BASE_URL
+      API_BASE_URL,
+      window.location.origin
     )
   }
 

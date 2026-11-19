@@ -10,17 +10,13 @@ import {
   FieldLabel,
   FieldError,
 } from "@/components/ui/field"
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from "@/components/ui/card"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { CouponHistory } from "@/components/coupon-history"
 
 export function CouponRedeem({ onRedeemed }: { onRedeemed: () => void }) {
-  const [code, setCode] = React.useState("")
+  const [code, setCode] = React.useState(
+    () => new URLSearchParams(window.location.search).get("coupon") ?? ""
+  )
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState("")
   const [revision, setRevision] = React.useState(0)
@@ -39,6 +35,8 @@ export function CouponRedeem({ onRedeemed }: { onRedeemed: () => void }) {
       setCode("")
       setRevision((value) => value + 1)
       onRedeemed()
+      window.dispatchEvent(new Event("gateway:notifications"))
+      window.dispatchEvent(new Event("gateway:announcements"))
       toast.success(`${formatCredits(receipt.credits)} credits added`)
     } catch (error) {
       setError(
@@ -55,9 +53,6 @@ export function CouponRedeem({ onRedeemed }: { onRedeemed: () => void }) {
       <Card>
         <CardHeader>
           <CardTitle>Redeem a coupon</CardTitle>
-          <CardDescription>
-            Add promotional credits to your account.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit}>

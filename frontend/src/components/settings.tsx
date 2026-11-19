@@ -229,9 +229,6 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
         <h2 className="text-2xl font-semibold tracking-tight">
           Account settings
         </h2>
-        <p className="mt-1.5 text-sm text-muted-foreground">
-          Manage your account preferences and how Gateway records your traffic.
-        </p>
       </header>
 
       <section
@@ -242,9 +239,6 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
           <h3 id="settings-account" className="text-sm font-semibold">
             Account
           </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Your signed-in identity and API access.
-          </p>
         </div>
         <div className="min-w-0 divide-y rounded-xl border bg-card">
           <div className="flex min-w-0 items-center gap-3 p-4 sm:px-5">
@@ -279,7 +273,7 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
             Appearance
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Personalize the dashboard on this browser.
+            These preferences apply to this browser.
           </p>
         </div>
         <div className="min-w-0 divide-y rounded-xl border bg-card">
@@ -414,9 +408,6 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
             <h3 id="settings-signups" className="text-sm font-semibold">
               Registration
             </h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Control access for new accounts.
-            </p>
           </div>
           <div className="rounded-xl border bg-card">
             <PreferenceRow

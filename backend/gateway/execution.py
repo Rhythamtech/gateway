@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -6,6 +7,7 @@ import httpx
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 
 from backend.core.errors import GatewayError
 from backend.credits import service
@@ -136,6 +138,8 @@ class CreditExecution:
         self.stream_failed = False
         self.final_usage_received = False
         self.events: AsyncIterator[dict[str, Any]] | None = None
+        self.dispatch_started: float | None = None
+        self.first_content_seen = False
 
     async def send(self, payload: dict[str, Any]) -> httpx.Response:
         if self.provider.protocol == "openai" and payload.get("stream"):
@@ -143,24 +147,25 @@ class CreditExecution:
                 **(payload.get("stream_options") or {}),
                 "include_usage": True,
             }
-        service.mark_dispatched(self.reservation.usage_id)
+        await run_in_threadpool(service.mark_dispatched, self.reservation.usage_id)
+        self.dispatch_started = time.monotonic()
         try:
             self.response = await call_provider(
                 self.candidate.provider_alias, payload, bool(payload.get("stream"))
             )
+            if self.capture._span is not None:
+                self.capture._span.set_attribute("gateway.upstream_headers_ms", (time.monotonic() - self.dispatch_started) * 1000)
             request_id = self.response.headers.get(
                 "x-request-id"
             ) or self.response.headers.get("request-id")
             if request_id:
                 self.provider_request_id = request_id
-                service.record_provider_reference(self.reservation.usage_id, request_id)
+                await run_in_threadpool(service.record_provider_reference, self.reservation.usage_id, request_id)
             return self.response
         except BaseException as exc:
-            service.mark_for_review(
-                self.reservation.usage_id,
-                "Upstream dispatch failed or its outcome is unknown",
-            )
-            self.capture.failure(exc)
+            await run_in_threadpool(service.mark_for_review, self.reservation.usage_id,
+                                    "Upstream dispatch failed or its outcome is unknown")
+            await run_in_threadpool(self.capture.failure, exc)
             raise
 
     def finalize_usage(self) -> None:
@@ -193,14 +198,13 @@ class CreditExecution:
             )
             if data.get("id"):
                 self.provider_request_id = str(data["id"])
-            self.finalize_usage()
-            self.capture.success(data, protocol=self.provider.protocol)
+            await run_in_threadpool(self.finalize_usage)
+            await run_in_threadpool(self.capture.success, data, protocol=self.provider.protocol)
             return data
         except BaseException as exc:
-            service.mark_for_review(
-                self.reservation.usage_id, "Provider response could not be finalized"
-            )
-            self.capture.failure(exc)
+            await run_in_threadpool(service.mark_for_review, self.reservation.usage_id,
+                                    "Provider response could not be finalized")
+            await run_in_threadpool(self.capture.failure, exc)
             raise
         finally:
             await self.response.aclose()
@@ -208,6 +212,16 @@ class CreditExecution:
     async def observe_events(self) -> AsyncIterator[dict[str, Any]]:
         try:
             async for event in read_sse_data(self.response):
+                if not self.first_content_seen and self.dispatch_started is not None:
+                    delta = event.get("delta") or {}
+                    choices = event.get("choices") or []
+                    content = delta.get("text") if isinstance(delta, dict) else None
+                    if choices and isinstance(choices[0], dict):
+                        content = content or (choices[0].get("delta") or {}).get("content")
+                    if content:
+                        self.first_content_seen = True
+                        if self.capture._span is not None:
+                            self.capture._span.set_attribute("gateway.upstream_first_content_ms", (time.monotonic() - self.dispatch_started) * 1000)
                 previous_id = self.provider_request_id
                 if event.get("error") or event.get("type") == "error":
                     self.stream_failed = True
@@ -234,20 +248,17 @@ class CreditExecution:
                         self.provider_request_id = str(event["id"])
                     terminal = bool(event.get("done"))
                 if self.provider_request_id and self.provider_request_id != previous_id:
-                    service.record_provider_reference(
-                        self.reservation.usage_id, self.provider_request_id
-                    )
+                    await run_in_threadpool(service.record_provider_reference,
+                                            self.reservation.usage_id, self.provider_request_id)
                 if isinstance(raw_usage, dict):
                     self.raw_usage.update(raw_usage)
                 if terminal:
                     self.complete = True
                     if self.final_usage_received and not self.stream_failed:
-                        self.finalize_usage()
+                        await run_in_threadpool(self.finalize_usage)
                     else:
-                        service.mark_for_review(
-                            self.reservation.usage_id,
-                            "Stream did not provide trustworthy final usage",
-                        )
+                        await run_in_threadpool(service.mark_for_review, self.reservation.usage_id,
+                                                "Stream did not provide trustworthy final usage")
                 yield event
         finally:
             await self.close_stream()
@@ -262,10 +273,8 @@ class CreditExecution:
         if self.response is not None:
             await self.response.aclose()
         if not self.complete:
-            service.mark_for_review(
-                self.reservation.usage_id,
-                "Stream ended before complete provider usage was confirmed",
-            )
+            await run_in_threadpool(service.mark_for_review, self.reservation.usage_id,
+                                    "Stream ended before complete provider usage was confirmed")
 
     def stream_response(self, pieces: AsyncIterator[str]) -> StreamingResponse:
         async def managed_stream():
@@ -309,7 +318,9 @@ def admit_request(
     output_tokens = validate_credit_request(payload)
     request_id = capture.request_id
     errors: list[GatewayError] = []
+    routing_started = time.monotonic()
     candidates = plan(payload["model"])
+    routing_ms = (time.monotonic() - routing_started) * 1000
     for candidate in candidates:
         provider_payload = payload
         if input_protocol != candidate.protocol:
@@ -319,6 +330,7 @@ def admit_request(
             provider_payload = convert(payload)
         estimated_input_tokens = estimate_input_tokens(provider_payload)
         try:
+            reservation_started = time.monotonic()
             reservation = service.reserve_request_credits(
                 candidate,
                 request.state.api_key_owner_id,
@@ -327,6 +339,7 @@ def admit_request(
                 output_tokens,
                 estimated_input_tokens,
             )
+            reservation_ms = (time.monotonic() - reservation_started) * 1000
         except GatewayError as exc:
             if exc.code in (
                 "provider_credits_exhausted",
@@ -351,6 +364,9 @@ def admit_request(
             provider = capture.begin_attempt(
                 candidate, bounded_payload, stream=bool(payload.get("stream"))
             )
+            if capture._span is not None:
+                capture._span.set_attribute("gateway.routing_ms", routing_ms)
+                capture._span.set_attribute("gateway.reservation_ms", reservation_ms)
         except BaseException:
             service.release_undispatched_request(reservation.usage_id)
             raise

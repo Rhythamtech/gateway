@@ -1,12 +1,4 @@
-import {
-  Archive,
-  Clock,
-  Cpu,
-  FileText,
-  Layers,
-  MessageSquare,
-  Route,
-} from "lucide-react"
+import { Archive, Clock, Cpu, Layers } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -207,11 +199,11 @@ export function TraceOverview({ trace }: { trace: MessageTraceDetail }) {
           </span>
         </div>
 
-        {/* Provider Attempts */}
+        {/* Provider attempts */}
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Layers className="size-3.5" />
-            <span>Provider Attempts</span>
+            <span>Provider attempts</span>
           </div>
           <div className="text-2xl font-bold text-foreground tabular-nums">
             {trace.call_count}
@@ -245,65 +237,44 @@ export function TraceOverview({ trace }: { trace: MessageTraceDetail }) {
         </div>
       </div>
 
-      {/* 3. Page Info & Technical Identifiers */}
+      {/* 3. Trace metadata */}
       <section className="flex flex-col gap-3">
-        <div className="flex items-center gap-2">
-          <FileText className="size-4 text-muted-foreground" />
-          <h2 className="text-base font-semibold text-foreground">
-            Page Info & Technical Identifiers
-          </h2>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Complete execution attributes, timestamps, and audit identifiers for
-          this trace.
-        </p>
+        <h2 className="text-base font-semibold text-foreground">
+          Trace metadata
+        </h2>
         <TraceMetadataTable trace={trace} />
       </section>
 
       <Separator />
 
-      {/* 4. Messages & Conversation Section */}
+      {/* 4. Messages Section */}
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="size-4 text-muted-foreground" />
-            <h2 className="text-base font-semibold text-foreground">
-              Messages & Conversation
-            </h2>
-          </div>
+          <h2 className="text-base font-semibold text-foreground">Messages</h2>
           {messagesCount > 0 ? (
             <Badge variant="secondary" className="px-2 py-0.5 text-xs">
               {messagesCount} message{messagesCount > 1 ? "s" : ""}
             </Badge>
           ) : null}
         </div>
-        <p className="text-xs text-muted-foreground">
-          Prompt parameters, conversation history, and model responses.
-        </p>
         <RequestParametersView request={trace.request} />
         <RequestMessagesView request={trace.request} modelName={modelName} />
       </section>
 
       <Separator />
 
-      {/* 5. Provider Attempts Section */}
+      {/* 5. Provider attempts Section */}
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Route className="size-4 text-muted-foreground" />
-            <h2 className="text-base font-semibold text-foreground">
-              Provider Attempts
-            </h2>
-          </div>
+          <h2 className="text-base font-semibold text-foreground">
+            Provider attempts
+          </h2>
           {trace.calls.length > 0 ? (
             <Badge variant="secondary" className="px-2 py-0.5 text-xs">
               {trace.calls.length} attempt{trace.calls.length > 1 ? "s" : ""}
             </Badge>
           ) : null}
         </div>
-        <p className="text-xs text-muted-foreground">
-          Upstream provider resolution, latencies, and failover attempts.
-        </p>
         <AttemptTimeline calls={trace.calls} />
       </section>
 

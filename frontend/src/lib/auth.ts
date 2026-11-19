@@ -1375,3 +1375,97 @@ export function updateSignupSettings(
     body: JSON.stringify({ signups_enabled: signupsEnabled }),
   })
 }
+
+export type NotificationItem = {
+  id: string
+  kind: string
+  title: string
+  message: string
+  action_url: string
+  created_at: string
+  read_at: string | null
+}
+export type NotificationPage = {
+  items: NotificationItem[]
+  unread_count: number
+  total: number
+  page: number
+  credit_warning: string | null
+  available_credits: string
+}
+export const getNotifications = (page = 1) =>
+  authenticatedRequest<NotificationPage>(`/notifications?page=${page}`)
+export const markNotificationRead = (id: string) =>
+  authenticatedRequest<void>(`/notifications/${encodeURIComponent(id)}/read`, {
+    method: "POST",
+  })
+export const markAllNotificationsRead = () =>
+  authenticatedRequest<void>("/notifications/read-all", { method: "POST" })
+
+export type AnnouncementInput = {
+  title: string
+  message: string
+  placement: "landing" | "dashboard" | "both"
+  audience: "public" | "users" | "superusers"
+  status: "draft" | "published" | "withdrawn"
+  priority: number
+  dismissible: boolean
+  starts_at: string | null
+  ends_at: string | null
+  coupon_id: string | null
+  action_label: string | null
+  action_url: string | null
+}
+export type Announcement = AnnouncementInput & {
+  id: string
+  version: number
+  created_at: string
+}
+export type Banner = {
+  id: string
+  version: number
+  title: string
+  message: string
+  dismissible: boolean
+  action_label: string | null
+  action_url: string | null
+  ends_at: string | null
+  coupon_code: string | null
+  coupon_credits: string | null
+}
+export const getAnnouncements = () =>
+  authenticatedRequest<Announcement[]>("/announcements")
+export const saveAnnouncement = (data: AnnouncementInput, id?: string) =>
+  authenticatedRequest<Announcement>(
+    id ? `/announcements/${encodeURIComponent(id)}` : "/announcements",
+    { method: id ? "PUT" : "POST", body: JSON.stringify(data) }
+  )
+export const republishAnnouncement = (id: string) =>
+  authenticatedRequest<Announcement>(
+    `/announcements/${encodeURIComponent(id)}/republish`,
+    { method: "POST" }
+  )
+export const getBanners = () =>
+  authenticatedRequest<Banner[]>("/announcements/me")
+export async function getPublicBanners(): Promise<Banner[]> {
+  return parseResponse<Banner[]>(
+    await fetch(`${API_BASE_URL}/announcements/public`)
+  )
+}
+export const dismissAnnouncement = (id: string, version: number) =>
+  authenticatedRequest<void>(
+    `/announcements/${encodeURIComponent(id)}/dismiss?version=${version}`,
+    { method: "POST" }
+  )
+export type NotificationSettings = {
+  low_credit_enabled: boolean
+  key_expiry_enabled: boolean
+  low_credit_threshold: string
+}
+export const getNotificationSettings = () =>
+  authenticatedRequest<NotificationSettings>("/notifications/settings")
+export const saveNotificationSettings = (data: NotificationSettings) =>
+  authenticatedRequest<NotificationSettings>("/notifications/settings", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  })

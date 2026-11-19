@@ -5,7 +5,11 @@ registry.
 
 ## Running
 
+Configure `DATABASE_URL` and the secrets in `.env`, then apply the PostgreSQL
+schema before starting the API:
+
 ```bash
+uv run alembic upgrade head
 uv run uvicorn backend.main:app --reload
 ```
 
@@ -53,10 +57,17 @@ bodies, reservations, and recovery.
 uv run pytest
 ```
 
+The PostgreSQL integration tests require a disposable PostgreSQL database and
+permission to create and drop test schemas:
+
+```bash
+TEST_POSTGRES_URL='postgresql://user:password@localhost:5432/gateway_test' uv run pytest tests/test_postgresql_integration.py
+```
+
 ## Docker deployment
 
 Docker Engine with Compose v2 is required. The API runs as an unprivileged user,
-with SQLite stored in the `gateway-data` volume. The static dashboard and API
+with a managed PostgreSQL database. The static dashboard and API
 share one origin through nginx. The image uses the committed uv and npm locks.
 
 1. Create a configuration file and set stable, independent secrets:
@@ -71,34 +82,36 @@ share one origin through nginx. The image uses the committed uv and npm locks.
 
    Put the generated values in `JWT_SECRET_KEY` and
    `PROVIDER_ENCRYPTION_KEY` in `.env`. Keep both safe and retain the same
-   encryption key across restarts and restores. Compose overrides `DATABASE_URL`
-   with the persistent volume path; other settings come from `.env`.
+   encryption key across restarts and restores. Set `DATABASE_URL` to the
+   provider's PostgreSQL connection URL including required SSL options. Keep the
+   database and API in the same region to reduce network latency.
 
 2. Start the services:
 
    ```bash
-   docker compose up -d --build
+   docker compose build
+   docker compose run --rm --no-deps api alembic upgrade head
+   docker compose up -d
    docker compose ps
    ```
 
    Visit <http://localhost:8080>. SDK clients can use `http://localhost:8080/v1` as their base URL. Set
    `GATEWAY_PORT` or `GATEWAY_BIND_ADDRESS` in `.env` to change the published
    port or bind address. The default binds only to localhost; for production,
-   put a TLS-terminating reverse proxy in front of it. Run one API instance:
-   SQLite and startup migrations are intended for a single host, and database
-   files must remain on a filesystem that supports SQLite locking.
+   put a TLS-terminating reverse proxy in front of it. Run one API instance;
+   reconciliation and retention jobs run inside the API process.
 
 3. Register the first user before exposing the service publicly: that user is
    automatically a superuser. Disable further signups in Settings if they are
    not needed.
 
-Back up the SQLite database using SQLite's online backup facility and keep the
-backup and secrets separately. `docker compose down` preserves the volume;
-`docker compose down -v` deletes it and all stored data. Run `./clean.sh` to
-stop and remove this project’s containers, images, network, and volume in one
-command; this permanently deletes its stored database. Update images and
-rebuild deliberately, and review the application configuration and access
-controls before making the service public.
+Configure and verify managed PostgreSQL backups and retain the encryption keys
+separately. Migrations are an explicit deployment step and must complete before
+starting updated application instances. Pool limits apply per API process; keep
+the total below the provider's connection limit. `/health` is liveness and
+`/ready` checks database connectivity. If PostgreSQL is unavailable, authenticated
+requests and inference cannot proceed safely. Update images deliberately and
+review application configuration and access controls before public deployment.
 
 ### Temporary Cloudflare quick tunnel
 

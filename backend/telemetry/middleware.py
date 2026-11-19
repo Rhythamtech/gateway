@@ -40,6 +40,9 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
             path=request.url.path,
             authenticated=bool(opted),
         )
+        auth_latency = getattr(request.state, "auth_latency_ms", None)
+        if span is not None and auth_latency is not None:
+            span.set_attribute("gateway.auth_latency_ms", auth_latency)
         try:
             response = await call_next(request)
         except Exception as error:

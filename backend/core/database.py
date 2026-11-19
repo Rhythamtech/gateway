@@ -25,12 +25,23 @@ def resolve_database_url(url: str) -> str:
 
 
 _database_url = resolve_database_url(settings.DATABASE_URL)
+if _database_url.startswith("postgres://"):
+    _database_url = "postgresql+psycopg://" + _database_url[len("postgres://"):]
+elif _database_url.startswith("postgresql://"):
+    _database_url = "postgresql+psycopg://" + _database_url[len("postgresql://"):]
 _parsed_database_url = make_url(_database_url)
 _is_memory = (
     not _parsed_database_url.database or _parsed_database_url.database == ":memory:"
 )
 
-def _sqlite_engine() -> Engine:
+def _make_engine() -> Engine:
+    if not _database_url.startswith("sqlite"):
+        return create_engine(
+            _database_url, pool_pre_ping=True, hide_parameters=True,
+            pool_size=settings.DATABASE_POOL_SIZE,
+            max_overflow=settings.DATABASE_MAX_OVERFLOW,
+            pool_timeout=settings.DATABASE_POOL_TIMEOUT,
+        )
     return create_engine(
         _database_url,
         connect_args={"check_same_thread": False} if _database_url.startswith("sqlite") else {},
@@ -42,8 +53,8 @@ def _sqlite_engine() -> Engine:
 # block the writer), while every write transaction starts BEGIN IMMEDIATE
 # (the write lock is taken up front, so writes serialize cleanly instead of
 # deadlocking on deferred lock upgrade).
-engine = _sqlite_engine()
-write_engine = _sqlite_engine()
+engine = _make_engine()
+write_engine = _make_engine() if _database_url.startswith("sqlite") else engine
 
 
 if _database_url.startswith("sqlite"):

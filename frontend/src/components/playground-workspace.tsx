@@ -123,13 +123,11 @@ export function PlaygroundEmptyState({
           <h2 className="text-3xl font-medium tracking-tight sm:text-4xl">
             What would you like to test?
           </h2>
-          <p className="max-w-lg text-sm leading-6 text-muted-foreground">
-            {!hasKey
-              ? "Connect an API key, then choose a model to start a conversation."
-              : !hasModel
-                ? "Choose a model, then send your first message."
-                : "Try a prompt, refine your instructions, and see how the model responds."}
-          </p>
+          {!hasKey && (
+            <p className="max-w-lg text-sm leading-6 text-muted-foreground">
+              Connect an API key to choose a model.
+            </p>
+          )}
           {!hasKey ? (
             <Button onClick={onConnect}>
               <KeyRound data-icon="inline-start" />

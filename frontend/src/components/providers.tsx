@@ -133,8 +133,7 @@ export function ProvidersContent() {
         <>
           <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
             <p className="text-sm text-muted-foreground">
-              Registered providers for this gateway. Stored credentials are
-              never returned.
+              Saved credentials stay hidden.
             </p>
             <Button
               size="sm"

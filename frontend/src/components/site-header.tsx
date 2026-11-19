@@ -1,3 +1,4 @@
+import { NotificationInbox } from "@/components/notification-inbox"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -12,7 +13,10 @@ export function SiteHeader({ title = "Dashboard" }: { title?: string }) {
           className="mx-2 data-[orientation=vertical]:h-4"
         />
         <h1 className="text-base font-medium">{title}</h1>
-        <ThemeToggle className="ml-auto" />
+        <div className="ml-auto flex items-center gap-1">
+          <NotificationInbox />
+          <ThemeToggle />
+        </div>
       </div>
     </header>
   )

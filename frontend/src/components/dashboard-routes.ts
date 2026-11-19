@@ -16,6 +16,15 @@ function route(
 
 const routes = [
   route(
+    "/dashboard/announcements",
+    "Announcements",
+    () =>
+      import("@/components/announcements").then((m) => ({
+        default: m.AnnouncementsContent,
+      })),
+    true
+  ),
+  route(
     "/dashboard/providers/detail",
     "Provider details",
     () =>

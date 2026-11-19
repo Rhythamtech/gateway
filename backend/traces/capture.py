@@ -18,6 +18,7 @@ own errors at ``ERROR`` level.
 
 import logging
 import time
+from starlette.concurrency import run_in_threadpool
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 from uuid import uuid4
@@ -376,7 +377,7 @@ def monitor_stream(
                         )
                     terminal = piece.get("done") or piece.get("type") == "message_stop"
                     if terminal and not completed:
-                        capture.stream_done(
+                        await run_in_threadpool(capture.stream_done,
                             raw_usage=raw_usage, error=error, message_id=message_id
                         )
                         completed = True
@@ -393,7 +394,7 @@ def monitor_stream(
                         "incomplete_stream",
                         "Provider stream ended without a completion event",
                     )
-                capture.stream_done(
+                await run_in_threadpool(capture.stream_done,
                     raw_usage=raw_usage, error=error, message_id=message_id
                 )
 

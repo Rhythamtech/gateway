@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.orm import Session
 
 from backend.core.database import SessionLocal
@@ -146,7 +147,8 @@ def bump_daily_usage(
         "latency_sample_count": 1 if latency_ms is not None else 0,
     }
 
-    stmt = sqlite_insert(table).values(values)
+    insert = postgresql_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+    stmt = insert(table).values(values)
     excluded = stmt.excluded
     increments = {
         column: getattr(table, column) + getattr(excluded, column)
@@ -799,7 +801,9 @@ def hourly_call_activity(
     to_date: date,
 ) -> list[dict[str, int]]:
     """Count completed attempts in each UTC hour across the selected dates."""
-    hour = func.strftime("%H", LLMCallTrace.created_at)
+    hour = (func.to_char(func.timezone("UTC", LLMCallTrace.created_at), "HH24")
+            if db.get_bind().dialect.name == "postgresql"
+            else func.strftime("%H", LLMCallTrace.created_at))
     success = func.sum(case((LLMCallTrace.status == STATUS_SUCCESS, 1), else_=0))
     rows = (
         db.query(hour, success, func.count())
@@ -861,7 +865,9 @@ def daily_charged_credits(
     need not align with trace analytics days.
     """
 
-    day = func.strftime("%Y-%m-%d", CreditUsage.created_at)
+    day = (func.to_char(func.timezone("UTC", CreditUsage.created_at), "YYYY-MM-DD")
+           if db.get_bind().dialect.name == "postgresql"
+           else func.strftime("%Y-%m-%d", CreditUsage.created_at))
     query = db.query(day, func.sum(CreditUsage.charged)).filter(
         subject_column == subject_id,
         CreditUsage.charged > 0,

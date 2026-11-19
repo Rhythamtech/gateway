@@ -151,20 +151,13 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
       <div className="flex min-w-0 flex-col gap-6">
         {/* Title & toolbar */}
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex max-w-2xl flex-col gap-1.5">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <IconRoute className="size-4" /> Observability{" "}
-              {user?.role === "superuser" ? (
-                <Badge variant="outline">Superuser</Badge>
-              ) : null}
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Request Traces
+              Request traces
             </h1>
-            <p className="text-sm text-muted-foreground">
-              Detailed inspection of inbound requests, generation parameters,
-              conversation turns, and provider routing.
-            </p>
+            {user?.role === "superuser" ? (
+              <Badge variant="outline">Superuser</Badge>
+            ) : null}
           </div>
           <Button
             variant="outline"
@@ -344,9 +337,6 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
                       <h2 className="text-sm font-medium">
                         Filter provider calls
                       </h2>
-                      <p className="text-xs text-muted-foreground">
-                        Filters apply to recorded provider calls.
-                      </p>
                     </div>
                     <FieldGroup className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                       <Field>

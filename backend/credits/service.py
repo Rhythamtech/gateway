@@ -62,9 +62,14 @@ def get_credit_balance(
     owner_id: str,
     *,
     create: bool = False,
+    lock: bool = False,
 ) -> UserCredits | ProviderCredits | None:
     model = UserCredits if owner_type == "user" else ProviderCredits
-    balance = db.get(model, owner_id)
+    if create:
+        # Lock the parent even when the balance row does not yet exist.
+        owner_model = User if owner_type == "user" else Provider
+        db.query(owner_model).filter(owner_model.id == owner_id).with_for_update().one()
+    balance = db.get(model, owner_id, with_for_update=lock or create)
     if balance is None and create:
         key = "user_id" if owner_type == "user" else "provider_id"
         balance = model(**{key: owner_id}, remaining=0, reserved=0)
@@ -111,6 +116,7 @@ def grant_credits(
     reason: str,
     *,
     idempotency_key: str | None = None,
+    coupon_code: str | None = None,
 ) -> CreditEntry:
     """Grant within the caller's write transaction; caller owns deduplication/audit."""
     if amount <= 0:
@@ -127,6 +133,13 @@ def grant_credits(
     )
     db.add(entry)
     db.flush()
+    if owner_type == "user":
+        from backend.notifications.service import emit, check_credit_alert
+        emit(db, owner_id, f"credit:{entry.id}", "coupon_redeemed" if coupon_code else "credits_added",
+             f"{format_credits(amount)} credits added",
+             f"Coupon {coupon_code} was redeemed successfully." if coupon_code else
+             "Credits were added to your account. View your credit history for details.")
+        check_credit_alert(db, owner_id)
     return entry
 
 
@@ -138,7 +151,10 @@ def add_credits(
 ) -> CreditEntryResponse:
     amount = to_microcredits(data.credits)
     with SessionLocal.begin() as db:
-        get_owner(db, owner_type, owner_id)
+        owner_model = User if owner_type == "user" else Provider
+        owner = db.query(owner_model).filter(owner_model.id == owner_id).with_for_update().first()
+        if owner is None:
+            raise HTTPException(404, f"{owner_type.capitalize()} not found")
         existing = (
             db.query(CreditEntry)
             .filter_by(
@@ -232,7 +248,7 @@ def set_model_rate(
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     with SessionLocal.begin() as db:
-        if db.get(ProviderModel, model_id) is None:
+        if db.get(ProviderModel, model_id, with_for_update=True) is None:
             raise HTTPException(404, "Provider model not found")
         previous = latest_model_rate(db, model_id)
         if previous and (
@@ -348,7 +364,7 @@ def reserve_request_credits(
 
 
 def require_usage(db: Session, usage_id: str) -> CreditUsage:
-    usage = db.get(CreditUsage, usage_id)
+    usage = db.get(CreditUsage, usage_id, with_for_update=True)
     if usage is None:
         raise HTTPException(404, "Credit usage not found")
     return usage
@@ -424,8 +440,8 @@ def extend_reservation(db: Session, usage: CreditUsage) -> None:
     if not additional:
         return
     balances = [
-        get_credit_balance(db, "user", usage.user_id),
-        get_credit_balance(db, "provider", usage.provider_id),
+        get_credit_balance(db, "provider", usage.provider_id, lock=True),
+        get_credit_balance(db, "user", usage.user_id, lock=True),
     ]
     if any(balance.remaining - balance.reserved < additional for balance in balances):
         raise HTTPException(
@@ -451,10 +467,10 @@ def finish_usage(db: Session, usage: CreditUsage, *, release: bool = False) -> N
             "Usage exceeds the reservation; verify the model limits and reported usage",
         )
     for owner_type, owner_id in (
-        ("user", usage.user_id),
         ("provider", usage.provider_id),
+        ("user", usage.user_id),
     ):
-        balance = get_credit_balance(db, owner_type, owner_id)
+        balance = get_credit_balance(db, owner_type, owner_id, lock=True)
         balance.reserved -= usage.reserved
         balance.remaining -= charge
         db.add(
@@ -469,6 +485,8 @@ def finish_usage(db: Session, usage: CreditUsage, *, release: bool = False) -> N
                 or ("Unused reservation released" if release else "Model usage"),
             )
         )
+    from backend.notifications.service import check_credit_alert
+    check_credit_alert(db, usage.user_id)
     usage.charged = charge
     usage.status = "released" if release else "settled"
 
@@ -578,6 +596,7 @@ def recover_pending_usage(stale_seconds: int) -> None:
                 ),
             )
             .order_by(CreditUsage.updated_at)
+            .with_for_update(skip_locked=True)
             .limit(100)
             .all()
         )

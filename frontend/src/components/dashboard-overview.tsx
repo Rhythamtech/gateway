@@ -702,10 +702,7 @@ function PersonalOverview({ user }: { user: CurrentUser }) {
               </ChartContainer>
             </section>
             <section className="min-w-0 rounded-xl border bg-card p-4 sm:p-6">
-              <h3 className="font-semibold">Latency trend</h3>
-              <p className="mt-1 mb-6 text-xs text-muted-foreground">
-                Daily average call latency · milliseconds
-              </p>
+              <h3 className="mb-6 font-semibold">Average call latency (ms)</h3>
               {daily.some((day) => day.average_latency_ms != null) ? (
                 <ChartContainer
                   className="aspect-auto h-52 w-full"
@@ -757,7 +754,7 @@ function PersonalOverview({ user }: { user: CurrentUser }) {
                 Daily success rate
               </h3>
               <p className="mt-1 mb-6 text-xs text-muted-foreground">
-                Successful share of traced calls · days without calls are gaps
+                Based on traced calls. Days with no calls appear as gaps.
               </p>
               <ChartContainer
                 className="aspect-auto h-52 w-full"
@@ -820,9 +817,9 @@ function PersonalOverview({ user }: { user: CurrentUser }) {
         )}
         {costDaily.length > 0 && cost && (
           <section className="min-w-0 rounded-xl border bg-card p-4 sm:p-6">
-            <h3 className="font-semibold">Cost over time</h3>
+            <h3 className="font-semibold">Daily credit charges</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Credits charged per day · settled usage, independent of tracing
+              Includes settled usage with tracing off.
             </p>
             <p className="mt-4 mb-6 text-2xl font-semibold tracking-tight tabular-nums">
               {formatCredits(cost.totals.charged_credits)}
@@ -978,8 +975,7 @@ function PersonalOverview({ user }: { user: CurrentUser }) {
                   <span>Key activity</span>
                 </CardTitle>
                 <CardDescription>
-                  Choose a key to show its analytics above. Manage credentials
-                  on the API Keys page.
+                  Choose a key to see its analytics.
                 </CardDescription>
               </div>
               <Button asChild variant="outline" size="sm">
@@ -1187,9 +1183,6 @@ function CallOutcomes({
       className="flex min-w-0 flex-col rounded-xl border bg-card p-4 sm:p-6"
     >
       <h3 className="font-semibold">Call outcomes</h3>
-      <p className="mt-1 text-xs text-muted-foreground">
-        For the applied scope and period
-      </p>
       {loading ? (
         <div className="flex flex-1 flex-col justify-center gap-4 py-8">
           <Skeleton className="h-10 w-24" />

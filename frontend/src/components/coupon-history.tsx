@@ -11,7 +11,6 @@ import {
   Card,
   CardHeader,
   CardTitle,
-  CardDescription,
   CardContent,
   CardFooter,
 } from "@/components/ui/card"
@@ -67,7 +66,6 @@ export function CouponHistory({
     <Card>
       <CardHeader>
         <CardTitle>Redemption history</CardTitle>
-        <CardDescription>Credits awarded through coupons.</CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (

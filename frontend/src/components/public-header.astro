@@ -1,4 +1,5 @@
 ---
+import { AnnouncementBanner } from "@/components/announcement-banner"
 import { TubeNavbar, type TubeNavbarProps } from "@/components/tube-navbar"
 
 interface Props {
@@ -8,5 +9,16 @@ interface Props {
 const { current } = Astro.props
 ---
 
-<TubeNavbar client:load current={current} />
-<div class="h-16 sm:h-20" aria-hidden="true"></div>
+{current === "home" ? (
+  <div class="sticky top-0 z-40 bg-background">
+    <AnnouncementBanner publicPage client:only="react" />
+    <div class="py-3 sm:py-5">
+      <TubeNavbar client:load current={current} inFlow />
+    </div>
+  </div>
+) : (
+  <>
+    <TubeNavbar client:load current={current} />
+    <div class="h-16 sm:h-20" aria-hidden="true"></div>
+  </>
+)}

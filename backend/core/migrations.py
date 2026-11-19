@@ -755,6 +755,22 @@ def _migration_0022_api_key_expiry(connection: Connection) -> None:
         connection.execute(text("ALTER TABLE api_keys ADD COLUMN expires_at DATETIME"))
 
 
+def _migration_0023_notifications(connection: Connection) -> None:
+    from backend.notifications.models import Notification
+    Notification.__table__.create(connection, checkfirst=True)
+
+
+def _migration_0024_announcements(connection: Connection) -> None:
+    from backend.announcements.models import Announcement, AnnouncementDismissal
+    Announcement.__table__.create(connection, checkfirst=True)
+    AnnouncementDismissal.__table__.create(connection, checkfirst=True)
+
+
+def _migration_0025_notification_preferences(connection: Connection) -> None:
+    from backend.notifications.models import NotificationPreference
+    NotificationPreference.__table__.create(connection, checkfirst=True)
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -784,6 +800,9 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0020_support_tickets", _migration_0020_support_tickets),
     ("0021_signup_settings", _migration_0021_signup_settings),
     ("0022_api_key_expiry", _migration_0022_api_key_expiry),
+    ("0023_notifications", _migration_0023_notifications),
+    ("0024_announcements", _migration_0024_announcements),
+    ("0025_notification_preferences", _migration_0025_notification_preferences),
 ]
 
 

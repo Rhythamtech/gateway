@@ -6,11 +6,9 @@ services:
       target: api
     env_file: .env
     environment:
-      DATABASE_URL: sqlite:////data/app.db
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to a PostgreSQL connection URL}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
       PROVIDER_ENCRYPTION_KEY: ${PROVIDER_ENCRYPTION_KEY:?Set PROVIDER_ENCRYPTION_KEY in .env}
-    volumes:
-      - gateway-data:/data
     restart: unless-stopped
     init: true
 
@@ -26,6 +24,3 @@ services:
         condition: service_healthy
     restart: unless-stopped
     init: true
-
-volumes:
-  gateway-data:

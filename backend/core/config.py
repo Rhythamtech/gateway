@@ -16,6 +16,9 @@ class ProviderSettings(BaseModel):
 
 class Settings(BaseSettings):
     DATABASE_URL: str
+    DATABASE_POOL_SIZE: int = Field(default=5, ge=1)
+    DATABASE_MAX_OVERFLOW: int = Field(default=5, ge=0)
+    DATABASE_POOL_TIMEOUT: int = Field(default=30, ge=1)
 
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"

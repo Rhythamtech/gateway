@@ -484,8 +484,8 @@ export function ProviderDetailContent() {
                 <div className="flex flex-col gap-1">
                   <CardTitle className="text-base">Credits</CardTitle>
                   <CardDescription>
-                    Provider credits fund inference routed to this provider.
-                    They are not synchronized from the upstream account.
+                    Gateway funds requests to this provider from this balance
+                    and tracks it separately from the upstream account.
                   </CardDescription>
                 </div>
                 <Button

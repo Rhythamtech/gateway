@@ -7,9 +7,7 @@ import {
   MessageSquare,
   ShieldCheck,
   Send,
-  Clock,
   CheckCircle2,
-  AlertCircle,
   RefreshCw,
 } from "lucide-react"
 
@@ -104,7 +102,7 @@ function StatusBadge({ status }: { status: SupportStatus }) {
           className="border-blue-500/40 bg-blue-500/10 font-medium text-blue-600 dark:text-blue-400"
         >
           <span className="mr-1.5 size-1.5 animate-pulse rounded-full bg-blue-500" />
-          In Progress
+          In progress
         </Badge>
       )
     case "resolved":
@@ -344,16 +342,7 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
     <div className="flex flex-col gap-6 p-6 lg:p-8">
       {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            {isSuperuser ? "Support Desk" : "Support Tickets"}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {isSuperuser
-              ? "Superuser management view: triage inquiries, resolve issues, and communicate with users."
-              : "Direct support desk: raise inquiries, report latency or model routing issues, and track replies."}
-          </p>
-        </div>
+        <h1 className="text-2xl font-bold tracking-tight">Support tickets</h1>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -368,7 +357,7 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
           </Button>
           <Button size="sm" onClick={() => setIsCreateOpen(true)}>
             <Plus className="mr-1.5 size-4" />
-            Raise Ticket
+            New ticket
           </Button>
         </div>
       </div>
@@ -378,29 +367,20 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Card className="gap-2 p-4 shadow-xs">
             <CardHeader className="p-0">
-              <div className="flex items-center justify-between text-muted-foreground">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Total Tickets
-                </CardTitle>
-                <LifeBuoy className="size-4" />
-              </div>
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Total tickets
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-0 pt-2">
               <div className="text-2xl font-bold">{stats.total}</div>
-              <CardDescription className="text-xs text-muted-foreground">
-                All logged tickets
-              </CardDescription>
             </CardContent>
           </Card>
 
           <Card className="gap-2 border-amber-500/20 bg-amber-500/5 p-4 shadow-xs">
             <CardHeader className="p-0">
-              <div className="flex items-center justify-between text-amber-600 dark:text-amber-400">
-                <CardTitle className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                  Open
-                </CardTitle>
-                <AlertCircle className="size-4" />
-              </div>
+              <CardTitle className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                Open
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-0 pt-2">
               <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
@@ -414,39 +394,27 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
 
           <Card className="gap-2 border-blue-500/20 bg-blue-500/5 p-4 shadow-xs">
             <CardHeader className="p-0">
-              <div className="flex items-center justify-between text-blue-600 dark:text-blue-400">
-                <CardTitle className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                  In Progress
-                </CardTitle>
-                <Clock className="size-4" />
-              </div>
+              <CardTitle className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                In progress
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-0 pt-2">
               <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                 {stats.in_progress}
               </div>
-              <CardDescription className="text-xs text-muted-foreground">
-                Active staff conversations
-              </CardDescription>
             </CardContent>
           </Card>
 
           <Card className="gap-2 border-emerald-500/20 bg-emerald-500/5 p-4 shadow-xs">
             <CardHeader className="p-0">
-              <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400">
-                <CardTitle className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                  Resolved & Closed
-                </CardTitle>
-                <CheckCircle2 className="size-4" />
-              </div>
+              <CardTitle className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                Resolved and closed
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-0 pt-2">
               <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
                 {stats.resolved + stats.closed}
               </div>
-              <CardDescription className="text-xs text-muted-foreground">
-                Successfully closed
-              </CardDescription>
             </CardContent>
           </Card>
         </div>
@@ -468,7 +436,7 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
               Open
             </TabsTrigger>
             <TabsTrigger value="in_progress" className="text-xs">
-              In Progress
+              In progress
             </TabsTrigger>
             <TabsTrigger value="resolved" className="text-xs">
               Resolved
@@ -686,7 +654,7 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="open">Open</SelectItem>
-                        <SelectItem value="in_progress">In Progress</SelectItem>
+                        <SelectItem value="in_progress">In progress</SelectItem>
                         <SelectItem value="resolved">Resolved</SelectItem>
                         <SelectItem value="closed">Closed</SelectItem>
                       </SelectContent>

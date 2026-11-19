@@ -14,20 +14,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from backend.auth.controller import router as auth_router
 from backend.auth.models import User
 from backend.api_keys import models as api_key_models  # noqa: F401
 from backend.api_keys.controller import router as api_keys_router
 from backend.api_keys.middleware import APIKeyAuthMiddleware
-from backend.core.database import Base, write_engine
+from backend.core.database import write_engine
 from backend.core.errors import GatewayError
+from backend.announcements import models as announcement_models  # noqa: F401
+from backend.announcements.controller import router as announcements_router
+from backend.notifications import models as notification_models  # noqa: F401
+from backend.notifications.controller import router as notifications_router
 from backend.coupons import models as coupon_models  # noqa: F401
 from backend.coupons.controller import router as coupons_router
 from backend.credits.controller import router as credits_router
 from backend.credits.models import CreditUsage as CreditUsage
 from backend.credits.reconciliation import reconcile_credits
-from backend.core.migrations import run_pending_migrations
 from backend.support import models as support_models  # noqa: F401
 from backend.support.controller import router as support_router
 from backend.gateway.chat.controller import router as chat_router
@@ -81,13 +85,6 @@ async def lifespan(_: FastAPI):
         shutdown_telemetry()
 
 
-Base.metadata.create_all(bind=write_engine)
-
-# Schema migrations run at import time (not only under the server lifespan)
-# so scripts, tests and short-lived processes always observe the current
-# schema; every migration is idempotent against freshly created tables.
-run_pending_migrations(write_engine)
-
 app = FastAPI(
     title="Gateway API",
     description="LLM gateway for managing providers, models, and API keys.",
@@ -124,6 +121,8 @@ app.include_router(provider_models_router)
 app.include_router(traces_router)
 app.include_router(credits_router)
 app.include_router(coupons_router)
+app.include_router(notifications_router)
+app.include_router(announcements_router)
 app.include_router(support_router)
 
 
@@ -379,6 +378,18 @@ app.add_exception_handler(HTTPException, handle_http_error)
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def readiness() -> dict:
+    def check_database():
+        with write_engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    try:
+        await asyncio.to_thread(check_database)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unavailable") from None
+    return {"status": "ready"}
 
 
 @app.get("/favicon.ico", include_in_schema=False)

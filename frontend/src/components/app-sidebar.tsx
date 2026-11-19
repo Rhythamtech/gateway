@@ -31,6 +31,12 @@ import {
 
 const navigation = [
   {
+    title: "Announcements",
+    url: "/dashboard/announcements",
+    icon: Sparkles,
+    superuserOnly: true,
+  },
+  {
     title: "Coupons",
     url: "/dashboard/coupons",
     icon: Coins,

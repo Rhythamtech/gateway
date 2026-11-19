@@ -3,12 +3,9 @@ import * as React from "react"
 import {
   ArrowDownLeft,
   ArrowUpRight,
-  BookOpen,
   Copy,
   RefreshCw,
-  Wallet,
   LockKeyhole,
-  ReceiptText,
   Search,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -81,6 +78,17 @@ export function CreditsContent() {
   )
   const [search, setSearch] = React.useState("")
   const queryKey = `${activeTab}:${activeTab === "usage" ? usagePage : historyPage}:${tick}`
+  React.useEffect(() => {
+    let previous: string | undefined
+    function changed(event: Event) {
+      const available = (event as CustomEvent<{ available: string }>).detail
+        .available
+      if (previous !== available) setTick((value) => value + 1)
+      previous = available
+    }
+    window.addEventListener("gateway:credit-status", changed)
+    return () => window.removeEventListener("gateway:credit-status", changed)
+  }, [])
   React.useEffect(() => {
     let cancelled = false
     getMyCredits()
@@ -191,17 +199,9 @@ export function CreditsContent() {
   return (
     <div className="flex min-w-0 flex-col gap-7">
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-            <Wallet className="size-4" /> Credit account
-          </p>
-          <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-            Balance & charges
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your inference allowance and every credit movement, in one place.
-          </p>
-        </div>
+        <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+          Balance & charges
+        </h2>
         <Button
           variant="outline"
           onClick={refresh}
@@ -217,10 +217,7 @@ export function CreditsContent() {
       >
         <div className="flex min-w-0 flex-col justify-between gap-6 p-6 sm:p-8">
           <div>
-            <p className="flex items-center gap-2 text-sm font-medium">
-              <span className="size-2 rounded-full bg-primary" />
-              Available to spend
-            </p>
+            <p className="text-sm font-medium">Available to spend</p>
             {balance ? (
               <p
                 title={balance.available_credits}
@@ -309,14 +306,8 @@ export function CreditsContent() {
         >
           <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-muted/20 px-4 pt-3 sm:px-6">
             <TabsList variant="line">
-              <TabsTrigger value="usage">
-                <ReceiptText />
-                Inference charges
-              </TabsTrigger>
-              <TabsTrigger value="history">
-                <BookOpen />
-                Balance history
-              </TabsTrigger>
+              <TabsTrigger value="usage">Inference charges</TabsTrigger>
+              <TabsTrigger value="history">Balance history</TabsTrigger>
             </TabsList>
             <span className="pb-3 text-xs text-muted-foreground">
               {ready
@@ -324,17 +315,7 @@ export function CreditsContent() {
                 : "Loading ledger…"}
             </span>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-4 sm:px-6">
-            <div>
-              <h3 className="text-sm font-semibold">
-                {activeTab === "usage" ? "Request charges" : "Credit movements"}
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {activeTab === "usage"
-                  ? "Recorded rates. Actual usage. Final settlement."
-                  : "Additions and debits with the balance after each entry."}
-              </p>
-            </div>
+          <div className="flex justify-end border-b px-4 py-4 sm:px-6">
             <div className="relative w-full sm:w-64">
               <Search className="pointer-events-none absolute top-3 left-3 size-4 text-muted-foreground" />
               <Input
@@ -623,21 +604,18 @@ function LedgerEmpty({
 }) {
   return (
     <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
-      <ReceiptText className="size-7 text-muted-foreground" />
       <h3 className="text-sm font-medium">
         {filtered
-          ? "No matching records on this page"
+          ? "No matches on this page"
           : history
-            ? "No credit movements yet"
+            ? "No balance changes yet"
             : "No inference charges yet"}
       </h3>
-      <p className="max-w-sm text-xs leading-5 text-muted-foreground">
-        {filtered
-          ? "Search applies to the current page. Clear it to see all loaded records."
-          : history
-            ? "Credit additions and finalized request debits will appear here."
-            : "Run a request in the Playground to see its reservation and charge."}
-      </p>
+      {!filtered && !history && (
+        <p className="max-w-sm text-xs leading-5 text-muted-foreground">
+          Run a request in the Playground to see its reservation and charge.
+        </p>
+      )}
       {filtered ? (
         <Button variant="outline" size="sm" onClick={onClear}>
           Clear search

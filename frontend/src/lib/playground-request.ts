@@ -29,15 +29,20 @@ export function conversationHistory(
 export function requestSnippet(
   payload: ChatPayload,
   language: "curl" | "python" | "typescript",
-  baseUrl: string
+  baseUrl: string,
+  origin?: string
 ): string {
+  const absoluteBaseUrl = origin
+    ? new URL(baseUrl || "/", origin).href
+    : baseUrl
+  const endpoint = new URL("/v1/chat/completions", absoluteBaseUrl).href
   const json = JSON.stringify(payload, null, 2)
   if (language === "curl") {
     const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
-    return `curl -N -X POST ${quote(`${baseUrl}/v1/chat/completions`)} \\\n  -H 'Content-Type: application/json' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  --data-raw ${quote(json)}`
+    return `curl -N -X POST ${quote(endpoint)} \\\n  -H 'Content-Type: application/json' \\\n  -H 'x-api-key: YOUR_API_KEY' \\\n  --data-raw ${quote(json)}`
   }
   if (language === "python") {
-    return `import json\nimport urllib.request\n\npayload = json.loads(${JSON.stringify(json)})\nrequest = urllib.request.Request(\n    ${JSON.stringify(`${baseUrl}/v1/chat/completions`)},\n    data=json.dumps(payload).encode(),\n    headers={"Content-Type": "application/json", "x-api-key": "YOUR_API_KEY"},\n)\nwith urllib.request.urlopen(request) as response:\n    for line in response:\n        print(line.decode(), end="", flush=True)\n`
+    return `import json\nimport urllib.request\n\npayload = json.loads(${JSON.stringify(json)})\nrequest = urllib.request.Request(\n    ${JSON.stringify(endpoint)},\n    data=json.dumps(payload).encode(),\n    headers={"Content-Type": "application/json", "x-api-key": "YOUR_API_KEY"},\n)\nwith urllib.request.urlopen(request) as response:\n    for line in response:\n        print(line.decode(), end="", flush=True)\n`
   }
-  return `const payload = ${json};\nconst response = await fetch(${JSON.stringify(`${baseUrl}/v1/chat/completions`)}, {\n  method: "POST",\n  headers: {"Content-Type": "application/json", "x-api-key": "YOUR_API_KEY"},\n  body: JSON.stringify(payload),\n});\nif (!response.ok) {\n  throw new Error("HTTP " + response.status + ": " + await response.text());\n}\nif (response.body) {\n  for await (const text of response.body.pipeThrough(new TextDecoderStream())) {\n    console.log(text);\n  }\n}\n`
+  return `const payload = ${json};\nconst response = await fetch(${JSON.stringify(endpoint)}, {\n  method: "POST",\n  headers: {"Content-Type": "application/json", "x-api-key": "YOUR_API_KEY"},\n  body: JSON.stringify(payload),\n});\nif (!response.ok) {\n  throw new Error("HTTP " + response.status + ": " + await response.text());\n}\nif (response.body) {\n  for await (const text of response.body.pipeThrough(new TextDecoderStream())) {\n    console.log(text);\n  }\n}\n`
 }

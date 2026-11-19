@@ -243,10 +243,7 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
         </div>
       ) : (
         <>
-          <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
-            <p className="text-sm text-muted-foreground">
-              Keys authenticate your API clients on the inference endpoints.
-            </p>
+          <div className="flex justify-end px-4 lg:px-6">
             <Button
               size="sm"
               onClick={() => {
@@ -531,13 +528,13 @@ export function ApiKeysContent({ user }: ApiKeysContentProps) {
                   </Button>
                 </div>
                 <p className="text-xs text-amber-700 dark:text-amber-400">
-                  It cannot be retrieved again once this drawer is closed — save
-                  it in a secure place now.
+                  Save this key securely before closing this panel. You can only
+                  view it once.
                 </p>
               </div>
               <DrawerFooter>
                 <DrawerClose asChild>
-                  <Button type="button">Done — I saved it</Button>
+                  <Button type="button">I saved the key</Button>
                 </DrawerClose>
               </DrawerFooter>
             </>
