@@ -11,6 +11,7 @@ import {
   updateMyPreferences,
   type CurrentUser,
   type LogRetention,
+  type SignupSettings,
 } from "@/lib/auth"
 import { useTheme, useThemeStyle } from "@/hooks/use-theme"
 import type { Theme, ThemeStyle } from "@/lib/theme"
@@ -95,9 +96,8 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
     null
   )
   const [retentionRetry, setRetentionRetry] = React.useState(0)
-  const [signupsEnabled, setSignupsEnabled] = React.useState<boolean | null>(
-    null
-  )
+  const [signupSettings, setSignupSettings] =
+    React.useState<SignupSettings | null>(null)
   const [signupsSaving, setSignupsSaving] = React.useState(false)
   const [signupsError, setSignupsError] = React.useState<string | null>(null)
   const [signupsRetry, setSignupsRetry] = React.useState(0)
@@ -107,7 +107,7 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
     getSignupSettings()
       .then((result) => {
         if (active) {
-          setSignupsEnabled(result.signups_enabled)
+          setSignupSettings(result)
           setSignupsError(null)
         }
       })
@@ -124,17 +124,15 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
     }
   }, [user.role, signupsRetry])
 
-  async function toggleSignups() {
-    if (signupsEnabled === null || signupsSaving) return
+  async function toggleSignupSetting(setting: keyof SignupSettings) {
+    if (!signupSettings || signupsSaving) return
     setSignupsSaving(true)
     try {
-      const result = await updateSignupSettings(!signupsEnabled)
-      setSignupsEnabled(result.signups_enabled)
-      toast.success(
-        result.signups_enabled
-          ? "New signups enabled."
-          : "New signups disabled."
-      )
+      const result = await updateSignupSettings({
+        [setting]: !signupSettings[setting],
+      })
+      setSignupSettings(result)
+      toast.success("Signup settings saved.")
     } catch (reason) {
       toast.error(
         reason instanceof Error
@@ -409,13 +407,22 @@ export function SettingsContent({ user }: { user: CurrentUser }) {
               Registration
             </h3>
           </div>
-          <div className="rounded-xl border bg-card">
+          <div className="divide-y rounded-xl border bg-card">
             <PreferenceRow
               title="Allow new signups"
               description="When disabled, existing users can still sign in."
-              checked={signupsEnabled ?? false}
-              disabled={signupsEnabled === null || signupsSaving}
-              onToggle={() => void toggleSignups()}
+              checked={signupSettings?.signups_enabled ?? false}
+              disabled={!signupSettings || signupsSaving}
+              onToggle={() => void toggleSignupSetting("signups_enabled")}
+            />
+            <PreferenceRow
+              title="Block disposable email addresses"
+              description="Reject signups from known temporary email domains."
+              checked={signupSettings?.block_disposable_emails ?? false}
+              disabled={!signupSettings || signupsSaving}
+              onToggle={() =>
+                void toggleSignupSetting("block_disposable_emails")
+              }
             />
             {signupsError && (
               <div

@@ -8,6 +8,16 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class SignupSettings(BaseModel):
+    signups_enabled: bool
+    block_disposable_emails: bool
+
+
+class SignupSettingsUpdate(BaseModel):
+    signups_enabled: bool | None = None
+    block_disposable_emails: bool | None = None
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str

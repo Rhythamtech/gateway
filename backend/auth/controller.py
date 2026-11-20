@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import text
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
 
 from backend.auth import service
 from backend.auth.dtos import (
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    SignupSettings,
+    SignupSettingsUpdate,
     TokenResponse,
     UserResponse,
 )
@@ -31,28 +31,20 @@ def register(
     return user
 
 
-class SignupSettings(BaseModel):
-    signups_enabled: bool
-
-
 @router.get("/signup-settings", response_model=SignupSettings)
 def get_signup_settings(
     user: User = Depends(require_superuser), db: Session = Depends(get_db)
 ):
-    enabled = db.execute(text("SELECT signups_enabled FROM gateway_settings WHERE id=1")).scalar_one()
-    return SignupSettings(signups_enabled=bool(enabled))
+    return service.get_signup_settings(db)
 
 
 @router.patch("/signup-settings", response_model=SignupSettings)
 def update_signup_settings(
-    data: SignupSettings,
+    data: SignupSettingsUpdate,
     user: User = Depends(require_superuser),
     db: Session = Depends(get_write_db),
 ):
-    db.execute(text("UPDATE gateway_settings SET signups_enabled=:enabled WHERE id=1"),
-               {"enabled": int(data.signups_enabled)})
-    db.commit()
-    return data
+    return service.update_signup_settings(db, data)
 
 
 @router.post(

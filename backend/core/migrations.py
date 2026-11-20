@@ -771,6 +771,14 @@ def _migration_0025_notification_preferences(connection: Connection) -> None:
     NotificationPreference.__table__.create(connection, checkfirst=True)
 
 
+def _migration_0026_block_disposable_emails(connection: Connection) -> None:
+    if "block_disposable_emails" not in _sqlite_columns(connection, "gateway_settings"):
+        connection.execute(text(
+            "ALTER TABLE gateway_settings ADD COLUMN block_disposable_emails "
+            "INTEGER NOT NULL DEFAULT 1 CHECK (block_disposable_emails IN (0, 1))"
+        ))
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -803,6 +811,7 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0023_notifications", _migration_0023_notifications),
     ("0024_announcements", _migration_0024_announcements),
     ("0025_notification_preferences", _migration_0025_notification_preferences),
+    ("0026_block_disposable_emails", _migration_0026_block_disposable_emails),
 ]
 
 

@@ -1,9 +1,11 @@
+import idna
 import jwt
+from disposable_email_domains import blocklist
 from fastapi import HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from backend.auth.dtos import RegisterRequest
+from backend.auth.dtos import RegisterRequest, SignupSettings, SignupSettingsUpdate
 from backend.auth.models import User, UserRole
 from backend.core.security import (
     create_access_token,
@@ -18,10 +20,51 @@ def get_user_by_email(db: Session, email: str) -> User | None:
     return db.query(User).filter(User.email == email).first()
 
 
+def get_signup_settings(db: Session, *, lock: bool = False) -> SignupSettings:
+    query = "SELECT signups_enabled, block_disposable_emails FROM gateway_settings WHERE id = 1"
+    if lock and db.get_bind().dialect.name == "postgresql":
+        query += " FOR UPDATE"
+    row = db.execute(text(query)).mappings().one()
+    return SignupSettings.model_validate(row)
+
+
+def update_signup_settings(db: Session, data: SignupSettingsUpdate) -> SignupSettings:
+    row = db.execute(
+        text("""
+            UPDATE gateway_settings
+            SET signups_enabled = COALESCE(:signups_enabled, signups_enabled),
+                block_disposable_emails = COALESCE(:block_disposable_emails, block_disposable_emails)
+            WHERE id = 1
+            RETURNING signups_enabled, block_disposable_emails
+        """),
+        {key: int(value) if value is not None else None for key, value in data.model_dump().items()},
+    ).mappings().one()
+    settings = SignupSettings.model_validate(row)
+    db.commit()
+    return settings
+
+
+def _is_disposable_email(email: str) -> bool:
+    # EmailStr normalizes the address to Unicode. The blocklist uses ASCII domains.
+    domain = email.rsplit("@", 1)[1]
+    if not domain.isascii():
+        domain = idna.encode(domain).decode("ascii")
+    labels = domain.split(".")
+    return any(".".join(labels[index:]) in blocklist for index in range(len(labels) - 1))
+
+
 def register_user(db: Session, data: RegisterRequest) -> User:
-    enabled = db.execute(text("SELECT signups_enabled FROM gateway_settings WHERE id=1 FOR UPDATE") if db.bind.dialect.name == "postgresql" else text("SELECT signups_enabled FROM gateway_settings WHERE id=1")).scalar_one()
-    if not enabled:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="New signups are disabled. Please sign in.")
+    settings = get_signup_settings(db, lock=True)
+    if not settings.signups_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="New signups are disabled. Please sign in.",
+        )
+    if settings.block_disposable_emails and _is_disposable_email(data.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Disposable email addresses are not allowed. Use a permanent email address.",
+        )
 
     if get_user_by_email(db, data.email):
         raise HTTPException(

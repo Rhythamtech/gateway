@@ -1363,16 +1363,21 @@ export function getSupportStats(): Promise<SupportStats> {
   return authenticatedRequest<SupportStats>("/support/stats")
 }
 
-export function getSignupSettings(): Promise<{ signups_enabled: boolean }> {
+export type SignupSettings = {
+  signups_enabled: boolean
+  block_disposable_emails: boolean
+}
+
+export function getSignupSettings(): Promise<SignupSettings> {
   return authenticatedRequest("/auth/signup-settings")
 }
 
 export function updateSignupSettings(
-  signupsEnabled: boolean
-): Promise<{ signups_enabled: boolean }> {
+  settings: Partial<SignupSettings>
+): Promise<SignupSettings> {
   return authenticatedRequest("/auth/signup-settings", {
     method: "PATCH",
-    body: JSON.stringify({ signups_enabled: signupsEnabled }),
+    body: JSON.stringify(settings),
   })
 }
 
