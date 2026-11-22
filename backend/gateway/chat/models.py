@@ -115,6 +115,8 @@ def anthropic_to_openai(payload: dict[str, Any]) -> dict[str, Any]:
 
     if payload.get("max_tokens") is not None:
         result["max_tokens"] = payload["max_tokens"]
+    if payload.get("stop_sequences") is not None:
+        result["stop"] = payload["stop_sequences"]
 
     if tools:
         result["tools"] = tools

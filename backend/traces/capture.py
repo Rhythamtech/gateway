@@ -139,6 +139,8 @@ class CallCapture:
 
         # Raises GatewayError for unknown/disabled provider configuration.
         provider = get_provider(candidate.provider_alias)
+        if provider.id != candidate.provider_id or provider.protocol != candidate.protocol:
+            raise GatewayError(503, "model_unavailable", "Provider changed during admission")
 
         if self._user_id and self._tracing_enabled:
             try:

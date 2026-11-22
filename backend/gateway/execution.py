@@ -151,7 +151,7 @@ class CreditExecution:
         self.dispatch_started = time.monotonic()
         try:
             self.response = await call_provider(
-                self.candidate.provider_alias, payload, bool(payload.get("stream"))
+                self.provider, payload, bool(payload.get("stream"))
             )
             if self.capture._span is not None:
                 self.capture._span.set_attribute("gateway.upstream_headers_ms", (time.monotonic() - self.dispatch_started) * 1000)

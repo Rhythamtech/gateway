@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { toast } from "sonner"
 import {
   AlertCircle,
   BookOpen,
@@ -69,8 +70,14 @@ export function DocsView({ apiBaseUrl }: DocsViewProps) {
     }
   }, [])
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text)
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      toast.error("Could not copy. Select the text to copy it manually.")
+      return
+    }
+
     setCopiedKey(id)
     setTimeout(() => {
       setCopiedKey(null)

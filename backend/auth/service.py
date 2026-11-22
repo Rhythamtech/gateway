@@ -113,7 +113,7 @@ def create_auth_tokens(user: User) -> dict:
     }
 
 
-def rotate_refresh_token(refresh_token: str) -> dict:
+def rotate_refresh_token(db: Session, refresh_token: str) -> dict:
     try:
         payload = decode_token(refresh_token, expected_type="refresh")
     except jwt.PyJWTError:
@@ -122,10 +122,10 @@ def rotate_refresh_token(refresh_token: str) -> dict:
             detail="Invalid or expired refresh token",
         )
 
-    user_id = payload["sub"]
-
-    return {
-        "access_token": create_access_token(user_id),
-        "refresh_token": create_refresh_token(user_id),
-        "token_type": "bearer",
-    }
+    user = db.get(User, payload["sub"])
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+    return create_auth_tokens(user)

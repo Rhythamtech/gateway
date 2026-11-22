@@ -169,7 +169,9 @@ async function refreshTokens(): Promise<AuthTokens> {
     saveTokens(refreshed)
     return refreshed
   } catch (error) {
-    clearAuthTokens()
+    if (error instanceof ApiError && error.status === 401) {
+      clearAuthTokens()
+    }
     throw error
   }
 }

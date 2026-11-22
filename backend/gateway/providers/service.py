@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from starlette.concurrency import run_in_threadpool
 from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -745,11 +744,10 @@ def build_headers(provider: RuntimeProvider) -> dict[str, str]:
 
 
 async def call_provider(
-    provider_name: str,
+    provider: RuntimeProvider,
     payload: dict[str, Any],
     stream: bool,
 ) -> httpx.Response:
-    provider = await run_in_threadpool(get_provider, provider_name)
     suffix = "/messages" if provider.protocol == "anthropic" else "/chat/completions"
 
     try:
@@ -764,7 +762,18 @@ async def call_provider(
             headers=build_headers(provider),
             json=payload,
         )
-        response = await get_client().send(request, stream=stream)
+        response = await get_client().send(request, stream=True)
+        if response.status_code >= 400:
+            await response.aclose()
+            raise GatewayError(
+                response.status_code, "upstream_error", "Provider returned an error"
+            )
+
+        if not stream:
+            try:
+                await response.aread()
+            finally:
+                await response.aclose()
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.WriteError) as error:
         # Connection-stage failure: nothing reached the provider.
         raise GatewayError(
@@ -774,12 +783,6 @@ async def call_provider(
         raise GatewayError(504, "upstream_timeout", "Provider request timed out")
     except httpx.HTTPError:
         raise GatewayError(502, "upstream_error", "Provider request failed")
-
-    if response.status_code >= 400:
-        body = await response.aread()
-        detail = body.decode("utf-8", "replace")[:2000]
-        await response.aclose()
-        raise GatewayError(response.status_code, "upstream_error", detail)
 
     return response
 

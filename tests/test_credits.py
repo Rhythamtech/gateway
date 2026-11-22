@@ -1,4 +1,5 @@
 import hashlib
+import json
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from types import SimpleNamespace
@@ -521,8 +522,6 @@ def test_unsupported_requests_never_dispatch(client, credits_db, monkeypatch, pa
 def test_streaming_captures_raw_usage_before_conversion(
     client, credits_db, monkeypatch, protocol, path
 ):
-    import json
-
     fund_request(credits_db)
     with credits_db.writes.begin() as db:
         db.get(Provider, "provider").protocol = protocol
@@ -530,8 +529,9 @@ def test_streaming_captures_raw_usage_before_conversion(
         events = [
             {
                 "id": "chat-1",
-                "choices": [{"delta": {"content": "Hello"}, "finish_reason": None}],
+                "choices": [{"delta": {"content": "Hel"}, "finish_reason": None}],
             },
+            {"id": "chat-1", "choices": [{"delta": {"content": "lo"}}]},
             {"choices": [], "usage": {"prompt_tokens": 25, "completion_tokens": 10}},
         ]
         content = (
@@ -549,7 +549,11 @@ def test_streaming_captures_raw_usage_before_conversion(
             },
             {
                 "type": "content_block_delta",
-                "delta": {"type": "text_delta", "text": "Hello"},
+                "delta": {"type": "text_delta", "text": "Hel"},
+            },
+            {
+                "type": "content_block_delta",
+                "delta": {"type": "text_delta", "text": "lo"},
             },
             {
                 "type": "message_delta",
@@ -569,7 +573,16 @@ def test_streaming_captures_raw_usage_before_conversion(
         json={"model": "a/model-a", "stream": True, "max_tokens": 100},
     )
     assert result.status_code == 200, result.text
-    assert "Hello" in result.text
+    if path == "/v1/responses":
+        events = [
+            json.loads(line.removeprefix("data: "))
+            for line in result.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert events[-1]["type"] == "response.completed"
+        assert events[-1]["response"]["output"][0]["content"][0]["text"] == "Hello"
+    else:
+        assert "Hel" in result.text
     assert balances(credits_db)[0].remaining_credits == "996.500000"
     assert balances(credits_db)[0].reserved_credits == "0.000000"
 
@@ -590,7 +603,7 @@ def test_budget_exhaustion_uses_next_candidate(client, credits_db, monkeypatch):
         json={"model": "group"},
     )
     assert result.status_code == 200
-    assert send.call_args.args[0] == "a"
+    assert send.call_args.args[0].id == "provider"
 
 
 def test_stale_usage_can_be_released_without_charging(credits_db):
@@ -788,8 +801,6 @@ def test_usage_analytics_report_charged_credits(client, credits_db):
 
 @pytest.mark.parametrize("protocol", ["openai", "anthropic"])
 def test_incomplete_streams_keep_holds(client, credits_db, monkeypatch, protocol):
-    import json
-
     fund_request(credits_db)
     with credits_db.writes.begin() as db:
         db.get(Provider, "provider").protocol = protocol
@@ -904,7 +915,7 @@ def test_priced_provider_with_zero_credits_is_skipped(client, credits_db, monkey
         json={"model": "group"},
     )
     assert result.status_code == 200
-    assert send.call_args.args[0] == "a"
+    assert send.call_args.args[0].id == "provider"
 
 
 def test_insufficient_user_credits_returns_402_before_dispatch(
@@ -928,8 +939,6 @@ def test_insufficient_user_credits_returns_402_before_dispatch(
 def test_converted_streams_finalize_successful_traces_once(
     client, credits_db, monkeypatch, protocol
 ):
-    import json
-
     fund_request(credits_db)
     with credits_db.writes.begin() as db:
         db.get(User, "user").tracing_enabled = True
@@ -1169,3 +1178,98 @@ def test_migration_0015_removes_max_output_tokens(tmp_path):
 
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     db.close()
+
+
+@pytest.mark.parametrize("protocol", ["openai", "anthropic"])
+@pytest.mark.parametrize("error_then_terminal", [False, True])
+def test_responses_stream_reports_upstream_failure(
+    client, credits_db, monkeypatch, protocol, error_then_terminal
+):
+    fund_request(credits_db)
+    with credits_db.writes.begin() as db:
+        db.get(Provider, "provider").protocol = protocol
+
+    if protocol == "anthropic":
+        content = 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}\n\n'
+        terminal = 'data: {"type":"message_stop"}\n\n'
+    else:
+        content = 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'
+        terminal = "data: [DONE]\n\n"
+    if error_then_terminal:
+        content += 'data: {"type":"error","error":{"message":"private details"}}\n\n'
+        content += terminal
+    monkeypatch.setattr(
+        "backend.gateway.execution.call_provider",
+        AsyncMock(return_value=httpx.Response(200, content=content)),
+    )
+
+    result = client.post(
+        "/v1/responses",
+        headers={"x-api-key": "test-key"},
+        json={"model": "a/model-a", "input": "Hello", "stream": True},
+    )
+
+    assert result.status_code == 200
+    assert "event: response.output_text.delta" in result.text
+    assert "event: response.failed" in result.text
+    assert "event: response.completed" not in result.text
+    assert "private details" not in result.text
+    with credits_db.reads() as db:
+        assert db.query(CreditUsage).one().status == "needs_review"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_provider_error_is_closed_without_reading_body(client, credits_db, monkeypatch, stream):
+    fund_request(credits_db)
+
+    class ProviderErrorBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            pytest.fail("The error response body should not be read")
+            yield b"private diagnostic"
+
+    upstream_response = httpx.Response(429, stream=ProviderErrorBody())
+    transport = httpx.MockTransport(lambda request: upstream_response)
+    upstream_client = httpx.AsyncClient(transport=transport)
+    monkeypatch.setattr("backend.gateway.providers.service.get_client", lambda: upstream_client)
+    result = client.post(
+        "/v1/chat/completions",
+        headers={"x-api-key": "test-key"},
+        json={"model": "a/model-a", "stream": stream},
+    )
+
+    assert result.status_code == 429
+    assert result.json()["error"]["message"] == "Provider returned an error"
+    assert upstream_response.is_closed
+
+
+def test_messages_pass_stop_sequences_to_openai(client, credits_db, monkeypatch):
+    fund_request(credits_db)
+    send = AsyncMock(return_value=httpx.Response(200, json=upstream_response()))
+    monkeypatch.setattr("backend.gateway.execution.call_provider", send)
+
+    result = client.post(
+        "/v1/messages",
+        headers={"x-api-key": "test-key"},
+        json={
+            "model": "a/model-a",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "stop_sequences": ["END"],
+        },
+    )
+
+    assert result.status_code == 200
+    assert send.call_args.args[1]["stop"] == ["END"]
+
+
+def test_refresh_requires_an_active_user(client, credits_db):
+    from backend.core.security import create_refresh_token
+
+    token = create_refresh_token("user")
+    assert client.post("/auth/refresh", json={"refresh_token": token}).status_code == 200
+
+    with credits_db.writes.begin() as db:
+        db.get(User, "user").is_active = False
+    assert client.post("/auth/refresh", json={"refresh_token": token}).status_code == 401
+
+    missing_token = create_refresh_token("deleted-user")
+    assert client.post("/auth/refresh", json={"refresh_token": missing_token}).status_code == 401

@@ -63,5 +63,5 @@ def login(
     "/refresh",
     response_model=TokenResponse,
 )
-def refresh(data: RefreshRequest):
-    return service.rotate_refresh_token(data.refresh_token)
+def refresh(data: RefreshRequest, db: Session = Depends(get_db)):
+    return service.rotate_refresh_token(db, data.refresh_token)

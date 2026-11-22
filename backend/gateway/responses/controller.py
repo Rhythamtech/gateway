@@ -3,6 +3,7 @@ import json
 import uuid
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Request
 
 from backend.core.errors import GatewayError
@@ -58,7 +59,8 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
     async def stream_response():
         response_id = f"resp_{uuid.uuid4().hex[:24]}"
         output_index = -1
-        text_started = False
+        text_output_index = -1
+        text_fragments: list[str] = []
         tool_calls: dict[int, dict[str, Any]] = {}
 
         yield sse(
@@ -75,69 +77,96 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
             "response.created",
         )
 
-        async for chunk in events:
-            if isinstance(chunk, str):
-                if chunk.strip() == "data: [DONE]":
+        try:
+            async for chunk in events:
+                if isinstance(chunk, str):
+                    if chunk.strip() == "data: [DONE]":
+                        break
+                    chunk = json.loads(chunk.removeprefix("data: ").strip())
+                if chunk.get("done"):
                     break
-                chunk = json.loads(chunk.removeprefix("data: ").strip())
-            if chunk.get("done"):
-                break
 
-            choice = (chunk.get("choices") or [{}])[0]
-            delta = choice.get("delta", {}) or {}
+                choice = (chunk.get("choices") or [{}])[0]
+                delta = choice.get("delta", {}) or {}
 
-            if delta.get("content"):
-                if not text_started:
-                    output_index += 1
-                    text_started = True
+                if delta.get("content"):
+                    if not text_fragments:
+                        output_index += 1
+                        text_output_index = output_index
+                    text_fragments.append(delta["content"])
 
-                yield sse(
-                    {
-                        "type": "response.output_text.delta",
-                        "output_index": output_index,
-                        "delta": delta["content"],
-                    },
-                    "response.output_text.delta",
-                )
+                    yield sse(
+                        {
+                            "type": "response.output_text.delta",
+                            "output_index": text_output_index,
+                            "delta": delta["content"],
+                        },
+                        "response.output_text.delta",
+                    )
 
-            for tool_call in delta.get("tool_calls") or []:
-                index = tool_call.get("index", 0)
-                function = tool_call.get("function", {}) or {}
+                for tool_call in delta.get("tool_calls") or []:
+                    index = tool_call.get("index", 0)
+                    function = tool_call.get("function", {}) or {}
 
-                if index not in tool_calls:
-                    output_index += 1
-                    tool_calls[index] = {
-                        "output_index": output_index,
-                        "call_id": tool_call.get("id", f"call_{uuid.uuid4().hex[:24]}"),
-                        "name": function.get("name", ""),
-                        "arguments": "",
-                    }
+                    if index not in tool_calls:
+                        output_index += 1
+                        tool_calls[index] = {
+                            "output_index": output_index,
+                            "call_id": tool_call.get("id", f"call_{uuid.uuid4().hex[:24]}"),
+                            "name": function.get("name", ""),
+                            "arguments": "",
+                        }
 
-                if function.get("arguments"):
-                    tool_calls[index]["arguments"] += function["arguments"]
+                    if function.get("arguments"):
+                        tool_calls[index]["arguments"] += function["arguments"]
 
-        output = []
+        except httpx.HTTPError:
+            execution.stream_failed = True
 
-        if text_started:
-            output.append(
+        if not execution.complete or execution.stream_failed:
+            yield sse(
                 {
-                    "type": "message",
-                    "role": "assistant",
-                    "status": "completed",
-                    "content": [{"type": "output_text", "text": "", "annotations": []}],
-                }
+                    "type": "response.failed",
+                    "response": {
+                        "id": response_id,
+                        "object": "response",
+                        "status": "failed",
+                        "model": payload["model"],
+                        "output": [],
+                        "error": {
+                            "code": "server_error",
+                            "message": "Provider stream failed to complete",
+                        },
+                    },
+                },
+                "response.failed",
             )
+            return
+
+        output_items: dict[int, dict[str, Any]] = {}
+
+        if text_fragments:
+            output_items[text_output_index] = {
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "".join(text_fragments),
+                        "annotations": [],
+                    }
+                ],
+            }
 
         for tool_call in tool_calls.values():
-            output.append(
-                {
-                    "type": "function_call",
-                    "call_id": tool_call["call_id"],
-                    "name": tool_call["name"],
-                    "arguments": tool_call["arguments"],
-                    "status": "completed",
-                }
-            )
+            output_items[tool_call["output_index"]] = {
+                "type": "function_call",
+                "call_id": tool_call["call_id"],
+                "name": tool_call["name"],
+                "arguments": tool_call["arguments"],
+                "status": "completed",
+            }
 
         yield sse(
             {
@@ -147,7 +176,7 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
                     "object": "response",
                     "status": "completed",
                     "model": payload["model"],
-                    "output": output,
+                    "output": [output_items[index] for index in sorted(output_items)],
                 },
             },
             "response.completed",
