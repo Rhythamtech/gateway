@@ -1,6 +1,13 @@
 import { NotificationPreferences } from "@/components/notification-preferences"
 import * as React from "react"
-import { Bell, Coins, KeyRound, ArrowUpRight, Check } from "lucide-react"
+import {
+  Bell,
+  Coins,
+  KeyRound,
+  ArrowUpRight,
+  Check,
+  LifeBuoy,
+} from "lucide-react"
 import {
   getNotifications,
   markNotificationRead,
@@ -29,7 +36,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { parseApiTimestamp } from "@/lib/datetime"
 
-export function NotificationInbox() {
+export function NotificationInbox({
+  onSupportUnreadChange,
+}: {
+  onSupportUnreadChange: (count: number) => void
+}) {
+  const [open, setOpen] = React.useState(false)
   const [filter, setFilter] = React.useState("all")
   const [data, setData] = React.useState<NotificationPage | null>(null)
   const [page, setPage] = React.useState(1)
@@ -49,6 +61,7 @@ export function NotificationInbox() {
         const result = await getNotifications(page)
         if (!cancelled) {
           setData(result)
+          onSupportUnreadChange(result.unread_support_count ?? 0)
           window.dispatchEvent(
             new CustomEvent("gateway:credit-status", {
               detail: {
@@ -79,7 +92,7 @@ export function NotificationInbox() {
       document.removeEventListener("visibilitychange", load)
       window.removeEventListener("gateway:notifications", load)
     }
-  }, [page, revision])
+  }, [page, revision, onSupportUnreadChange])
   async function read(id?: string) {
     setBusy(true)
     try {
@@ -93,7 +106,13 @@ export function NotificationInbox() {
     }
   }
   return (
-    <Sheet>
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (nextOpen) refresh()
+      }}
+    >
       <SheetTrigger asChild>
         <Button
           variant="ghost"
@@ -108,7 +127,7 @@ export function NotificationInbox() {
         <SheetHeader>
           <SheetTitle>Notifications</SheetTitle>
           <SheetDescription>
-            Credit updates and account alerts.
+            Support, credit and account updates.
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-4 px-4 pb-4">
@@ -168,6 +187,8 @@ export function NotificationInbox() {
                   >
                     {item.kind === "key_expiry" ? (
                       <KeyRound aria-hidden="true" />
+                    ) : item.kind === "support_ticket" ? (
+                      <LifeBuoy aria-hidden="true" />
                     ) : (
                       <Coins aria-hidden="true" />
                     )}
@@ -190,8 +211,13 @@ export function NotificationInbox() {
                     </time>
                     <div className="flex flex-wrap gap-1">
                       <Button asChild variant="link" size="sm">
-                        <a href={item.action_url}>
-                          View details
+                        <a
+                          href={item.action_url}
+                          onClick={() => setOpen(false)}
+                        >
+                          {item.kind === "support_ticket"
+                            ? "Open ticket"
+                            : "View details"}
                           <ArrowUpRight data-icon="inline-end" />
                         </a>
                       </Button>

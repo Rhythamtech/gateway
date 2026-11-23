@@ -1,5 +1,6 @@
 import * as React from "react"
 import { IconRefresh } from "@tabler/icons-react"
+import { toast } from "sonner"
 
 import {
   listCreditUsage,
@@ -8,8 +9,8 @@ import {
 } from "@/lib/auth"
 import {
   chargeDisplayedText,
+  creditReviewReason,
   formatCredits,
-  formatTokenCount,
 } from "@/lib/credits"
 import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
 import {
@@ -17,7 +18,9 @@ import {
   UsageStatusBadge,
 } from "@/components/credit-drawers"
 import { CreditPaginationBar } from "@/components/credit-tracking"
+import { ReleaseCreditHoldsDialog } from "@/components/release-credit-holds-dialog"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -79,6 +82,11 @@ export function CreditReviewContent() {
   const [error, setError] = React.useState<string | null>(null)
   const [tick, setTick] = React.useState(0)
   const [selected, setSelected] = React.useState<CreditUsage | null>(null)
+  const [checked, setChecked] = React.useState(new Map<string, CreditUsage>())
+  const [holdsToRelease, setHoldsToRelease] = React.useState<
+    CreditUsage[] | null
+  >(null)
+  const [loadingAll, setLoadingAll] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -111,11 +119,15 @@ export function CreditReviewContent() {
   }, [applied, page, tick])
 
   function applyFilters() {
+    setChecked(new Map())
+    setData(null)
     setApplied({ status: statusFilter, userId: userIdFilter.trim() })
     setPage(1)
   }
 
   function resetFilters() {
+    setChecked(new Map())
+    setData(null)
     setStatusFilter("needs_review")
     setUserIdFilter("")
     setApplied({ status: "needs_review", userId: "" })
@@ -123,24 +135,95 @@ export function CreditReviewContent() {
   }
 
   function refreshAfterResolution() {
+    if (selected) setHoldsChecked([selected], false)
     setSelected(null)
     setTick((value) => value + 1)
   }
 
+  function setHoldsChecked(holds: CreditUsage[], isChecked: boolean) {
+    setChecked((previous) => {
+      const next = new Map(previous)
+      for (const hold of holds) {
+        if (isChecked) next.set(hold.id, hold)
+        else next.delete(hold.id)
+      }
+      return next
+    })
+  }
+
+  async function prepareReleaseAll() {
+    setLoadingAll(true)
+    try {
+      const filters = {
+        status: "needs_review" as const,
+        userId: applied.userId,
+        pageSize: 100,
+      }
+      const firstPage = await listCreditUsage({ ...filters, page: 1 })
+      const holds = new Map(firstPage.items.map((hold) => [hold.id, hold]))
+      const pages = Math.ceil(firstPage.total / firstPage.page_size)
+      for (let nextPage = 2; nextPage <= pages; nextPage += 1) {
+        const result = await listCreditUsage({ ...filters, page: nextPage })
+        for (const hold of result.items) holds.set(hold.id, hold)
+      }
+      if (holds.size) setHoldsToRelease([...holds.values()])
+      else toast.info("There are no matching holds awaiting review.")
+    } catch {
+      toast.error("Could not load the matching holds. Try again.")
+    } finally {
+      setLoadingAll(false)
+    }
+  }
+
+  function selectionCheckbox(usage: CreditUsage) {
+    return usage.status === "needs_review" ? (
+      <Checkbox
+        aria-label={`Select hold for request ${usage.request_id}`}
+        checked={checked.has(usage.id)}
+        onCheckedChange={(value) => setHoldsChecked([usage], value === true)}
+      />
+    ) : null
+  }
+
+  function rowActions(usage: CreditUsage) {
+    const needsReview = usage.status === "needs_review"
+    return (
+      <div className="flex shrink-0 gap-1.5 whitespace-nowrap @3xl/review:justify-end">
+        <Button
+          variant={needsReview ? "default" : "outline"}
+          size="xs"
+          disabled={loadingAll}
+          onClick={() => setSelected(usage)}
+        >
+          {needsReview ? "Review" : "Inspect"}
+        </Button>
+        {needsReview && (
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={loadingAll}
+            onClick={() => setHoldsToRelease([usage])}
+          >
+            Release hold
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  const pageHolds =
+    data?.items.filter((usage) => usage.status === "needs_review") ?? []
+  const pageChecked = pageHolds.filter((hold) => checked.has(hold.id)).length
+  const showReleaseActions =
+    applied.status === "needs_review" || applied.status === "all"
   const isDefaultFilter =
     applied.status === "needs_review" && applied.userId === ""
+  const reviewOnly = applied.status === "needs_review"
 
   return (
-    <div className="flex flex-col gap-6 lg:gap-8">
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-        <div className="flex max-w-prose flex-col gap-1">
-          <h2 className="text-lg font-semibold">Unresolved credit holds</h2>
-          <p className="text-sm text-muted-foreground">
-            Requests with reported usage settle automatically. If usage is
-            missing after a timeout or interrupted response, the hold stays in
-            place until a superuser can verify what the provider charged.
-          </p>
-        </div>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">Credit holds</h2>
         <Button
           variant="outline"
           size="sm"
@@ -152,7 +235,7 @@ export function CreditReviewContent() {
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-3.5 text-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2.5 text-sm">
         <div className="flex items-center gap-2">
           <label
             htmlFor="review-status"
@@ -196,7 +279,12 @@ export function CreditReviewContent() {
         </div>
 
         <div className="flex items-center gap-1.5">
-          <Button size="sm" className="h-8" onClick={applyFilters}>
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={applyFilters}
+            disabled={loadingAll}
+          >
             Apply
           </Button>
           <Button
@@ -204,7 +292,10 @@ export function CreditReviewContent() {
             size="sm"
             className="h-8"
             onClick={resetFilters}
-            disabled={statusFilter === "needs_review" && userIdFilter === ""}
+            disabled={
+              loadingAll ||
+              (statusFilter === "needs_review" && userIdFilter === "")
+            }
           >
             Reset
           </Button>
@@ -263,6 +354,42 @@ export function CreditReviewContent() {
           </div>
         ) : (
           <div className="flex flex-col gap-4">
+            {showReleaseActions && (
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={
+                      pageChecked === 0
+                        ? false
+                        : pageChecked === pageHolds.length
+                          ? true
+                          : "indeterminate"
+                    }
+                    disabled={pageHolds.length === 0}
+                    onCheckedChange={(value) =>
+                      setHoldsChecked(pageHolds, value === true)
+                    }
+                  />
+                  Select page
+                </label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingAll || checked.size === 0}
+                  onClick={() => setHoldsToRelease([...checked.values()])}
+                >
+                  Release selected{checked.size > 0 ? ` (${checked.size})` : ""}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingAll}
+                  onClick={() => void prepareReleaseAll()}
+                >
+                  {loadingAll ? "Loading holds…" : "Release all matching"}
+                </Button>
+              </div>
+            )}
             <ul
               className="flex flex-col divide-y @3xl/review:hidden"
               aria-label="Usage records"
@@ -270,95 +397,78 @@ export function CreditReviewContent() {
               {data.items.map((usage) => (
                 <li
                   key={usage.id}
-                  className="flex min-w-0 flex-col gap-2 py-3.5"
+                  className="flex min-w-0 flex-col gap-2 py-2.5"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs text-muted-foreground">
-                      {formatDateTime(usage.created_at)}
-                    </span>
-                    <UsageStatusBadge status={usage.status} />
-                  </div>
-
-                  <div className="flex flex-col gap-0.5">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {selectionCheckbox(usage)}
                       <span
                         title={usage.request_id}
                         className="font-mono text-xs font-medium"
                       >
-                        Req: {shortId(usage.request_id)}
-                      </span>
-                      <span
-                        title={usage.user_id}
-                        className="font-mono text-xs text-muted-foreground"
-                      >
-                        User: {shortId(usage.user_id)}
+                        {shortId(usage.request_id)}
                       </span>
                     </div>
-                    <span
-                      title={usage.provider_model_id}
-                      className="truncate font-mono text-xs text-muted-foreground"
+                    {!reviewOnly && <UsageStatusBadge status={usage.status} />}
+                  </div>
+
+                  {usage.status === "needs_review" && (
+                    <p
+                      className="line-clamp-2 text-sm wrap-anywhere"
+                      title={creditReviewReason(usage.reason)}
                     >
-                      {usage.provider_model_id}
+                      {creditReviewReason(usage.reason)}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+                    <span
+                      title={usage.model_id ?? usage.provider_model_id}
+                      className="wrap-anywhere"
+                    >
+                      {usage.model_id ?? shortId(usage.provider_model_id)}
                     </span>
+                    <time dateTime={usage.created_at}>
+                      {formatDateTime(usage.created_at)}
+                    </time>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/40 p-2 text-xs">
-                    <div>
-                      <span className="text-muted-foreground">Input: </span>
-                      <span className="font-medium tabular-nums">
-                        {formatTokenCount(usage.input_tokens)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Output: </span>
-                      <span className="font-medium tabular-nums">
-                        {formatTokenCount(usage.output_tokens)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Hold: </span>
-                      <span className="font-medium tabular-nums">
-                        {formatCredits(usage.reserved_credits)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Charged: </span>
-                      <span className="font-medium tabular-nums">
-                        {chargeDisplayedText(
-                          usage.status,
-                          usage.charged_credits
-                        )}
-                      </span>
-                    </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="flex flex-wrap gap-x-3 text-xs tabular-nums">
+                      <span>Hold {formatCredits(usage.reserved_credits)}</span>
+                      {!reviewOnly && (
+                        <span className="text-muted-foreground">
+                          Charged{" "}
+                          {chargeDisplayedText(
+                            usage.status,
+                            usage.charged_credits
+                          )}
+                        </span>
+                      )}
+                    </p>
+                    {rowActions(usage)}
                   </div>
-
-                  <Button
-                    variant={
-                      usage.status === "needs_review" ? "default" : "outline"
-                    }
-                    size="sm"
-                    className="self-start"
-                    onClick={() => setSelected(usage)}
-                  >
-                    {usage.status === "needs_review" ? "Review" : "Inspect"}
-                  </Button>
                 </li>
               ))}
             </ul>
 
             <div className="hidden overflow-x-auto rounded-lg border @3xl/review:block">
-              <Table>
+              <Table aria-label="Credit holds">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>When</TableHead>
-                    <TableHead>Request / User</TableHead>
-                    <TableHead>Model</TableHead>
-                    <TableHead className="text-right">Input tokens</TableHead>
-                    <TableHead className="text-right">Output tokens</TableHead>
+                    {showReleaseActions && (
+                      <TableHead>
+                        <span className="sr-only">Select hold</span>
+                      </TableHead>
+                    )}
+                    <TableHead>Request</TableHead>
+                    <TableHead>
+                      {reviewOnly ? "Review reason" : "Status / review reason"}
+                    </TableHead>
                     <TableHead className="text-right">Hold</TableHead>
-                    <TableHead className="text-right">Charged</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-[80px] text-right">
+                    {!reviewOnly && (
+                      <TableHead className="text-right">Charged</TableHead>
+                    )}
+                    <TableHead className="w-px text-right">
                       <span className="sr-only">Action</span>
                     </TableHead>
                   </TableRow>
@@ -366,10 +476,10 @@ export function CreditReviewContent() {
                 <TableBody>
                   {data.items.map((usage) => (
                     <TableRow key={usage.id}>
-                      <TableCell className="whitespace-nowrap text-muted-foreground">
-                        {formatDateTime(usage.created_at)}
-                      </TableCell>
-                      <TableCell>
+                      {showReleaseActions && (
+                        <TableCell>{selectionCheckbox(usage)}</TableCell>
+                      )}
+                      <TableCell className="max-w-48 py-1.5">
                         <div className="flex flex-col">
                           <span
                             title={usage.request_id}
@@ -378,63 +488,41 @@ export function CreditReviewContent() {
                             {shortId(usage.request_id)}
                           </span>
                           <span
-                            title={usage.user_id}
-                            className="font-mono text-[11px] text-muted-foreground"
+                            title={usage.model_id ?? usage.provider_model_id}
+                            className="truncate text-xs text-muted-foreground"
                           >
-                            User {shortId(usage.user_id)}
+                            {usage.model_id ?? shortId(usage.provider_model_id)}
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell
-                        title={usage.provider_model_id}
-                        className="max-w-44 truncate font-mono text-xs"
-                      >
-                        {usage.provider_model_id}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {usage.input_tokens === null ? (
-                          <span className="text-muted-foreground">
-                            Not reported
-                          </span>
-                        ) : (
-                          usage.input_tokens.toLocaleString("en-US")
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {usage.output_tokens === null ? (
-                          <span className="text-muted-foreground">
-                            Not reported
-                          </span>
-                        ) : (
-                          usage.output_tokens.toLocaleString("en-US")
-                        )}
+                      <TableCell className="min-w-40 whitespace-normal">
+                        <div className="flex flex-col items-start gap-1">
+                          {!reviewOnly && (
+                            <UsageStatusBadge status={usage.status} />
+                          )}
+                          {usage.status === "needs_review" && (
+                            <span
+                              className="line-clamp-2 text-xs wrap-anywhere"
+                              title={creditReviewReason(usage.reason)}
+                            >
+                              {creditReviewReason(usage.reason)}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right font-medium tabular-nums">
                         {formatCredits(usage.reserved_credits)}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {chargeDisplayedText(
-                          usage.status,
-                          usage.charged_credits
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <UsageStatusBadge status={usage.status} />
-                      </TableCell>
+                      {!reviewOnly && (
+                        <TableCell className="text-right tabular-nums">
+                          {chargeDisplayedText(
+                            usage.status,
+                            usage.charged_credits
+                          )}
+                        </TableCell>
+                      )}
                       <TableCell className="text-right">
-                        <Button
-                          variant={
-                            usage.status === "needs_review"
-                              ? "default"
-                              : "outline"
-                          }
-                          size="sm"
-                          onClick={() => setSelected(usage)}
-                        >
-                          {usage.status === "needs_review"
-                            ? "Review"
-                            : "Inspect"}
-                        </Button>
+                        {rowActions(usage)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -460,6 +548,21 @@ export function CreditReviewContent() {
           onResolved={refreshAfterResolution}
         />
       ) : null}
+      {holdsToRelease && (
+        <ReleaseCreditHoldsDialog
+          holds={holdsToRelease}
+          onClose={() => setHoldsToRelease(null)}
+          onReleased={(ids) => {
+            const released = new Set(ids)
+            setChecked(
+              (previous) =>
+                new Map([...previous].filter(([id]) => !released.has(id)))
+            )
+            setData(null)
+            setTick((value) => value + 1)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -12,7 +12,7 @@ class CurrentUserResponse(BaseModel):
     email: EmailStr
     role: UserRole
     is_active: bool
-    # Persisted /traces recording opt-in (toggled by a superuser).
+    # Per-account request trace recording preference.
     tracing_enabled: bool
     # OpenTelemetry span opt-in (toggled by the user themselves).
     telemetry_enabled: bool

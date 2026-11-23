@@ -93,6 +93,7 @@ export function ProviderDetailContent() {
   const [provider, setProvider] = React.useState<Provider | null>(null)
   const [providerError, setProviderError] = React.useState<string | null>(null)
   const [providerTick, setProviderTick] = React.useState(0)
+  const providerRequest = React.useRef<AbortController | null>(null)
   const [models, setModels] = React.useState<ProviderModel[] | null>(null)
   const [modelsError, setModelsError] = React.useState<string | null>(null)
   const [modelsTick, setModelsTick] = React.useState(0)
@@ -119,24 +120,23 @@ export function ProviderDetailContent() {
 
   React.useEffect(() => {
     if (!providerId) return
-    let cancelled = false
+    const controller = new AbortController()
+    providerRequest.current = controller
 
-    getProvider(providerId)
+    getProvider(providerId, controller.signal)
       .then((result) => {
-        if (cancelled) return
+        if (controller.signal.aborted) return
         setProvider(result)
         setProviderError(null)
       })
       .catch((error: unknown) => {
-        if (cancelled) return
+        if (controller.signal.aborted) return
         setProviderError(
           error instanceof Error ? error.message : "Unable to load provider."
         )
       })
 
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [providerId, providerTick])
 
   React.useEffect(() => {
@@ -734,10 +734,12 @@ export function ProviderDetailContent() {
           open={true}
           provider={drawerState.provider}
           onClose={() => setDrawerState(null)}
-          onSaved={() => {
+          onSaved={(saved) => {
+            providerRequest.current?.abort()
+            setProvider(saved)
+            setProviderError(null)
             setDrawerState(null)
-            refreshProvider()
-            refreshModels()
+            if (saved.aliases !== drawerState.provider.aliases) refreshModels()
           }}
         />
       ) : null}

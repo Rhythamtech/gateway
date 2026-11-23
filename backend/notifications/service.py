@@ -16,9 +16,19 @@ def emit(db: Session, user_id: str, event_key: str, kind: str, title: str,
 
 def list_notifications(db: Session, user_id: str, page: int) -> NotificationPage:
     query = db.query(Notification).filter_by(user_id=user_id)
-    return NotificationPage(items=[NotificationResponse.model_validate(n) for n in
-        query.order_by(Notification.created_at.desc(), Notification.id.desc()).offset((page-1)*20).limit(20)],
-        unread_count=query.filter(Notification.read_at.is_(None)).count(), total=query.count(), page=page)
+    unread = query.filter(Notification.read_at.is_(None))
+    items = (
+        query.order_by(Notification.created_at.desc(), Notification.id.desc())
+        .offset((page - 1) * 20)
+        .limit(20)
+    )
+    return NotificationPage(
+        items=[NotificationResponse.model_validate(item) for item in items],
+        unread_count=unread.count(),
+        unread_support_count=unread.filter_by(kind="support_ticket").count(),
+        total=query.count(),
+        page=page,
+    )
 
 
 def mark_read(user_id: str, notification_id: str | None = None) -> None:

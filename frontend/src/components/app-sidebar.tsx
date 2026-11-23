@@ -7,6 +7,7 @@ import {
   Coins,
   Gauge,
   KeyRound,
+  Layers3,
   LifeBuoy,
   ListChecks,
   Server,
@@ -44,6 +45,7 @@ const navigation = [
   },
   { title: "Dashboard", url: "/dashboard", icon: Gauge },
   { title: "Playground", url: "/dashboard/playground", icon: Sparkles },
+  { title: "Models", url: "/dashboard/models", icon: Layers3 },
   { title: "API Keys", url: "/dashboard/api-keys", icon: KeyRound },
   { title: "Credits", url: "/dashboard/credits", icon: Coins },
   {
@@ -82,11 +84,13 @@ const navigation = [
 export function AppSidebar({
   role = "user",
   currentPath = "/dashboard",
+  unreadSupportCount = 0,
   user,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   role?: "user" | "superuser"
   currentPath?: string
+  unreadSupportCount?: number
   user: {
     name: string
     email: string
@@ -107,6 +111,7 @@ export function AppSidebar({
     .filter((item) => !item.superuserOnly || role === "superuser")
     .map((item) => ({
       ...item,
+      unreadCount: item.url === "/dashboard/support" ? unreadSupportCount : 0,
       isActive:
         item.url === "/dashboard"
           ? currentPath === item.url

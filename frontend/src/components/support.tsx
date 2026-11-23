@@ -178,11 +178,10 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
 
   // Active Ticket Drawer (View Thread)
   const [activeTicketId, setActiveTicketId] = React.useState<string | null>(
-    null
+    () => new URLSearchParams(window.location.search).get("id")
   )
   const [ticketDetail, setTicketDetail] =
     React.useState<SupportTicketDetail | null>(null)
-  const [isLoadingDetail, setIsLoadingDetail] = React.useState(false)
   const [replyMessage, setReplyMessage] = React.useState("")
   const [isSendingReply, setIsSendingReply] = React.useState(false)
 
@@ -236,22 +235,31 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
     }
   }, [statusFilter, categoryFilter, searchQuery, isSuperuser, revision])
 
-  // Open ticket thread detail
-  const handleOpenTicket = async (ticketId: string) => {
-    setActiveTicketId(ticketId)
-    setIsLoadingDetail(true)
+  React.useEffect(() => {
+    if (!activeTicketId) return
+    let active = true
+
+    getSupportTicket(activeTicketId)
+      .then((detail) => {
+        if (active) setTicketDetail(detail)
+      })
+      .catch((err) => {
+        if (!active) return
+        toast.error(
+          err instanceof Error ? err.message : "Failed to load ticket details"
+        )
+        setActiveTicketId(null)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [activeTicketId])
+
+  const handleOpenTicket = (ticketId: string) => {
     setTicketDetail(null)
     setReplyMessage("")
-    try {
-      const detail = await getSupportTicket(ticketId)
-      setTicketDetail(detail)
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to load ticket details"
-      )
-    } finally {
-      setIsLoadingDetail(false)
-    }
+    setActiveTicketId(ticketId)
   }
 
   // Handle send message
@@ -328,7 +336,7 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
       setCreateCategory("other")
       setCreatePriority("normal")
       refresh(true)
-      void handleOpenTicket(created.id)
+      handleOpenTicket(created.id)
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to create support ticket"
@@ -538,7 +546,7 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
                   <TableRow
                     key={t.id}
                     className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => void handleOpenTicket(t.id)}
+                    onClick={() => handleOpenTicket(t.id)}
                   >
                     <TableCell>
                       <StatusBadge status={t.status} />
@@ -580,7 +588,7 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
                         variant="ghost"
                         size="sm"
                         className="h-8 text-xs"
-                        onClick={() => void handleOpenTicket(t.id)}
+                        onClick={() => handleOpenTicket(t.id)}
                       >
                         View Thread
                       </Button>
@@ -602,8 +610,12 @@ export function SupportDashboardContent({ user }: { user: CurrentUser }) {
           side="right"
           className="flex w-full flex-col p-0 sm:max-w-2xl"
         >
-          {isLoadingDetail || !ticketDetail ? (
-            <div className="space-y-4 p-6">
+          {!ticketDetail ? (
+            <div className="flex flex-col gap-4 p-6">
+              <SheetTitle className="sr-only">Support ticket</SheetTitle>
+              <SheetDescription className="sr-only">
+                Loading ticket details.
+              </SheetDescription>
               <Skeleton className="h-6 w-3/4" />
               <Skeleton className="h-4 w-1/2" />
               <Skeleton className="h-40 w-full" />

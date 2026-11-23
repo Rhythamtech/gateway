@@ -13,7 +13,10 @@ import backend.gateway.providers.models  # noqa: F401
 import backend.traces.models  # noqa: F401
 from backend.auth.models import User, UserRole
 from backend.core.database import Base
-from backend.gateway.model_groups.models import ModelGroup
+from backend.credits.models import ModelCreditRate
+from backend.gateway.model_groups.models import ModelGroup, ModelGroupMember
+from backend.gateway.provider_models.models import ProviderModel
+from backend.gateway.providers.models import Provider
 from backend.traces.models import LLMCallTrace, LLMMessageTrace
 
 
@@ -83,6 +86,78 @@ def make_token(user_id: str) -> dict[str, str]:
     from backend.core.security import create_access_token
 
     return {"Authorization": f"Bearer {create_access_token(user_id)}"}
+
+
+def test_model_catalog_lists_enabled_groups_with_current_rates(test_db, client):
+    user_id = str(uuid4())
+    with test_db.writes.begin() as db:
+        user = User(id=user_id, email="catalog@example.com", hashed_password="hash")
+        db.add(user)
+        provider = Provider(id="p", name="Provider", aliases="p", base_url="https://example.com")
+        disabled = Provider(
+            id="off", name="Disabled", aliases="off",
+            base_url="https://example.org", is_enabled=False,
+        )
+        db.add_all([provider, disabled])
+        db.flush()
+
+        for name, provider_id, available in (
+            ("first", "p", True),
+            ("second", "p", True),
+            ("unpriced", "p", True),
+            ("unavailable", "p", False),
+            ("private", "off", True),
+        ):
+            db.add(ProviderModel(
+                id=name, provider_id=provider_id, model_name=name,
+                model_id=f"{provider_id}/{name}", is_available=available,
+            ))
+        for group_id, name, enabled in (
+            ("public", "Public group", True),
+            ("unpriced", "Unpriced group", True),
+            ("unavailable", "Unavailable group", True),
+            ("disabled", "Disabled group", False),
+        ):
+            db.add(ModelGroup(
+                id=group_id, name=name, model_id=f"group/{group_id}",
+                routing_strategy="priority", created_by=user_id, is_enabled=enabled,
+            ))
+        db.flush()
+
+        for model in ("first", "second", "unpriced", "unavailable", "private"):
+            db.add(ModelGroupMember(model_group_id="public", provider_model_id=model))
+        for group_id, model in (
+            ("unpriced", "unpriced"), ("unavailable", "unavailable"), ("disabled", "first"),
+        ):
+            db.add(ModelGroupMember(model_group_id=group_id, provider_model_id=model))
+        for model, version, rate in (
+            ("first", 1, 500), ("first", 2, 2000), ("second", 1, 4000),
+            ("unavailable", 1, 50), ("private", 1, 25),
+        ):
+            db.add(ModelCreditRate(
+                provider_model_id=model, version=version,
+                tokens_per_credit_micros=rate * 1_000_000, actor_id=user_id,
+            ))
+
+    assert client.get("/models").status_code == 401
+    token = make_token(user_id)
+    assert client.get("/v1/models", headers=token).status_code == 401
+    response = client.get("/models", headers=token)
+    assert response.status_code == 200
+    catalog = response.json()
+    assert catalog["requests_per_minute_per_key"] == 60
+    models = {model["model_id"]: model for model in catalog["models"]}
+    assert set(models) == {"group/public", "group/unpriced", "group/unavailable"}
+    assert models["group/public"] == {
+        "name": "Public group",
+        "model_id": "group/public",
+        "status": "ready",
+        "tokens_per_credit": {"min": "2000.000000", "max": "4000.000000"},
+        "credits_per_million_tokens": {"min": "250", "max": "500"},
+    }
+    assert models["group/unpriced"]["status"] == "rate_needed"
+    assert models["group/unavailable"]["status"] == "unavailable"
+    assert models["group/unavailable"]["tokens_per_credit"] is None
 
 
 def test_user_preferences_toggle_tracing(test_db, client):

@@ -23,12 +23,11 @@ const sections = [
   },
   {
     id: "zdr",
-    title: "3. Zero Data Retention & Prompt Handling",
-    content: `We believe strongly in developer and user data privacy:
+    title: "3. Request Tracing & Prompt Handling",
+    content: `Request tracing is enabled by default for new accounts. You can turn it off in Account Settings to stop new trace recordings for your requests.
 
-• Default Zero Retention: By default, ${APP_NAME} operates in a Zero Data Retention (ZDR) posture. Inbound prompts and streaming model completions pass through memory in-flight to your target provider. We do NOT store, log, or index your prompt contents or model responses on our servers by default.
-• Private Observability Traces (Opt-In): You may choose to enable Request Tracing in your Account Settings. When enabled, request payloads and response bodies are securely stored in your isolated database solely for your own debugging, inspectable in the Request Traces dashboard.
-• Automated Retention Expiry: All persistent request logs automatically expire and are purged after 30 days.
+• Request Traces: When tracing is enabled, Gateway stores sanitized request payloads and provider attempt details, including model, latency, and reported token usage. These records are available in the Request Traces dashboard.
+• Trace Retention: Saved traces follow the retention period configured by the gateway administrator.
 • No Model Training: We never use, sell, or license customer prompt inputs or model outputs to train artificial intelligence models.`,
   },
   {

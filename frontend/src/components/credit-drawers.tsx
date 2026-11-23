@@ -1,6 +1,7 @@
 import * as React from "react"
 import {
   IconCheck,
+  IconChevronDown,
   IconCircleCheckFilled,
   IconCopy,
   IconX,
@@ -34,8 +35,14 @@ import {
 } from "@/lib/credits"
 import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { CreditRequestFlow } from "@/components/credit-request-flow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Drawer,
   DrawerClose,
@@ -940,114 +947,67 @@ export function ReviewEvidenceDrawer({
           </DrawerDescription>
         </DrawerHeader>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="flex flex-col gap-6 p-4 md:p-6">
-            <section className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-                <span className="flex items-baseline gap-2">
-                  <span className="text-sm text-muted-foreground">
-                    Maximum hold
-                  </span>
-                  <span className="text-2xl font-semibold tabular-nums">
-                    {formatCredits(usage.reserved_credits)}
-                  </span>
-                </span>
-                <Separator
-                  orientation="vertical"
-                  className="hidden h-4 self-center sm:block"
-                />
-                <span className="flex items-baseline gap-2">
-                  <span className="text-sm text-muted-foreground">Charged</span>
-                  <span className="font-medium tabular-nums">
-                    {chargeDisplayedText(usage.status, usage.charged_credits)}
-                  </span>
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                The hold reserved this request&apos;s full allowance up front
-                and can exceed the final charge; the difference is released on
-                settlement.
-              </p>
-            </section>
+          <div className="flex flex-col gap-4 p-4 md:p-5">
+            <CreditRequestFlow usage={usage} />
 
-            <section className="flex flex-col gap-2">
-              <h3 className="text-sm font-semibold">Rate snapshot</h3>
-              <DetailRow label="Tokens per credit (recorded)">
-                <span className="tabular-nums">
-                  {formatCredits(usage.tokens_per_credit)}
-                </span>
-              </DetailRow>
-              <DetailRow label="Reserved token allowance">
-                <span className="tabular-nums">
-                  {usage.max_request_tokens.toLocaleString("en-US")}
-                </span>
-              </DetailRow>
-            </section>
+            <Collapsible className="flex flex-col items-start gap-2">
+              <CollapsibleTrigger asChild>
+                <Button variant="outline" size="sm" className="group">
+                  Request details
+                  <IconChevronDown
+                    data-icon="inline-end"
+                    className="group-data-[state=open]:rotate-180"
+                  />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="flex w-full flex-col gap-4">
+                <section className="flex flex-col gap-2">
+                  <h3 className="text-sm font-semibold">Rate snapshot</h3>
+                  <DetailRow label="Tokens per credit (recorded)">
+                    <span className="tabular-nums">
+                      {formatCredits(usage.tokens_per_credit)}
+                    </span>
+                  </DetailRow>
+                  <DetailRow label="Reserved token allowance">
+                    <span className="tabular-nums">
+                      {usage.max_request_tokens.toLocaleString("en-US")}
+                    </span>
+                  </DetailRow>
+                </section>
+                <section className="flex flex-col gap-2">
+                  <h3 className="text-sm font-semibold">Identifiers</h3>
+                  <DetailRow label="Request ID">
+                    <CopyableIdentifier value={usage.request_id} />
+                  </DetailRow>
+                  <DetailRow label="Provider response ID">
+                    {usage.provider_request_id ? (
+                      <CopyableIdentifier value={usage.provider_request_id} />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </DetailRow>
+                  <DetailRow label="User ID">
+                    <CopyableIdentifier value={usage.user_id} />
+                  </DetailRow>
+                  <DetailRow label="Provider ID">
+                    <CopyableIdentifier value={usage.provider_id} />
+                  </DetailRow>
+                  <DetailRow label="Provider model ID">
+                    <CopyableIdentifier value={usage.provider_model_id} />
+                  </DetailRow>
+                </section>
 
-            <section className="flex flex-col gap-2">
-              <h3 className="text-sm font-semibold">Reported usage</h3>
-              <DetailRow label="Input tokens">
-                <span className="tabular-nums">
-                  {usage.input_tokens === null
-                    ? "Not reported"
-                    : usage.input_tokens.toLocaleString("en-US")}
-                </span>
-              </DetailRow>
-              <DetailRow label="Output tokens">
-                <span className="tabular-nums">
-                  {usage.output_tokens === null
-                    ? "Not reported"
-                    : usage.output_tokens.toLocaleString("en-US")}
-                </span>
-              </DetailRow>
-              {usage.input_tokens === null || usage.output_tokens === null ? (
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  The provider did not report usage for this request. The
-                  backend does not automatically retrieve missing provider
-                  usage; settle with the counts you can verify, or release the
-                  hold.
-                </p>
-              ) : null}
-            </section>
-
-            <section className="flex flex-col gap-2">
-              <h3 className="text-sm font-semibold">Identifiers</h3>
-              <DetailRow label="Request ID">
-                <CopyableIdentifier value={usage.request_id} />
-              </DetailRow>
-              <DetailRow label="Provider response ID">
-                {usage.provider_request_id ? (
-                  <CopyableIdentifier value={usage.provider_request_id} />
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </DetailRow>
-              <DetailRow label="User ID">
-                <CopyableIdentifier value={usage.user_id} />
-              </DetailRow>
-              <DetailRow label="Provider ID">
-                <CopyableIdentifier value={usage.provider_id} />
-              </DetailRow>
-              <DetailRow label="Provider model ID">
-                <CopyableIdentifier value={usage.provider_model_id} />
-              </DetailRow>
-            </section>
-
-            <section className="flex flex-col gap-2">
-              <h3 className="text-sm font-semibold">Recorded</h3>
-              <DetailRow label="Created">
-                {formatDateTime(usage.created_at)}
-              </DetailRow>
-              <DetailRow label="Updated">
-                {formatDateTime(usage.updated_at)}
-              </DetailRow>
-              {usage.status !== "needs_review" ? (
-                <p className="text-xs text-muted-foreground">
-                  This usage was already resolved
-                  {usage.resolved_by ? " by a superuser" : ""}. No further
-                  action is available.
-                </p>
-              ) : null}
-            </section>
+                <section className="flex flex-col gap-2">
+                  <h3 className="text-sm font-semibold">Recorded</h3>
+                  <DetailRow label="Created">
+                    {formatDateTime(usage.created_at)}
+                  </DetailRow>
+                  <DetailRow label="Updated">
+                    {formatDateTime(usage.updated_at)}
+                  </DetailRow>
+                </section>
+              </CollapsibleContent>
+            </Collapsible>
 
             {needsReview ? (
               <section className="flex flex-col gap-3 border-t pt-4">

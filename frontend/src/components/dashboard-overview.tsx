@@ -1075,8 +1075,8 @@ function PersonalOverview({ user }: { user: CurrentUser }) {
       </Tabs>
       <footer className="flex flex-wrap items-center justify-between gap-4 border-t pt-5">
         <p className="max-w-xl text-xs leading-5 text-muted-foreground">
-          Tracing is opt-in. These metrics cover recorded attempts only, not
-          billing. Missing provider usage is not estimated.
+          These metrics cover recorded attempts. Billing is tracked separately,
+          and provider usage is reported when available.
           {!user.tracing_enabled
             ? " Tracing is currently off for your account."
             : ""}

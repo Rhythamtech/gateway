@@ -81,6 +81,11 @@ const routes = [
       default: m.PlaygroundContent,
     }))
   ),
+  route("/dashboard/models", "Models", () =>
+    import("@/components/model-catalog").then((m) => ({
+      default: m.ModelCatalogContent,
+    }))
+  ),
   route("/dashboard/api-keys", "API Keys", () =>
     import("@/components/api-keys").then((m) => ({ default: m.ApiKeysContent }))
   ),

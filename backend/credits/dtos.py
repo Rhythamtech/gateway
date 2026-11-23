@@ -65,6 +65,7 @@ class CreditUsageResponse(BaseModel):
     user_id: str
     provider_id: str
     provider_model_id: str
+    model_id: str | None = None
     api_key_id: str
     rate_id: str
     tokens_per_credit: str

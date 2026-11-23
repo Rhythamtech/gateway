@@ -1,156 +1,148 @@
 "use client"
 
 import * as React from "react"
-import { Check, Copy, Terminal } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+
+const configuredOrigin = import.meta.env.PUBLIC_API_BASE_URL
+const localOrigin = "http://localhost:8000"
+const placeholderOrigin = configuredOrigin ?? localOrigin
+
+function getOrigin() {
+  return (
+    configuredOrigin ??
+    (import.meta.env.DEV ? localOrigin : window.location.origin)
+  )
+}
 
 function codeExamples(origin: string) {
+  const base = origin.replace(/\/$/, "")
   return {
     python: `from openai import OpenAI
 
-# 1. Point official OpenAI SDK to your Gateway endpoint
 client = OpenAI(
-    base_url="${origin}/v1",
-    api_key="gw-live-your_api_key_here",
+    base_url="${base}/v1",
+    api_key="YOUR_GATEWAY_API_KEY",
 )
 
-# 2. Access any model (Google, Anthropic, Meta, Mistral)
 response = client.chat.completions.create(
-    model="google/gemma-4-31b",
-    messages=[
-        {"role": "system", "content": "You are a production AI assistant."},
-        {"role": "user", "content": "How does Gateway handle provider failover?"},
-    ],
-    temperature=0.7,
+    model="YOUR_MODEL_ID",
+    messages=[{"role": "user", "content": "Hello!"}],
 )
-
 print(response.choices[0].message.content)`,
-
     typescript: `import Anthropic from "@anthropic-ai/sdk"
 
-// 1. Point official Anthropic SDK to your Gateway endpoint
 const client = new Anthropic({
-  baseURL: "${origin}/v1",
-  apiKey: "gw-live-your_api_key_here",
+  baseURL: "${base}",
+  apiKey: "YOUR_GATEWAY_API_KEY",
 })
 
-// 2. Stream responses with zero data retention
-const stream = await client.messages.create({
-  model: "claude-3-5-sonnet",
-  max_tokens: 1024,
-  messages: [{ role: "user", content: "Explain atomic token reservations." }],
-  stream: true,
+const response = await client.messages.create({
+  model: "YOUR_MODEL_ID",
+  max_tokens: 128,
+  messages: [{ role: "user", content: "Hello!" }],
 })
-
-for await (const chunk of stream) {
-  process.stdout.write(chunk.delta?.text || "")
-}`,
-
-    curl: `curl -X POST ${origin}/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer gw-live-your_api_key_here" \\
+console.log(response.content)`,
+    curl: `curl "${base}/v1/chat/completions" \\
+  -H 'Content-Type: application/json' \\
+  -H 'Authorization: Bearer YOUR_GATEWAY_API_KEY' \\
   -d '{
-    "model": "google/gemma-4-31b",
+    "model": "YOUR_MODEL_ID",
     "messages": [
-      {"role": "user", "content": "Ping gateway"}
-    ],
-    "stream": false
+      {"role": "user", "content": "Hello!"}
+    ]
   }'`,
   }
 }
 
+const tabs = [
+  { id: "python", label: "OpenAI" },
+  { id: "typescript", label: "Anthropic" },
+  { id: "curl", label: "cURL" },
+] as const
+
 export function LandingCodePreview() {
-  const [activeTab, setActiveTab] = React.useState<
-    "python" | "typescript" | "curl"
-  >("python")
-  const [copied, setCopied] = React.useState(false)
+  const [activeTab, setActiveTab] =
+    React.useState<(typeof tabs)[number]["id"]>("python")
+  const [copyStatus, setCopyStatus] = React.useState<
+    "idle" | "copied" | "error"
+  >("idle")
   const origin = React.useSyncExternalStore(
     () => () => {},
-    () => window.location.origin,
-    () => ""
+    getOrigin,
+    () => placeholderOrigin
   )
-
   const examples = codeExamples(origin)
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(examples[activeTab])
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(examples[activeTab])
+      setCopyStatus("copied")
+    } catch {
+      setCopyStatus("error")
+    }
   }
 
   return (
-    <Card className="overflow-hidden border-border/80 bg-card/60 shadow-md backdrop-blur-xs">
-      <CardHeader className="flex flex-row items-center justify-between border-b border-border/60 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Terminal className="size-4 text-muted-foreground" />
-          <CardTitle className="font-mono text-xs font-medium text-foreground">
-            Drop-in SDK Integration
-          </CardTitle>
-          <Badge variant="outline" className="px-2 py-0 font-mono text-[10px]">
-            Zero Client Changes
-          </Badge>
-        </div>
+    <Card className="gap-0 overflow-hidden rounded-xl border-border bg-muted py-0 text-foreground shadow-none">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
+        <CardTitle className="text-sm font-medium">Send a request</CardTitle>
         <Button
           variant="ghost"
-          size="xs"
+          size="sm"
           onClick={handleCopy}
-          className="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+          className="text-muted-foreground"
         >
-          {copied ? (
-            <>
-              <Check className="size-3 text-emerald-500" />
-              <span>Copied</span>
-            </>
-          ) : (
-            <>
-              <Copy className="size-3" />
-              <span>Copy</span>
-            </>
-          )}
+          Copy code
         </Button>
       </CardHeader>
       <CardContent className="p-0">
         <Tabs
           value={activeTab}
-          onValueChange={(val) => setActiveTab(val as typeof activeTab)}
-          className="w-full"
+          onValueChange={(value) => {
+            setActiveTab(value as typeof activeTab)
+            setCopyStatus("idle")
+          }}
+          className="gap-0"
         >
-          <div className="border-b border-border/50 bg-muted/20 px-4 py-2">
-            <TabsList className="h-7 bg-muted/60 p-0.5">
-              <TabsTrigger value="python" className="px-2.5 py-1 text-xs">
-                Python (OpenAI)
-              </TabsTrigger>
-              <TabsTrigger value="typescript" className="px-2.5 py-1 text-xs">
-                TypeScript (Anthropic)
-              </TabsTrigger>
-              <TabsTrigger value="curl" className="px-2.5 py-1 text-xs">
-                cURL
-              </TabsTrigger>
+          <div className="border-b border-border px-4 sm:px-6">
+            <TabsList variant="line" aria-label="API examples">
+              {tabs.map(({ id, label }) => (
+                <TabsTrigger
+                  key={id}
+                  value={id}
+                  className="text-xs text-muted-foreground after:bg-primary"
+                >
+                  {label}
+                </TabsTrigger>
+              ))}
             </TabsList>
           </div>
 
-          <TabsContent value="python" className="m-0 p-4">
-            <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-foreground/90 selection:bg-primary/20">
-              <code>{examples.python}</code>
-            </pre>
-          </TabsContent>
-
-          <TabsContent value="typescript" className="m-0 p-4">
-            <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-foreground/90 selection:bg-primary/20">
-              <code>{examples.typescript}</code>
-            </pre>
-          </TabsContent>
-
-          <TabsContent value="curl" className="m-0 p-4">
-            <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-foreground/90 selection:bg-primary/20">
-              <code>{examples.curl}</code>
-            </pre>
-          </TabsContent>
+          {tabs.map(({ id, label }) => (
+            <TabsContent key={id} value={id} className="min-w-0">
+              <pre
+                tabIndex={0}
+                aria-label={`${label} code example`}
+                className="min-h-68 px-4 py-5 font-mono text-xs leading-5 wrap-anywhere whitespace-pre-wrap text-foreground sm:min-h-76 sm:px-6 sm:text-[13px]"
+              >
+                <code>{examples[id]}</code>
+              </pre>
+            </TabsContent>
+          ))}
         </Tabs>
+        <p
+          role="status"
+          className="min-h-9 border-t border-border px-4 py-2 text-xs text-muted-foreground sm:px-6"
+        >
+          {copyStatus === "copied"
+            ? "Copied to clipboard."
+            : copyStatus === "error"
+              ? "Select the code to copy it."
+              : "Use your API key and model ID."}
+        </p>
       </CardContent>
     </Card>
   )

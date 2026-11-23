@@ -565,8 +565,8 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
         </div>
 
         <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
-          Tracing is opt-in per user. Payloads are sanitized before storage. For
-          billing, see{" "}
+          Request tracing follows each account’s settings. Gateway sanitizes
+          payloads before storage. For billing, see{" "}
           <a href="/dashboard/credits" className="underline underline-offset-4">
             Credits
           </a>

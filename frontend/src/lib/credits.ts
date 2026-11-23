@@ -191,6 +191,14 @@ const USAGE_STATUS_LABELS: Record<string, string> = {
   released: "Released",
 }
 
+export function creditReviewReason(reason: string | null): string {
+  const recorded = reason?.trim()
+  if (recorded === "Upstream dispatch failed or its outcome is unknown") {
+    return "Provider request failed before usage could be confirmed."
+  }
+  return recorded || "No review reason recorded."
+}
+
 export function usageStatusLabel(status: string): string {
   return USAGE_STATUS_LABELS[status] ?? status
 }

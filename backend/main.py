@@ -39,6 +39,9 @@ from backend.gateway.messages.controller import router as messages_router
 from backend.gateway.model_groups import models as model_group_models  # noqa: F401
 from backend.gateway.model_groups.controller import router as model_groups_router
 from backend.gateway.provider_models.controller import (
+    catalog_router as models_catalog_router,
+)
+from backend.gateway.provider_models.controller import (
     gateway_router as models_gateway_router,
 )
 from backend.gateway.provider_models.controller import router as provider_models_router
@@ -116,6 +119,7 @@ app.include_router(chat_router)
 app.include_router(messages_router)
 app.include_router(responses_router)
 app.include_router(models_gateway_router)
+app.include_router(models_catalog_router)
 app.include_router(providers_router)
 app.include_router(provider_models_router)
 app.include_router(traces_router)

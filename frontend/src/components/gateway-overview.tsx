@@ -23,14 +23,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import {
-  listCallTraces,
-  listCreditUsage,
-  listProviders,
-  type CallsPage,
-  type CreditUsagePage,
-  type Provider,
-} from "@/lib/auth"
+import { listCallTraces, listCreditUsage, listProviders } from "@/lib/auth"
 import { formatCredits } from "@/lib/credits"
 import { formatTimestampInDeviceZone, parseApiTimestamp } from "@/lib/datetime"
 
@@ -41,71 +34,123 @@ const dayLabel = new Intl.DateTimeFormat(undefined, {
   timeZone: "UTC",
 })
 
-function fulfilled<T>(result: PromiseSettledResult<T>) {
-  return result.status === "fulfilled" ? result.value : undefined
+function useGatewayResource<T>(
+  scope: string,
+  refresh: number,
+  load: (signal: AbortSignal) => Promise<T>
+) {
+  const [attempt, setAttempt] = React.useState(0)
+  const request = React.useMemo(
+    () => ({ scope, refresh, attempt, load }),
+    [scope, refresh, attempt, load]
+  )
+  const [result, setResult] = React.useState<{
+    request: typeof request
+    data?: T
+    failed?: boolean
+  }>()
+
+  React.useEffect(() => {
+    const controller = new AbortController()
+    void request.load(controller.signal).then(
+      (data) => {
+        if (!controller.signal.aborted) setResult({ request, data })
+      },
+      () => {
+        if (!controller.signal.aborted) {
+          setResult((previous) => ({
+            request,
+            data:
+              previous?.request.scope === request.scope
+                ? previous.data
+                : undefined,
+            failed: true,
+          }))
+        }
+      }
+    )
+    return () => controller.abort()
+  }, [request])
+
+  const data = result?.request.scope === scope ? result.data : undefined
+  const pending = result?.request !== request
+  return {
+    data,
+    loading: pending && data === undefined,
+    failed: !pending && Boolean(result?.failed),
+    retry: () => setAttempt((previous) => previous + 1),
+  }
+}
+
+function loadCreditReviews(signal: AbortSignal) {
+  return listCreditUsage({ pageSize: 5, status: "needs_review" }, signal)
 }
 
 export function GatewayOverview() {
   const [tab, setTab] = React.useState("failed")
   const [period, setPeriod] = React.useState("30")
   const [refresh, setRefresh] = React.useState(0)
-  const [results, setResults] = React.useState<{
-    key: string
-    calls?: CallsPage
-    failed?: CallsPage
-    timeouts?: CallsPage
-    providers?: Provider[]
-    reviews?: CreditUsagePage
-  }>()
   const to = new Date().toISOString().slice(0, 10)
   const start = new Date(`${to}T00:00:00Z`)
   start.setUTCDate(start.getUTCDate() - Number(period) + 1)
   const from = start.toISOString().slice(0, 10)
-  const key = `${from}:${to}:${refresh}`
-  const data = results?.key === key ? results : undefined
+  const range = `${from}:${to}`
 
-  React.useEffect(() => {
-    let active = true
-    const filters = { from, to }
-    void Promise.allSettled([
-      listCallTraces({ pageSize: SAMPLE_SIZE, filters }),
-      listCallTraces({
-        pageSize: 5,
-        filters: { ...filters, status: "failed" },
-      }),
-      listCallTraces({
-        pageSize: 5,
-        filters: { ...filters, status: "timeout" },
-      }),
-      listProviders(),
-      listCreditUsage({ pageSize: 5, status: "needs_review" }),
-    ]).then(([calls, failed, timeouts, providers, reviews]) => {
-      if (active)
-        setResults({
-          key,
-          calls: fulfilled(calls),
-          failed: fulfilled(failed),
-          timeouts: fulfilled(timeouts),
-          providers: fulfilled(providers),
-          reviews: fulfilled(reviews),
-        })
-    })
-    return () => {
-      active = false
-    }
-  }, [from, to, key])
-
+  const callResource = useGatewayResource(
+    range,
+    refresh,
+    React.useCallback(
+      (signal: AbortSignal) =>
+        listCallTraces(
+          { pageSize: SAMPLE_SIZE, filters: { from, to } },
+          signal
+        ),
+      [from, to]
+    )
+  )
+  const failedResource = useGatewayResource(
+    range,
+    refresh,
+    React.useCallback(
+      (signal: AbortSignal) =>
+        listCallTraces(
+          { pageSize: 5, filters: { from, to, status: "failed" } },
+          signal
+        ),
+      [from, to]
+    )
+  )
+  const timeoutResource = useGatewayResource(
+    range,
+    refresh,
+    React.useCallback(
+      (signal: AbortSignal) =>
+        listCallTraces(
+          { pageSize: 5, filters: { from, to, status: "timeout" } },
+          signal
+        ),
+      [from, to]
+    )
+  )
+  const providerResource = useGatewayResource("current", refresh, listProviders)
+  const reviewResource = useGatewayResource(
+    "current",
+    refresh,
+    loadCreditReviews
+  )
+  const { data: calls } = callResource
+  const { data: failed } = failedResource
+  const { data: timeouts } = timeoutResource
+  const { data: providers } = providerResource
+  const { data: reviews } = reviewResource
   const failures =
-    data?.failed && data.timeouts
-      ? data.failed.total + data.timeouts.total
-      : undefined
-  const rows = [
-    ...(data?.failed?.items ?? []),
-    ...(data?.timeouts?.items ?? []),
-  ]
+    failed && timeouts ? failed.total + timeouts.total : undefined
+  const outcomesFailed = failedResource.failed || timeoutResource.failed
+  const outcomesLoading =
+    !outcomesFailed && (failedResource.loading || timeoutResource.loading)
+  const rows = [...(failed?.items ?? []), ...(timeouts?.items ?? [])]
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .slice(0, 5)
-  const calls = data?.calls
   const sampled = calls !== undefined && calls.total > calls.items.length
   const buckets = new Map<
     string,
@@ -145,7 +190,7 @@ export function GatewayOverview() {
   const oldestSampleDay = [...buckets.keys()].at(-1)
   for (
     let day = new Date(`${sampled ? (oldestSampleDay ?? to) : from}T00:00:00Z`);
-    day.toISOString().slice(0, 10) <= to;
+    calls && day.toISOString().slice(0, 10) <= to;
     day.setUTCDate(day.getUTCDate() + 1)
   ) {
     const date = day.toISOString().slice(0, 10)
@@ -164,13 +209,14 @@ export function GatewayOverview() {
   const charts = [
     {
       title: "Failed and timed-out calls",
+      loading: outcomesLoading,
       data:
-        failures && data?.failed && data.timeouts
+        failures && failed && timeouts
           ? [
-              { label: "Failed", count: data.failed.total },
+              { label: "Failed", count: failed.total },
               {
                 label: "Timed out",
-                count: data.timeouts.total,
+                count: timeouts.total,
                 fill: "var(--analytics-timeout)",
               },
             ]
@@ -183,6 +229,7 @@ export function GatewayOverview() {
     },
     {
       title: "Latency distribution",
+      loading: callResource.loading,
       description: `${latencySamples.toLocaleString()} measured attempts.${sampleScope ? ` ${sampleScope}` : ""}`,
       data: latencySamples ? latency : [],
       emptyMessage: calls
@@ -192,6 +239,7 @@ export function GatewayOverview() {
     },
     {
       title: "Top providers by call count",
+      loading: callResource.loading,
       description: sampleScope,
       data: providerActivity,
       emptyMessage: calls
@@ -200,17 +248,12 @@ export function GatewayOverview() {
       color: "var(--analytics-volume)",
     },
   ]
-  const partialError =
-    data &&
-    (!calls ||
-      !data.failed ||
-      !data.timeouts ||
-      !data.providers ||
-      !data.reviews)
   const metrics = [
     {
       label: "Traced calls",
       value: calls?.total.toLocaleString(),
+      loading: callResource.loading,
+      onRetry: callResource.failed ? callResource.retry : undefined,
       badge: "Selected period",
       headline: "Open request traces",
       detail: "Recorded provider attempts across accounts",
@@ -219,17 +262,26 @@ export function GatewayOverview() {
     {
       label: "Failed or timed out",
       value: failures?.toLocaleString(),
+      loading: outcomesLoading,
+      onRetry: outcomesFailed
+        ? () => {
+            if (failedResource.failed) failedResource.retry()
+            if (timeoutResource.failed) timeoutResource.retry()
+          }
+        : undefined,
       badge: "Selected period",
       headline: "Investigate unsuccessful calls",
-      detail: data?.timeouts
-        ? `${data.timeouts.total.toLocaleString()} timed out`
+      detail: timeouts
+        ? `${timeouts.total.toLocaleString()} timed out`
         : "Failed and timed-out provider attempts",
       href: "#gateway-activity",
       onClick: () => setTab("failed"),
     },
     {
       label: "Credit reviews",
-      value: data?.reviews?.total.toLocaleString(),
+      value: reviews?.total.toLocaleString(),
+      loading: reviewResource.loading,
+      onRetry: reviewResource.failed ? reviewResource.retry : undefined,
       badge: "Current",
       headline: "Open credit review",
       detail: "Usage records waiting for a decision",
@@ -237,13 +289,15 @@ export function GatewayOverview() {
     },
     {
       label: "Enabled providers",
-      value: data?.providers
+      loading: providerResource.loading,
+      onRetry: providerResource.failed ? providerResource.retry : undefined,
+      value: providers
         ?.filter((provider) => provider.is_enabled)
         .length.toLocaleString(),
       badge: "Current",
       headline: "Manage providers",
-      detail: data?.providers
-        ? `${data.providers.length.toLocaleString()} configured providers`
+      detail: providers
+        ? `${providers.length.toLocaleString()} configured providers`
         : "Provider configuration",
       href: "/dashboard/providers",
     },
@@ -251,9 +305,7 @@ export function GatewayOverview() {
 
   return (
     <div className="dashboard-analytics @container/gateway flex min-w-0 flex-col gap-6">
-      <OverviewMetrics
-        metrics={metrics.map((metric) => ({ ...metric, loading: !data }))}
-      />
+      <OverviewMetrics metrics={metrics} />
       <section
         aria-labelledby="gateway-chart-heading"
         className="min-w-0 rounded-xl border bg-card p-4 sm:p-6"
@@ -269,38 +321,47 @@ export function GatewayOverview() {
                 : "Traced calls per UTC day"}
             </p>
           </div>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            value={period}
-            onValueChange={(value) => value && setPeriod(value)}
-            aria-label="Gateway reporting period"
-          >
-            <ToggleGroupItem
-              value="90"
-              aria-label="Last 90 days"
-              className="px-2! text-xs sm:px-3! sm:text-sm"
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRefresh((value) => value + 1)}
             >
-              <span className="hidden sm:inline">Last </span>90 days
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="30"
-              aria-label="Last 30 days"
-              className="px-2! text-xs sm:px-3! sm:text-sm"
+              Refresh
+            </Button>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              value={period}
+              onValueChange={(value) => value && setPeriod(value)}
+              aria-label="Gateway reporting period"
             >
-              <span className="hidden sm:inline">Last </span>30 days
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="7"
-              aria-label="Last 7 days"
-              className="px-2! text-xs sm:px-3! sm:text-sm"
-            >
-              <span className="hidden sm:inline">Last </span>7 days
-            </ToggleGroupItem>
-          </ToggleGroup>
+              <ToggleGroupItem
+                value="90"
+                aria-label="Last 90 days"
+                className="px-2! text-xs sm:px-3! sm:text-sm"
+              >
+                <span className="hidden sm:inline">Last </span>90 days
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="30"
+                aria-label="Last 30 days"
+                className="px-2! text-xs sm:px-3! sm:text-sm"
+              >
+                <span className="hidden sm:inline">Last </span>30 days
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="7"
+                aria-label="Last 7 days"
+                className="px-2! text-xs sm:px-3! sm:text-sm"
+              >
+                <span className="hidden sm:inline">Last </span>7 days
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
         </div>
         <div className="mt-6">
-          {!data ? (
+          {callResource.loading ? (
             <Skeleton className="h-64 w-full" />
           ) : calls?.items.length ? (
             <OverviewAreaChart
@@ -328,21 +389,6 @@ export function GatewayOverview() {
           )}
         </div>
       </section>
-      {partialError && (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 text-sm"
-        >
-          Some gateway data could not be loaded.
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setRefresh((value) => value + 1)}
-          >
-            Try again
-          </Button>
-        </div>
-      )}
       <section
         aria-label="Gateway analytics charts"
         className="grid min-w-0 gap-4 @min-[680px]/gateway:grid-cols-2 @min-[1080px]/gateway:grid-cols-3"
@@ -360,7 +406,7 @@ export function GatewayOverview() {
                 </p>
               )}
             </div>
-            {!data ? (
+            {chart.loading ? (
               <Skeleton className="h-52 w-full" />
             ) : chart.data.length ? (
               <ChartContainer
@@ -434,7 +480,7 @@ export function GatewayOverview() {
               "Recorded",
             ]}
             status={
-              !data
+              outcomesLoading
                 ? "Loading calls…"
                 : failures === undefined
                   ? "Some unsuccessful calls could not be loaded."
@@ -482,16 +528,16 @@ export function GatewayOverview() {
           <GatewayTable
             headers={["Request", "Reserved credits", "Reason"]}
             status={
-              !data
+              reviewResource.loading
                 ? "Loading credit reviews…"
-                : !data.reviews
+                : !reviews
                   ? "Credit reviews could not be loaded."
-                  : data.reviews.items.length === 0
+                  : reviews.items.length === 0
                     ? "No credit reviews waiting."
                     : undefined
             }
           >
-            {data?.reviews?.items.map((review) => (
+            {reviews?.items.map((review) => (
               <TableRow key={review.id}>
                 <TableCell className="font-mono text-xs">
                   {review.request_id}
@@ -513,16 +559,16 @@ export function GatewayOverview() {
           <GatewayTable
             headers={["Provider", "Protocol", "Configuration"]}
             status={
-              !data
+              providerResource.loading
                 ? "Loading providers…"
-                : !data.providers
+                : !providers
                   ? "Providers could not be loaded."
-                  : data.providers.length === 0
+                  : providers.length === 0
                     ? "No providers configured."
                     : undefined
             }
           >
-            {data?.providers?.map((provider) => (
+            {providers?.map((provider) => (
               <TableRow key={provider.id}>
                 <TableCell>
                   <a

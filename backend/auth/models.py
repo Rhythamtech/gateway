@@ -2,7 +2,7 @@ import enum
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, String
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, String, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.core.database import Base
@@ -51,15 +51,15 @@ class User(Base):
         nullable=False,
     )
 
-    # Usage tracing is opt-in per user. Disabled by default; a superuser
-    # may enable it so the user's inference traffic is recorded.
+    # Request tracing starts on for new accounts and can be disabled per user.
     tracing_enabled: Mapped[bool] = mapped_column(
         Boolean,
-        default=False,
+        default=True,
+        server_default=true(),
         nullable=False,
     )
 
-    # OpenTelemetry (operational spans) is opt-in per user as well, and
+    # OpenTelemetry (operational spans) is opt-in per user, and
     # toggled by the user themselves. Controllers to provider calls produce
     # spans only when this flag and the global TELEMETRY_ENABLED are both on.
     telemetry_enabled: Mapped[bool] = mapped_column(

@@ -1,11 +1,12 @@
 import * as React from "react"
-import { getMessageTrace, type MessageTraceDetail } from "@/lib/auth"
+import { ApiError, getMessageTrace, type MessageTraceDetail } from "@/lib/auth"
 
 export type TraceDetailResult = {
   id: string
   tick: number
   trace?: MessageTraceDetail
   error?: string
+  errorStatus?: number
 }
 
 /**
@@ -30,6 +31,7 @@ export function useTraceDetail(
           setResult({
             id: traceId,
             tick,
+            errorStatus: error instanceof ApiError ? error.status : undefined,
             error:
               error instanceof Error
                 ? error.message

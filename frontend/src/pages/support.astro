@@ -1,4 +1,5 @@
 ---
+import "@/styles/public-pages.css"
 import Layout from "@/layouts/main.astro"
 import PublicHeader from "@/components/public-header.astro"
 import OfflineFooter from "@/components/offline-footer.astro"
@@ -11,15 +12,15 @@ const apiBaseUrl = (
 
 const faqs = [
   {
-    category: "Billing & Credits",
+    category: "Billing and credits",
     items: [
       {
         q: "How are token charges calculated?",
-        a: "Charges are calculated using versioned provider token rates for input tokens, prompt cache reads, and completion tokens. Charges are settled down to exact microcredits ($1.00 USD = 1,000,000 microcredits) using standard half-even banker's rounding.",
+        a: "Gateway uses the configured rates for input, output, and cache tokens. It rounds the final charge to six decimal places using half-even rounding.",
       },
       {
-        q: "What is an atomic hold reservation?",
-        a: "Before an inference request streams to an upstream model, Gateway reserves an atomic hold against your balance based on the model's max token ceiling. Once the request finishes, the actual tokens consumed are deducted and all unspent reservation funds are released immediately.",
+        q: "Why are some credits reserved?",
+        a: "Gateway holds credits before sending your request. After settlement, unused credits return to your available balance. If usage is missing, the hold may need review.",
       },
       {
         q: "How do I redeem credit coupons?",
@@ -28,119 +29,96 @@ const faqs = [
     ],
   },
   {
-    category: "Integration & SDKs",
+    category: "SDKs and API access",
     items: [
       {
-        q: "Can I use standard OpenAI SDK with Gateway?",
-        a: `Yes! Set your OpenAI client's baseURL to "${apiBaseUrl}/v1" and pass your Gateway API key in the authorization header. All standard endpoints (/v1/chat/completions, /v1/models) conform to OpenAI SDK wire contracts.`,
+        q: "Can I use the OpenAI SDK?",
+        a: `Set your OpenAI client’s base URL to "${apiBaseUrl}/v1" and use your Gateway API key.`,
       },
       {
-        q: "Can I use Anthropic SDK with Gateway?",
-        a: `Yes! Our endpoint at "${apiBaseUrl}/v1/messages" accepts the official Anthropic messages schema and returns streaming SSE events matching Anthropic protocol specifications.`,
+        q: "Can I use the Anthropic SDK?",
+        a: `Set your Anthropic client’s base URL to "${apiBaseUrl}" and use your Gateway API key. The SDK sends requests to /v1/messages.`,
       },
       {
         q: "What are the API rate limits?",
-        a: "Standard API keys have an automatic sliding window rate limit of 60 requests per minute per key to ensure fair infrastructure distribution.",
+        a: "Gateway allows up to 60 inference requests per minute per API key.",
       },
     ],
   },
   {
-    category: "Model Groups & Reliability",
+    category: "Routing and traces",
     items: [
       {
         q: "How does automatic failover work?",
-        a: "Model Groups bundle multiple upstream models or providers together under one virtual alias. Gateway dispatches requests to primary models first; if an upstream provider reports a 5xx error or rate limit, Gateway automatically retries with secondary fallbacks in your group.",
+        a: "A model group gives several provider models one public ID. If an attempt fails with a retryable error, Gateway can try another eligible model in the group.",
       },
       {
         q: "Where do I find my request traces?",
-        a: "If you have Request Tracing enabled in your dashboard settings, all calls are recorded under Dashboard > Request Traces, detailing millisecond latency, token usage, and payload history.",
+        a: "Open Request traces in the dashboard. When tracing is enabled for your account, you can inspect recorded requests and their provider attempts.",
       },
     ],
   },
 ]
 ---
 
-<Layout title={`Support & Help Center — ${APP_NAME}`}>
+<Layout title={`Support | ${APP_NAME}`}>
   <PublicHeader current="support" />
 
-  <main class="min-h-screen bg-background text-foreground py-12 sm:py-16">
-    <div class="mx-auto max-w-5xl px-4 sm:px-6">
-      {/* Hero */}
-      <div class="text-center pb-12 border-b border-border/60">
-        <h1 class="text-3xl font-extrabold tracking-tight sm:text-5xl">
-          Support
-        </h1>
-      </div>
-
-      {/* Ticket Raising Portal Action */}
-      <div class="mt-12">
-        <SupportPortalAction client:load />
-      </div>
-
-      {/* Quick Documentation Resources Grid */}
-      <div class="mt-16">
-        <h2 class="text-xs font-semibold uppercase tracking-wider text-primary text-center">
-          Developer Resources
-        </h2>
-        <div class="mt-6 grid gap-4 sm:grid-cols-2">
+  <main class="bg-background text-foreground">
+    <div class="public-width grid gap-10 py-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-16 lg:py-20">
+      <div>
+        <h1 class="public-title font-semibold">Support</h1>
+        <div class="mt-8">
+          <SupportPortalAction client:load />
+        </div>
+        <nav
+          aria-label="Developer resources"
+          class="mt-8 flex flex-wrap gap-x-5 gap-y-3 text-sm font-medium text-primary"
+        >
+          <a href="/docs" class="underline underline-offset-4">
+            Docs
+          </a>
           <a
             href={`${apiBaseUrl}/openapi.json`}
-            target="_blank"
-            class="rounded-xl border border-border/80 bg-card p-5 shadow-xs transition-all hover:border-primary/50 hover:shadow-sm"
+            class="underline underline-offset-4"
           >
-            <h3 class="text-sm font-semibold text-foreground">
-              OpenAPI Specification
-            </h3>
-            <p class="mt-1 text-xs text-muted-foreground">
-              Raw OpenAPI v3 JSON spec for automated SDK generation and contract
-              verification.
-            </p>
+            OpenAPI JSON
           </a>
-          <a
-            href="/dashboard/playground"
-            class="rounded-xl border border-border/80 bg-card p-5 shadow-xs transition-all hover:border-primary/50 hover:shadow-sm"
-          >
-            <h3 class="text-sm font-semibold text-foreground">
-              Interactive Playground
-            </h3>
-            <p class="mt-1 text-xs text-muted-foreground">
-              Test prompt generations, inspect token streaming, and verify model
-              parameters in real time.
-            </p>
+          <a href="/dashboard/playground" class="underline underline-offset-4">
+            Playground
           </a>
-        </div>
+        </nav>
       </div>
 
-      {/* FAQs Section */}
-      <div class="mt-16 border-t border-border/60 pt-16">
-        <div class="text-center">
-          <h2 class="text-2xl font-bold tracking-tight sm:text-3xl">
-            Frequently asked questions
-          </h2>
-        </div>
-
-        <div class="mt-10 space-y-10">
-          {faqs.map((cat) => (
+      <section aria-labelledby="support-questions">
+        <h2
+          id="support-questions"
+          class="text-2xl font-semibold tracking-tight"
+        >
+          Frequently asked questions
+        </h2>
+        <div class="mt-6 grid gap-7">
+          {faqs.map(({ category, items }) => (
             <div>
-              <h3 class="text-base font-bold text-foreground border-b pb-2 mb-4">
-                {cat.category}
+              <h3 class="mb-2 text-sm font-semibold text-primary">
+                {category}
               </h3>
-              <div class="grid gap-4 sm:grid-cols-2">
-                {cat.items.map((item) => (
-                  <div class="rounded-xl border border-border/60 bg-muted/20 p-5 shadow-xs">
-                    <h4 class="text-xs font-semibold text-foreground">
-                      {item.q}
-                    </h4>
-                    <p class="mt-2 text-xs leading-relaxed text-muted-foreground">
-                      {item.a}
+              <div class="border-b border-border">
+                {items.map(({ q, a }) => (
+                  <details class="border-t border-border py-3">
+                    <summary class="cursor-pointer py-1 font-medium">
+                      {q}
+                    </summary>
+                    <p class="py-2 pl-4 text-sm leading-relaxed break-words text-muted-foreground">
+                      {a}
                     </p>
-                  </div>
+                  </details>
                 ))}
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   </main>
 

@@ -1,17 +1,26 @@
 import json
+from collections import defaultdict
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import httpx
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.core.config import settings
 from backend.core.header_safety import build_headers
 from backend.core.http_safety import ensure_safe_outbound_url, provider_api_url
+from backend.credits.calculation import MICROCREDITS, format_credits
+from backend.credits.models import ModelCreditRate
+from backend.gateway.model_groups.models import ModelGroup, ModelGroupMember
+from backend.gateway.model_groups.service import list_enabled_groups
 from backend.gateway.provider_models.dtos import (
+    CatalogModel,
+    CatalogRateRange,
     ModelSyncResponse,
     ProviderModelResponse,
     SyncedModel,
@@ -69,6 +78,65 @@ def list_provider_models(db: Session, provider_id: str) -> list[ProviderModelRes
     )
 
     return [to_model_response(model) for model in models]
+
+
+def _credits_per_million_tokens(rate: int) -> str:
+    cost = Decimal(1_000_000 * MICROCREDITS) / rate
+    # Seven decimals keep even the smallest supported positive price visible.
+    return format(cost, ".7f").rstrip("0").rstrip(".")
+
+
+def _catalog_model(name: str, model_id: str, route_rates: list[int | None]) -> CatalogModel:
+    rates = [rate for rate in route_rates if rate is not None]
+    if not rates:
+        return CatalogModel(
+            name=name,
+            model_id=model_id,
+            status="rate_needed" if route_rates else "unavailable",
+        )
+
+    lowest, highest = min(rates), max(rates)
+    return CatalogModel(
+        name=name,
+        model_id=model_id,
+        status="ready",
+        tokens_per_credit=CatalogRateRange(
+            min=format_credits(lowest), max=format_credits(highest)
+        ),
+        credits_per_million_tokens=CatalogRateRange(
+            min=_credits_per_million_tokens(highest),
+            max=_credits_per_million_tokens(lowest),
+        ),
+    )
+
+
+def list_catalog_models(db: Session) -> list[CatalogModel]:
+    latest_rate = (
+        select(ModelCreditRate.tokens_per_credit_micros)
+        .where(ModelCreditRate.provider_model_id == ProviderModel.id)
+        .order_by(ModelCreditRate.version.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    group_rates: dict[str, list[int | None]] = defaultdict(list)
+    members = db.execute(
+        select(ModelGroupMember.model_group_id, latest_rate)
+        .join(ModelGroup, ModelGroupMember.model_group_id == ModelGroup.id)
+        .join(ProviderModel, ModelGroupMember.provider_model_id == ProviderModel.id)
+        .join(Provider, ProviderModel.provider_id == Provider.id)
+        .where(
+            ModelGroup.is_enabled.is_(True),
+            ProviderModel.is_available.is_(True),
+            Provider.is_enabled.is_(True),
+        )
+    )
+    for group_id, rate in members:
+        group_rates[group_id].append(rate)
+
+    return [
+        _catalog_model(group.name, group.model_id, group_rates[group.id])
+        for group in list_enabled_groups(db)
+    ]
 
 
 def _validate_redirect(current_url: str, next_url: str) -> None:

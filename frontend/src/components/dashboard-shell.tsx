@@ -26,6 +26,8 @@ export function DashboardShell({
   role = "user",
   user,
 }: DashboardShellProps) {
+  const [unreadSupportCount, setUnreadSupportCount] = React.useState(0)
+
   return (
     <SidebarProvider
       style={
@@ -41,9 +43,17 @@ export function DashboardShell({
       >
         Skip to main content
       </a>
-      <AppSidebar role={role} currentPath={currentPath} user={user} />
+      <AppSidebar
+        role={role}
+        currentPath={currentPath}
+        user={user}
+        unreadSupportCount={unreadSupportCount}
+      />
       <SidebarInset className="min-w-0 md:rounded-2xl">
-        <SiteHeader title={pageTitle} />
+        <SiteHeader
+          title={pageTitle}
+          onSupportUnreadChange={setUnreadSupportCount}
+        />
         <AnnouncementBanner />
         <AccountCreditAlert />
         <div

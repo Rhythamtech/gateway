@@ -95,31 +95,31 @@ export function SignupForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <div className="flex flex-col gap-2 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
           Create your {APP_NAME} account
         </h1>
         <p className="text-sm text-muted-foreground">
           Already have an account?{" "}
           <a
             href="/login"
-            className="font-medium text-foreground underline underline-offset-4"
+            className="font-medium text-primary underline underline-offset-4"
           >
             Sign in
           </a>
         </p>
       </div>
       {existingUser ? (
-        <div className="rounded-md border border-border p-4 text-center">
+        <div className="rounded-md border border-border p-4">
           <p className="text-sm text-muted-foreground">
             Signed in as{" "}
             <strong className="font-medium text-foreground">
               {existingUser.email}
             </strong>
           </p>
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button asChild size="sm">
-              <a href="/dashboard">Open Dashboard</a>
+              <a href="/dashboard">Open dashboard</a>
             </Button>
             <Button
               variant="ghost"
@@ -144,8 +144,7 @@ export function SignupForm({
               name="email"
               autoComplete="email"
               type="email"
-              placeholder="m@example.com"
-              className="h-10"
+              className="h-10 bg-background"
               required
             />
           </Field>
@@ -156,11 +155,18 @@ export function SignupForm({
               name="password"
               type="password"
               autoComplete="new-password"
+              aria-describedby="signup-password-length"
               minLength={8}
               maxLength={128}
-              className="h-10"
+              className="h-10 bg-background"
               required
             />
+            <p
+              id="signup-password-length"
+              className="text-xs text-muted-foreground"
+            >
+              Use 8 to 128 characters.
+            </p>
           </Field>
           <Field>
             <FieldLabel htmlFor="confirm-password">Confirm password</FieldLabel>
@@ -171,7 +177,7 @@ export function SignupForm({
               autoComplete="new-password"
               minLength={8}
               maxLength={128}
-              className="h-10"
+              className="h-10 bg-background"
               required
             />
           </Field>
@@ -197,9 +203,13 @@ export function SignupForm({
               className="w-full"
               disabled={isSubmitting}
             >
-              {isSubmitting ? "Creating account…" : "Create Account"}
+              {isSubmitting ? "Creating account…" : "Create account"}
             </Button>
           )}
+          <p className="text-xs text-muted-foreground">
+            Request tracing stores sanitized request details by default. You can
+            turn it off in Settings.
+          </p>
         </FieldGroup>
       </form>
     </div>

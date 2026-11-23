@@ -10,6 +10,7 @@ import {
   SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuAction,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -31,6 +32,7 @@ export function NavMain({
     url: string
     icon: LucideIcon
     isActive?: boolean
+    unreadCount?: number
     items?: {
       title: string
       url: string
@@ -51,6 +53,11 @@ export function NavMain({
               >
                 <a
                   href={item.url}
+                  aria-label={
+                    item.unreadCount
+                      ? `${item.title}, ${item.unreadCount} unread`
+                      : undefined
+                  }
                   aria-current={item.isActive ? "page" : undefined}
                   data-astro-prefetch="hover"
                 >
@@ -58,6 +65,16 @@ export function NavMain({
                   <span>{item.title}</span>
                 </a>
               </SidebarMenuButton>
+              {!!item.unreadCount && (
+                <SidebarMenuBadge
+                  aria-hidden="true"
+                  className="group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:size-2 group-data-[collapsible=icon]:min-w-0 group-data-[collapsible=icon]:rounded-full group-data-[collapsible=icon]:bg-primary group-data-[collapsible=icon]:p-0"
+                >
+                  <span className="group-data-[collapsible=icon]:hidden">
+                    {item.unreadCount}
+                  </span>
+                </SidebarMenuBadge>
+              )}
               {item.items?.length ? (
                 <>
                   <CollapsibleTrigger asChild>

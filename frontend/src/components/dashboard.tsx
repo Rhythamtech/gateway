@@ -128,6 +128,7 @@ export function Dashboard({
   const Page = route?.Component
   const usesPageContent =
     path === "/dashboard" ||
+    path === "/dashboard/models" ||
     path === "/dashboard/credits" ||
     path === "/dashboard/coupons" ||
     path === "/dashboard/credit-review" ||

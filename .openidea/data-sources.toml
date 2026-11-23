@@ -1,0 +1,35 @@
+[[data-source]]
+comment = ""
+database = ""
+driver = "sqlite"
+file = "/Users/rhythamnegi/Code/gateway/app.db"
+host = "localhost"
+id = "f03ec61b-c11f-4ce4-a4c1-d4444e240a1d"
+name = "app"
+properties = []
+readOnly = false
+savePassword = false
+ssl = "prefer"
+sslCaFile = ""
+sslCertFile = ""
+sslKeyFile = ""
+url = ""
+urlOnly = false
+user = ""
+vendor = ""
+
+[data-source.introspection]
+allDatabases = true
+allSchemas = true
+databases = []
+objectFilter = ""
+schemas = []
+showSystem = false
+showTemplates = false
+
+[data-source.options]
+defaultSchema = ""
+singleDatabase = false
+startupScript = ""
+timeZone = ""
+transaction = "auto"

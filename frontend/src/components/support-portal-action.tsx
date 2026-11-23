@@ -29,11 +29,11 @@ export function SupportPortalAction() {
 
   if (isAuth) {
     return (
-      <div className="rounded-2xl border border-primary/20 bg-primary/5 p-8 text-center shadow-xs">
-        <h3 className="text-xl font-bold text-foreground">
+      <div className="rounded-lg border border-border bg-muted p-5">
+        <h2 className="text-base font-semibold break-words">
           You are signed in{user?.email ? ` as ${user.email}` : ""}
-        </h3>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+        </h2>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <Button asChild>
             <a href="/dashboard/support">Open support tickets</a>
           </Button>
@@ -43,11 +43,11 @@ export function SupportPortalAction() {
   }
 
   return (
-    <div className="rounded-2xl border border-border/80 bg-muted/20 p-8 text-center shadow-xs">
-      <h3 className="text-xl font-bold text-foreground">
-        Sign in to raise a support ticket
-      </h3>
-      <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+    <div className="rounded-lg border border-border bg-muted p-5">
+      <h2 className="text-base font-semibold break-words">
+        Open a support ticket
+      </h2>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button asChild>
           <a href="/login?next=%2Fdashboard%2Fsupport">Sign in</a>
         </Button>

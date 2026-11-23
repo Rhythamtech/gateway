@@ -62,31 +62,31 @@ export function LoginForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <div className="flex flex-col gap-2 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
           Sign in to {APP_NAME}
         </h1>
         <p className="text-sm text-muted-foreground">
           Don&apos;t have an account?{" "}
           <a
             href="/signup"
-            className="font-medium text-foreground underline underline-offset-4"
+            className="font-medium text-primary underline underline-offset-4"
           >
-            Sign up
+            Create account
           </a>
         </p>
       </div>
       {existingUser ? (
-        <div className="rounded-md border border-border p-4 text-center">
+        <div className="rounded-md border border-border p-4">
           <p className="text-sm text-muted-foreground">
             Signed in as{" "}
             <strong className="font-medium text-foreground">
               {existingUser.email}
             </strong>
           </p>
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button asChild size="sm">
-              <a href="/dashboard">Open Dashboard</a>
+              <a href="/dashboard">Open dashboard</a>
             </Button>
             <Button
               variant="ghost"
@@ -111,8 +111,7 @@ export function LoginForm({
               name="email"
               autoComplete="email"
               type="email"
-              placeholder="m@example.com"
-              className="h-10"
+              className="h-10 bg-background"
               required
             />
           </Field>
@@ -123,7 +122,7 @@ export function LoginForm({
               name="password"
               autoComplete="current-password"
               type="password"
-              className="h-10"
+              className="h-10 bg-background"
               required
             />
           </Field>
@@ -138,7 +137,7 @@ export function LoginForm({
             className="w-full"
             disabled={isSubmitting}
           >
-            {isSubmitting ? "Signing in…" : "Login"}
+            {isSubmitting ? "Signing in…" : "Sign in"}
           </Button>
         </FieldGroup>
       </form>

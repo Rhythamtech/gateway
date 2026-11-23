@@ -1,228 +1,96 @@
 ---
+import "@/styles/public-pages.css"
 import Layout from "@/layouts/main.astro"
 import PublicHeader from "@/components/public-header.astro"
 import OfflineFooter from "@/components/offline-footer.astro"
 import { LandingHeroActions } from "@/components/landing-hero-actions"
 import { LandingCodePreview } from "@/components/landing-code-preview"
-import { Badge } from "@/components/ui/badge"
-import { buttonVariants } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { APP_NAME } from "@/lib/site"
-import { ArrowRight, Terminal } from "lucide-react"
 
-const clientFeatures = [
+const capabilities = [
   {
-    title: "Universal Drop-in API",
+    title: "Routing and failover",
     description:
-      "Full compatibility with official OpenAI and Anthropic SDKs. Switch models simply by changing the model parameter without changing your application code.",
+      "Give a group of provider models one public ID. Set their priority or traffic weights, and Gateway can try another eligible model when a provider fails.",
   },
   {
-    title: "Automated Resilient Failover",
+    title: "Usage credits",
     description:
-      "Group models into resilient clusters. If an upstream provider hits rate limits (429) or an outage (5xx), Gateway seamlessly routes to healthy fallbacks.",
+      "Gateway reserves credits before sending a request and settles the charge from reported token usage at the provider model’s configured rate.",
   },
   {
-    title: "Exact Upstream Token Billing",
+    title: "Request tracing",
     description:
-      "Prepaid microcredits charged at true provider model rates with zero arbitrary markup. Atomic reservations ensure you only pay for completed tokens.",
-  },
-  {
-    title: "Zero Data Retention Guarantee",
-    description:
-      "All requests and completions stream in-flight. Prompts are never stored, logged, or used to train any model unless you opt into private tracing.",
-  },
-  {
-    title: "Interactive Web Playground",
-    description:
-      "Test prompt variations, system instructions, and sampling parameters side-by-side in your dashboard before deploying keys to production.",
-  },
-  {
-    title: "Sub-Millisecond Routing Overhead",
-    description:
-      "Ultra-low latency streaming with immediate Server-Sent Events (SSE) forwarding. Preserve optimal time-to-first-token (TTFT) across all models.",
+      "When tracing is enabled for your account, inspect request details, provider attempts, and latency in the dashboard.",
   },
 ]
 
-const supportedModels = [
-  "Google Gemma 4",
-  "Claude 3.5 Sonnet",
-  "OpenAI GPT-4o",
-  "Meta Llama 3.3",
-  "Mistral Large",
-  "DeepSeek V3",
-]
-
-const clientSteps = [
-  {
-    step: "01",
-    title: "Create your API key",
-    description:
-      "Sign up in seconds, generate your scoped gateway API key, and configure rate limits or budgets.",
-  },
-  {
-    step: "02",
-    title: "Update your SDK baseURL",
-    description:
-      "Point standard OpenAI or Anthropic client libraries to Gateway with one line of configuration.",
-  },
-  {
-    step: "03",
-    title: "Stream with built-in failover",
-    description:
-      "Deploy to production with confidence. Gateway handles health checks, retries, and token accounting automatically.",
-  },
+const steps = [
+  "Create an API key in the dashboard.",
+  "Set your SDK’s base URL to Gateway.",
+  "Send a request with a configured model ID.",
 ]
 ---
 
-<Layout title={`${APP_NAME} — Unified LLM Gateway & Smart Router`}>
+<Layout title={`${APP_NAME} | LLM gateway`}>
   <PublicHeader current="home" />
 
-  <main class="min-h-screen bg-background text-foreground">
-    {/* 1. Minimal Hero Section */}
-    <section class="relative px-4 pt-12 pb-16 sm:px-6 sm:pt-20 sm:pb-24">
-      <div class="mx-auto max-w-4xl text-center">
-        <div class="flex justify-center">
-          <Badge
-            variant="outline"
-            className="gap-2 rounded-full border-border/80 bg-muted/40 px-3.5 py-1 text-xs font-normal text-muted-foreground"
-          >
-            Zero Data Retention · OpenAI & Anthropic Compatible
-          </Badge>
-        </div>
-
-        <h1 class="mt-6 text-4xl font-extrabold tracking-tight sm:text-6xl sm:leading-[1.1]">
-          One API for your language models
+  <main class="bg-background text-foreground">
+    <section
+      aria-labelledby="landing-title"
+      class="public-width grid items-center gap-10 py-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-12 lg:py-20"
+    >
+      <div class="min-w-0">
+        <h1 id="landing-title" class="public-title font-semibold">
+          Route LLM requests across providers
         </h1>
-
-        <p class="mx-auto mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg leading-relaxed">
-          Access 100+ state-of-the-art and open-weights LLMs through a unified
-          endpoint. Automatic failover across providers, exact token-rate
-          pricing, and atomic balance reservations.
+        <p class="landing-muted mt-6 max-w-sm text-base leading-relaxed sm:text-lg">
+          Connect your OpenAI or Anthropic SDK to Gateway and choose a provider
+          model or a model group in each request.
         </p>
-
         <div class="mt-8">
           <LandingHeroActions client:load />
         </div>
       </div>
 
-      {/* Code preview block */}
-      <div class="mx-auto mt-12 max-w-3xl sm:mt-16">
+      <div class="min-w-0">
         <LandingCodePreview client:load />
       </div>
     </section>
 
-    {/* 2. Supported Models Strip */}
-    <section class="border-y border-border/40 bg-muted/15 py-8">
-      <div class="mx-auto max-w-5xl px-4 sm:px-6 text-center">
-        <p class="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Example models
-        </p>
-        <div class="mt-4 flex flex-wrap items-center justify-center gap-2.5">
-          {supportedModels.map((m) => (
-            <Badge
-              variant="outline"
-              className="gap-1.5 rounded-full bg-background px-3 py-1 text-xs font-medium text-foreground border-border/70 shadow-2xs"
-            >
-              {m}
-            </Badge>
-          ))}
+    <section aria-labelledby="quickstart" class="quickstart">
+      <div class="public-width grid gap-6 py-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-12">
+        <div>
+          <h2 id="quickstart" class="text-2xl font-semibold tracking-tight">
+            Get started
+          </h2>
+          <a
+            href="/docs#quickstart"
+            class="landing-link mt-2 inline-block text-sm font-medium"
+          >
+            Read the quickstart
+          </a>
         </div>
+        <ol class="step-list grid gap-4 text-sm sm:grid-cols-3">
+          {steps.map((step) => (
+            <li>{step}</li>
+          ))}
+        </ol>
       </div>
     </section>
 
-    {/* 3. Client Value Grid (What Developers Get) */}
-    <section class="py-16 sm:py-24">
-      <div class="mx-auto max-w-5xl px-4 sm:px-6">
-        <div class="text-center max-w-2xl mx-auto">
-          <h2 class="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">
-            Gateway features
-          </h2>
-        </div>
-
-        <div class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {clientFeatures.map((feat) => (
-            <Card className="rounded-xl border border-border/70 bg-card shadow-xs transition-colors hover:border-primary/40">
-              <CardHeader className="p-5 pb-3">
-                <CardTitle className="text-base font-semibold">
-                  {feat.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-5 pt-0">
-                <CardDescription className="text-xs leading-relaxed text-muted-foreground">
-                  {feat.description}
-                </CardDescription>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    </section>
-
-    {/* 4. Three Steps to Production */}
-    <section class="border-t border-border/40 bg-muted/10 py-16 sm:py-20">
-      <div class="mx-auto max-w-4xl px-4 sm:px-6">
-        <div class="text-center max-w-xl mx-auto">
-          <h2 class="text-xs font-semibold uppercase tracking-wider text-primary">
-            Quickstart
-          </h2>
-          <p class="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-            From sign-up to streaming in 3 minutes
-          </p>
-        </div>
-
-        <div class="mt-10 grid gap-6 sm:grid-cols-3">
-          {clientSteps.map((s) => (
-            <div class="flex flex-col rounded-xl border border-border/60 bg-background p-5 shadow-2xs">
-              <span class="font-mono text-xs font-bold text-primary">
-                {s.step}
-              </span>
-              <h3 class="mt-2 text-sm font-semibold text-foreground">
-                {s.title}
-              </h3>
-              <p class="mt-2 text-xs leading-relaxed text-muted-foreground">
-                {s.description}
-              </p>
+    <section aria-labelledby="capabilities" class="public-width py-12 sm:py-16">
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-12">
+        <h2 id="capabilities" class="text-3xl font-semibold tracking-tight">
+          How Gateway works
+        </h2>
+        <div>
+          {capabilities.map(({ title, description }) => (
+            <div class="capability grid gap-2 border-t py-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.65fr)] sm:gap-5">
+              <h3 class="text-base font-semibold">{title}</h3>
+              <p class="landing-muted text-sm leading-relaxed">{description}</p>
             </div>
           ))}
-        </div>
-      </div>
-    </section>
-
-    {/* 5. Minimal Bottom CTA */}
-    <section class="border-t border-border/40 py-16 sm:py-20 text-center">
-      <div class="mx-auto max-w-2xl px-4 sm:px-6">
-        <h2 class="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">
-          Try Gateway
-        </h2>
-        <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <a
-            href="/signup"
-            class={buttonVariants({
-              variant: "default",
-              size: "lg",
-              className: "rounded-full px-6 font-semibold shadow-xs",
-            })}
-          >
-            Get Started Free
-            <ArrowRight className="size-4" />
-          </a>
-          <a
-            href="/dashboard/playground"
-            class={buttonVariants({
-              variant: "outline",
-              size: "lg",
-              className: "rounded-full px-6 font-medium",
-            })}
-          >
-            <Terminal className="size-4" />
-            Test in Playground
-          </a>
         </div>
       </div>
     </section>
@@ -230,3 +98,42 @@ const clientSteps = [
 
   <OfflineFooter />
 </Layout>
+
+<style>
+  .landing-muted {
+    color: var(--muted-foreground);
+  }
+
+  .quickstart {
+    background: var(--muted);
+    border-block: 1px solid var(--border);
+  }
+
+  .landing-link {
+    color: var(--primary);
+    text-decoration: underline;
+    text-underline-offset: 0.25em;
+  }
+
+  .step-list {
+    counter-reset: quickstart;
+  }
+
+  .step-list li {
+    display: grid;
+    grid-template-columns: 1.25rem 1fr;
+    align-content: start;
+    gap: 0.5rem;
+    counter-increment: quickstart;
+  }
+
+  .step-list li::before {
+    content: counter(quickstart) ".";
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  .capability {
+    border-color: var(--border);
+  }
+</style>

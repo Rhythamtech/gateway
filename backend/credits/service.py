@@ -505,13 +505,14 @@ def release_undispatched_request(usage_id: str) -> None:
             finish_usage(db, usage, release=True)
 
 
-def usage_response(usage: CreditUsage) -> CreditUsageResponse:
+def usage_response(usage: CreditUsage, model_id: str | None) -> CreditUsageResponse:
     return CreditUsageResponse(
         id=usage.id,
         request_id=usage.request_id,
         user_id=usage.user_id,
         provider_id=usage.provider_id,
         provider_model_id=usage.provider_model_id,
+        model_id=model_id,
         api_key_id=usage.api_key_id,
         rate_id=usage.rate_id,
         tokens_per_credit=format_credits(usage.tokens_per_credit_micros),
@@ -543,13 +544,15 @@ def list_usage(
         query = query.filter_by(user_id=user_id)
     total = query.count()
     rows = (
-        query.order_by(CreditUsage.created_at.desc(), CreditUsage.id.desc())
+        query.outerjoin(ProviderModel, CreditUsage.provider_model_id == ProviderModel.id)
+        .add_columns(ProviderModel.model_id)
+        .order_by(CreditUsage.created_at.desc(), CreditUsage.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
     return CreditUsagePage(
-        items=[usage_response(row) for row in rows],
+        items=[usage_response(usage, model_id) for usage, model_id in rows],
         page=page,
         page_size=page_size,
         total=total,
@@ -561,6 +564,8 @@ def resolve_usage(
 ) -> CreditUsageResponse:
     with SessionLocal.begin() as db:
         usage = require_usage(db, usage_id)
+        model = db.get(ProviderModel, usage.provider_model_id)
+        model_id = model.model_id if model else None
         if usage.status in ("settled", "released"):
             expected = "settled" if data.action == "settle" else "released"
             if usage.status != expected or (
@@ -569,7 +574,7 @@ def resolve_usage(
                 != (data.input_tokens, data.output_tokens)
             ):
                 raise HTTPException(409, "Usage was already resolved differently")
-            return usage_response(usage)
+            return usage_response(usage, model_id)
         if usage.status != "needs_review":
             raise HTTPException(409, "Only usage awaiting review can be resolved")
         usage.reason = data.reason
@@ -580,7 +585,7 @@ def resolve_usage(
             extend_reservation(db, usage)
         finish_usage(db, usage, release=data.action == "release")
         db.flush()
-        return usage_response(usage)
+        return usage_response(usage, model_id)
 
 
 def recover_pending_usage(stale_seconds: int) -> None:

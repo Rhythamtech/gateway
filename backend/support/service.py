@@ -2,9 +2,10 @@ from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from backend.auth.models import User
+from backend.auth.models import User, UserRole
 from backend.core.database import SessionLocal
-from backend.credits.models import utcnow
+from backend.credits.models import new_id, utcnow
+from backend.notifications.service import emit
 from backend.support.dtos import (
     SupportStatsResponse,
     TicketCreate,
@@ -18,11 +19,35 @@ from backend.support.dtos import (
 from backend.support.models import SupportTicket, SupportTicketMessage
 
 
-def require_ticket(db: Session, ticket_id: str) -> SupportTicket:
-    ticket = db.get(SupportTicket, ticket_id)
+def require_ticket(
+    db: Session, ticket_id: str, *, for_update: bool = False
+) -> SupportTicket:
+    ticket = db.get(SupportTicket, ticket_id, with_for_update=for_update)
     if ticket is None:
         raise HTTPException(404, "Support ticket not found")
     return ticket
+
+
+def active_superuser_ids(db: Session) -> list[str]:
+    recipients = select(User.id).where(
+        User.role == UserRole.SUPERUSER, User.is_active.is_(True)
+    )
+    return list(db.scalars(recipients))
+
+
+def notify_ticket(
+    db: Session, ticket: SupportTicket, recipients: list[str], event_key: str, title: str
+) -> None:
+    for recipient_id in recipients:
+        emit(
+            db,
+            user_id=recipient_id,
+            event_key=event_key,
+            kind="support_ticket",
+            title=title,
+            message=ticket.subject,
+            action_url=f"/dashboard/support?id={ticket.id}",
+        )
 
 
 def ticket_response(
@@ -87,7 +112,13 @@ def create_ticket(data: TicketCreate, user_id: str) -> TicketResponse:
             created_at=utcnow(),
         )
         db.add(msg)
-        db.flush()
+        notify_ticket(
+            db,
+            ticket,
+            active_superuser_ids(db),
+            f"support-ticket:{ticket.id}",
+            "New support request",
+        )
         return ticket_response(db, ticket, count=1, last_msg_at=msg.created_at)
 
 
@@ -228,7 +259,7 @@ def add_ticket_message(
     sender: User,
 ) -> TicketMessageResponse:
     with SessionLocal.begin() as db:
-        ticket = require_ticket(db, ticket_id)
+        ticket = require_ticket(db, ticket_id, for_update=True)
         if sender.role != "superuser" and ticket.user_id != sender.id:
             raise HTTPException(403, "You do not have access to this support ticket")
 
@@ -249,6 +280,22 @@ def add_ticket_message(
             ticket.status = "in_progress"
 
         db.flush()
+        if sender.role == UserRole.USER:
+            notify_ticket(
+                db,
+                ticket,
+                active_superuser_ids(db),
+                f"support-reply:{msg.id}",
+                "New reply from the requester",
+            )
+        elif sender.id != ticket.user_id:
+            notify_ticket(
+                db,
+                ticket,
+                [ticket.user_id],
+                f"support-reply:{msg.id}",
+                "New reply to your support request",
+            )
         return TicketMessageResponse(
             id=msg.id,
             ticket_id=msg.ticket_id,
@@ -266,15 +313,28 @@ def update_ticket_status(
     user: User,
 ) -> TicketResponse:
     with SessionLocal.begin() as db:
-        ticket = require_ticket(db, ticket_id)
+        ticket = require_ticket(db, ticket_id, for_update=True)
         if user.role != "superuser":
             if ticket.user_id != user.id:
                 raise HTTPException(403, "You do not have access to this support ticket")
             if data.status not in ("resolved", "closed"):
                 raise HTTPException(400, "Users can only resolve or close their own tickets")
 
+        status_changed = ticket.status != data.status
         ticket.status = data.status
         ticket.updated_at = utcnow()
+        if (
+            status_changed
+            and user.role == UserRole.SUPERUSER
+            and user.id != ticket.user_id
+        ):
+            notify_ticket(
+                db,
+                ticket,
+                [ticket.user_id],
+                f"support-status:{new_id()}",
+                f"Support request marked {data.status.replace('_', ' ')}",
+            )
         db.flush()
         return ticket_response(db, ticket)
 

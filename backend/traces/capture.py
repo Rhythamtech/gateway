@@ -7,9 +7,9 @@ One ``CallCapture`` per inbound message/request:
   dispatch and is finalized (usage, latency, status) right after the attempt
   completes,
 * the same attempt also emits one OpenTelemetry ``gateway.llm.call`` span
-  (config-driven, independent of the per-user trace opt-in).
+  (config-driven, independent of the per-user trace setting).
 
-Tracing is strictly opt-in per user (``users.tracing_enabled``): requests
+Tracing is enabled by default for new accounts (``users.tracing_enabled``). Requests
 from users with tracing disabled persist no trace rows and no usage
 aggregates. Telemetry spans follow the separate ``users.telemetry_enabled``
 flag. Capture must never break inference — every recording path swallows its
@@ -101,7 +101,7 @@ class CallCapture:
     def start(cls, request: Any, payload: Any) -> "CallCapture":
         user_id = getattr(request.state, "api_key_owner_id", None)
         api_key_id = getattr(request.state, "api_key_id", None)
-        # Tracing is opt-in per user; payloads persist only when enabled.
+        # Respect the key owner's saved preference before serializing payloads.
         tracing_on = bool(getattr(request.state, "tracing_enabled", False))
         request_json = serialize_request_payload(payload) if tracing_on else None
         # Spans carry the key owner's own opt-out (see docs/tracing.md).

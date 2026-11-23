@@ -1,6 +1,26 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 from backend.core.datetime_safety import UTCDateTime
+
+
+class CatalogRateRange(BaseModel):
+    min: str
+    max: str
+
+
+class CatalogModel(BaseModel):
+    name: str
+    model_id: str
+    status: Literal["ready", "rate_needed", "unavailable"]
+    tokens_per_credit: CatalogRateRange | None = None
+    credits_per_million_tokens: CatalogRateRange | None = None
+
+
+class ModelCatalog(BaseModel):
+    models: list[CatalogModel]
+    requests_per_minute_per_key: int
 
 
 class ProviderModelResponse(BaseModel):

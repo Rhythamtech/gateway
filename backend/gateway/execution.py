@@ -117,6 +117,19 @@ def provider_token_usage(raw: dict[str, Any], protocol: str) -> tuple[int, int] 
     return prompt, output
 
 
+def dispatch_review_reason(error: BaseException) -> str:
+    if isinstance(error, GatewayError):
+        if error.code == "upstream_timeout":
+            return "Provider timed out before usage could be confirmed."
+        if error.code == "dispatch_failed":
+            return "Could not send the request to the provider."
+        if error.code == "configuration_error":
+            return "Provider configuration prevented dispatch."
+        if error.code == "upstream_error" and error.message == "Provider returned an error":
+            return f"Provider returned HTTP {error.status_code} before usage could be confirmed."
+    return "Provider request failed before usage could be confirmed."
+
+
 class CreditExecution:
     def __init__(
         self,
@@ -163,8 +176,9 @@ class CreditExecution:
                 await run_in_threadpool(service.record_provider_reference, self.reservation.usage_id, request_id)
             return self.response
         except BaseException as exc:
-            await run_in_threadpool(service.mark_for_review, self.reservation.usage_id,
-                                    "Upstream dispatch failed or its outcome is unknown")
+            await run_in_threadpool(
+                service.mark_for_review, self.reservation.usage_id, dispatch_review_reason(exc)
+            )
             await run_in_threadpool(self.capture.failure, exc)
             raise
 

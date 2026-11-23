@@ -9,7 +9,7 @@ export type CurrentUser = {
   email: string
   role: "user" | "superuser"
   is_active: boolean
-  // Persisted /traces recording opt-in (superuser-managed).
+  // Per-account request trace recording preference.
   tracing_enabled: boolean
   // OpenTelemetry span opt-in (self-service).
   telemetry_enabled: boolean
@@ -180,6 +180,7 @@ async function authenticatedRequest<T>(
   path: string,
   init: RequestInit = {}
 ): Promise<T> {
+  init.signal?.throwIfAborted()
   let tokens = getTokens()
   if (!tokens?.accessToken) {
     if (!tokens?.refreshToken)
@@ -198,6 +199,7 @@ async function authenticatedRequest<T>(
 
   let response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
   if (response.status === 401) {
+    init.signal?.throwIfAborted()
     await refreshTokens()
     tokens = getTokens()
     headers.set("Authorization", `Bearer ${tokens?.accessToken}`)
@@ -351,12 +353,15 @@ export type ProviderUpdate = {
   is_enabled?: boolean
 }
 
-export function listProviders(): Promise<Provider[]> {
-  return authenticatedRequest<Provider[]>("/provider")
+export function listProviders(signal?: AbortSignal): Promise<Provider[]> {
+  return authenticatedRequest<Provider[]>("/provider", { signal })
 }
 
-export function getProvider(providerId: string): Promise<Provider> {
-  return authenticatedRequest<Provider>(`/provider/${providerId}`)
+export function getProvider(
+  providerId: string,
+  signal?: AbortSignal
+): Promise<Provider> {
+  return authenticatedRequest<Provider>(`/provider/${providerId}`, { signal })
 }
 
 export function createProvider(input: ProviderInput): Promise<Provider> {
@@ -573,7 +578,7 @@ export function updateUserActive(
 }
 
 // PATCH /users/me/preferences is self-service for every signed-in user; it
-// toggles the caller's own OpenTelemetry span and usage tracing opt-in.
+// updates the caller's OpenTelemetry and request tracing preferences.
 export function updateMyPreferences(
   input: boolean | { telemetryEnabled?: boolean; tracingEnabled?: boolean }
 ): Promise<CurrentUser> {
@@ -879,7 +884,8 @@ export function getMessageTrace(traceId: string): Promise<MessageTraceDetail> {
 }
 
 export function listCallTraces(
-  options: CallTraceFilterOptions = {}
+  options: CallTraceFilterOptions = {},
+  signal?: AbortSignal
 ): Promise<CallsPage> {
   const params = new URLSearchParams()
   if (options.page !== undefined) params.set("page", String(options.page))
@@ -892,7 +898,8 @@ export function listCallTraces(
   }
   const query = params.toString()
   return authenticatedRequest<CallsPage>(
-    `/traces/calls${query ? `?${query}` : ""}`
+    `/traces/calls${query ? `?${query}` : ""}`,
+    { signal }
   )
 }
 
@@ -931,6 +938,7 @@ export type CreditUsage = {
   user_id: string
   provider_id: string
   provider_model_id: string
+  model_id?: string | null
   api_key_id: string
   rate_id: string
   tokens_per_credit: string
@@ -1098,7 +1106,8 @@ export type CreditUsageFilters = {
 }
 
 export function listCreditUsage(
-  options: CreditUsageFilters = {}
+  options: CreditUsageFilters = {},
+  signal?: AbortSignal
 ): Promise<CreditUsagePage> {
   const params = new URLSearchParams()
   if (options.page !== undefined) params.set("page", String(options.page))
@@ -1108,7 +1117,8 @@ export function listCreditUsage(
   if (options.userId?.trim()) params.set("user_id", options.userId.trim())
   const query = params.toString()
   return authenticatedRequest<CreditUsagePage>(
-    `/credits/usage${query ? `?${query}` : ""}`
+    `/credits/usage${query ? `?${query}` : ""}`,
+    { signal }
   )
 }
 
@@ -1127,6 +1137,25 @@ export function resolveCreditUsage(
 }
 
 // --- Inference & Models (V1 Gateway API) ---
+
+export type CatalogRateRange = { min: string; max: string }
+
+export type CatalogModel = {
+  name: string
+  model_id: string
+  status: "ready" | "rate_needed" | "unavailable"
+  tokens_per_credit: CatalogRateRange | null
+  credits_per_million_tokens: CatalogRateRange | null
+}
+
+export type ModelCatalog = {
+  models: CatalogModel[]
+  requests_per_minute_per_key: number
+}
+
+export function listModelCatalog() {
+  return authenticatedRequest<ModelCatalog>("/models")
+}
 
 export type GatewayModelItem = {
   id: string
@@ -1395,6 +1424,7 @@ export type NotificationItem = {
 export type NotificationPage = {
   items: NotificationItem[]
   unread_count: number
+  unread_support_count: number
   total: number
   page: number
   credit_warning: string | null

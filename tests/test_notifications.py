@@ -5,6 +5,8 @@ from backend.credits import service as credits
 from backend.credits.dtos import CreditAddition
 from backend.notifications import service
 from backend.notifications.models import Notification
+from backend.support import service as support_service
+from backend.support.controller import router as support_router
 
 
 def test_grant_atomic_and_deduplicated(credits_db, monkeypatch):
@@ -103,3 +105,87 @@ def test_new_migrations_idempotent(credits_db):
         for _ in range(2):
             for migrate in (_migration_0023_notifications, _migration_0024_announcements, _migration_0025_notification_preferences):
                 migrate(conn)
+
+
+def test_support_notifications_and_sidebar_count(credits_db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.auth.models import User, UserRole
+    from backend.core.database import get_db
+    from backend.dependencies import get_current_user
+    from backend.notifications.controller import router as notifications_router
+
+    monkeypatch.setattr(service, "SessionLocal", credits_db.writes)
+    monkeypatch.setattr(support_service, "SessionLocal", credits_db.writes)
+    with credits_db.writes.begin() as db:
+        for user_id, role, is_active in (
+            ("second-admin", UserRole.SUPERUSER, True),
+            ("inactive-admin", UserRole.SUPERUSER, False),
+            ("other-user", UserRole.USER, True),
+        ):
+            db.add(User(id=user_id, email=f"{user_id}@example.com", hashed_password="hash",
+                        role=role, is_active=is_active))
+
+    app = FastAPI()
+    app.include_router(support_router)
+    app.include_router(notifications_router)
+
+    def database():
+        with credits_db.reads() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = database
+    account_id = "user"
+
+    def current_user():
+        with credits_db.reads() as db:
+            return db.get(User, account_id)
+
+    app.dependency_overrides[get_current_user] = current_user
+
+    with TestClient(app) as client:
+        response = client.post("/support/tickets", json={
+            "subject": "Please add more credits",
+            "category": "billing",
+            "message": "Details for the support team.",
+        })
+        assert response.status_code == 201
+        ticket_id = response.json()["id"]
+        ticket_path = f"/support/tickets/{ticket_id}"
+        for account_id in ("admin", "second-admin"):
+            inbox = client.get("/notifications").json()
+            assert inbox["unread_support_count"] == 1
+            item, = [item for item in inbox["items"] if item["kind"] == "support_ticket"]
+            assert item["read_at"] is None
+            assert item["message"] == "Please add more credits"
+            assert item["action_url"] == f"/dashboard/support?id={ticket_id}"
+            assert client.get(ticket_path).status_code == 200
+            assert client.get("/notifications?page=2").json()["unread_support_count"] == 1
+
+        account_id = "other-user"
+        assert client.get("/notifications").json()["unread_support_count"] == 0
+        assert client.post(f"/notifications/{item['id']}/read").status_code == 404
+        assert client.get(ticket_path).status_code == 403
+
+        account_id = "admin"
+        assert client.post(f"{ticket_path}/messages", json={"message": "I can help."}).status_code == 201
+        for _ in range(2):
+            assert client.patch(f"{ticket_path}/status", json={"status": "resolved"}).status_code == 200
+        assert client.get("/notifications").json()["unread_support_count"] == 1
+
+        account_id = "user"
+        inbox = client.get("/notifications").json()
+        assert inbox["unread_support_count"] == 2
+        assert {item["title"] for item in inbox["items"] if item["kind"] == "support_ticket"} == {
+            "New reply to your support request", "Support request marked resolved"
+        }
+        assert client.post("/notifications/read-all").status_code == 204
+        assert client.get("/notifications").json()["unread_support_count"] == 0
+        assert client.post(f"{ticket_path}/messages", json={"message": "Thank you."}).status_code == 201
+        assert client.get("/notifications").json()["unread_support_count"] == 0
+
+        for account_id in ("admin", "second-admin"):
+            assert client.get("/notifications").json()["unread_support_count"] == 2
+
+    with credits_db.reads() as db:
+        assert service.list_notifications(db, "inactive-admin", 1).total == 0

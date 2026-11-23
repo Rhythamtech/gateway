@@ -329,6 +329,33 @@ def user_token(user_id="user"):
     return {"Authorization": f"Bearer {create_access_token(user_id)}"}
 
 
+def test_new_account_traces_by_default_and_can_turn_it_off(client, credits_db):
+    from backend.core.migrations import (
+        _migration_0021_signup_settings,
+        _migration_0026_block_disposable_emails,
+    )
+
+    with credits_db.writes.begin() as connection:
+        _migration_0021_signup_settings(connection)
+        _migration_0026_block_disposable_emails(connection)
+
+    response = client.post(
+        "/auth/register",
+        json={"email": "new-tracer@example.com", "password": "test-password-123"},
+    )
+    assert response.status_code == 201
+    headers = user_token(response.json()["id"])
+    settings = client.get("/users/me", headers=headers).json()
+    assert settings["tracing_enabled"] is True
+    assert settings["telemetry_enabled"] is False
+
+    disabled = client.patch(
+        "/users/me/preferences", headers=headers, json={"tracing_enabled": False}
+    )
+    assert disabled.status_code == 200
+    assert client.get("/users/me", headers=headers).json()["tracing_enabled"] is False
+
+
 def upstream_response(protocol="openai"):
     if protocol == "anthropic":
         return {
@@ -375,6 +402,7 @@ def test_inference_settles_with_tracing_disabled(
 ):
     fund_request(credits_db)
     with credits_db.writes.begin() as db:
+        db.get(User, "user").tracing_enabled = False
         db.get(Provider, "provider").protocol = protocol
     send = AsyncMock(return_value=httpx.Response(200, json=upstream_response(protocol)))
     monkeypatch.setattr("backend.gateway.execution.call_provider", send)
@@ -843,6 +871,8 @@ def test_incomplete_streams_keep_holds(client, credits_db, monkeypatch, protocol
 
 
 def test_timeout_preserves_credits_for_review(client, credits_db, monkeypatch):
+    from backend.traces.models import LLMCallTrace
+
     fund_request(credits_db)
     monkeypatch.setattr(
         "backend.gateway.execution.call_provider",
@@ -856,7 +886,12 @@ def test_timeout_preserves_credits_for_review(client, credits_db, monkeypatch):
     assert result.status_code == 504
     assert balances(credits_db)[0].reserved_credits == "100.000000"
     with credits_db.reads() as db:
-        assert db.query(CreditUsage).one().status == "needs_review"
+        usage = db.query(CreditUsage).one()
+        assert usage.status == "needs_review"
+        assert usage.reason == "Provider timed out before usage could be confirmed."
+        attempt = db.query(LLMCallTrace).filter_by(message_trace_id=usage.request_id).one()
+        assert attempt.status == "timeout"
+        assert attempt.error_code == "upstream_timeout"
 
 
 def test_invalid_upstream_json_returns_provider_error(client, credits_db, monkeypatch):

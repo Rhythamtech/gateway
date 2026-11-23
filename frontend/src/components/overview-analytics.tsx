@@ -2,6 +2,7 @@ import * as React from "react"
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
   ChartContainer,
@@ -21,6 +22,7 @@ type Metric = {
   href?: string
   onClick?: () => void
   loading?: boolean
+  onRetry?: () => void
 }
 
 export function OverviewMetrics({ metrics }: { metrics: Metric[] }) {
@@ -64,6 +66,23 @@ export function OverviewMetrics({ metrics }: { metrics: Metric[] }) {
               <p className="font-medium">{metric.headline}</p>
             )}
             <p className="text-muted-foreground">{metric.detail}</p>
+            {metric.onRetry && (
+              <div className="flex flex-wrap items-center gap-2" role="status">
+                <span className="text-muted-foreground">
+                  {metric.value === undefined
+                    ? "Could not load."
+                    : "Could not refresh. Showing previous data."}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Retry ${metric.label.toLowerCase()}`}
+                  onClick={metric.onRetry}
+                >
+                  Retry
+                </Button>
+              </div>
+            )}
           </div>
         </Card>
       ))}

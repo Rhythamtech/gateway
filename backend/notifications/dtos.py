@@ -16,6 +16,7 @@ class NotificationResponse(BaseModel):
 class NotificationPage(BaseModel):
     items: list[NotificationResponse]
     unread_count: int
+    unread_support_count: int
     total: int
     page: int
     credit_warning: str | None = None

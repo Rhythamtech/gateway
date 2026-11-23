@@ -12,6 +12,8 @@ from backend.auth.models import User
 from backend.core.database import SessionLocal
 from backend.core.datetime_safety import to_utc
 
+API_KEY_REQUESTS_PER_MINUTE = 60
+
 
 def _provider_error(path: str, status_code: int, code: str, message: str) -> JSONResponse:
     """Provider-shaped body; middleware errors are outside the exception
@@ -89,7 +91,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 .filter(APIKeyUsage.key_id == key.id, APIKeyUsage.used_at >= cutoff)
                 .count()
             )
-            if count >= 60:
+            if count >= API_KEY_REQUESTS_PER_MINUTE:
                 return _provider_error(
                     path, 429, "rate_limit_exceeded", "API key rate limit exceeded"
                 )

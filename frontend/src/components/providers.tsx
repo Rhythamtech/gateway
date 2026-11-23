@@ -63,6 +63,7 @@ export function ProvidersContent() {
   const [providers, setProviders] = React.useState<Provider[] | null>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [reloadTick, setReloadTick] = React.useState(0)
+  const latestReload = React.useRef(0)
   const [drawerState, setDrawerState] = React.useState<DrawerState>(null)
   const [pendingProviderId, setPendingProviderId] = React.useState<
     string | null
@@ -70,28 +71,39 @@ export function ProvidersContent() {
   const [actionError, setActionError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
+    const isCurrent = () =>
+      !controller.signal.aborted && reloadTick === latestReload.current
 
-    listProviders()
+    listProviders(controller.signal)
       .then((result) => {
-        if (cancelled) return
+        if (!isCurrent()) return
         setProviders(result)
         setLoadError(null)
       })
       .catch((error: unknown) => {
-        if (cancelled) return
+        if (!isCurrent()) return
         setLoadError(
           error instanceof Error ? error.message : "Unable to load providers."
         )
       })
 
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [reloadTick])
 
   function refreshProviders() {
-    setReloadTick((tick) => tick + 1)
+    latestReload.current += 1
+    setReloadTick(latestReload.current)
+  }
+
+  function applySavedProvider(saved: Provider) {
+    setProviders(
+      (current) =>
+        current
+          ?.map((provider) => (provider.id === saved.id ? saved : provider))
+          .sort((left, right) => left.name.localeCompare(right.name)) ?? null
+    )
+    refreshProviders()
   }
 
   async function handleEnable(provider: Provider) {
@@ -99,9 +111,9 @@ export function ProvidersContent() {
     setActionError(null)
 
     try {
-      await updateProvider(provider.id, { is_enabled: true })
+      const saved = await updateProvider(provider.id, { is_enabled: true })
       toast.success(`Provider “${provider.name}” enabled.`)
-      refreshProviders()
+      applySavedProvider(saved)
     } catch (error) {
       setActionError(
         error instanceof ApiError
@@ -345,12 +357,12 @@ export function ProvidersContent() {
           onSaved={(provider) => {
             const wasCreate = drawerState.provider === null
             setDrawerState(null)
-            refreshProviders()
             if (wasCreate) {
               window.location.assign(
                 `${detailHref(provider.id)}&setup=1&sync=1`
               )
             } else {
+              applySavedProvider(provider)
               toast.success(`Provider “${provider.name}” updated.`)
             }
           }}

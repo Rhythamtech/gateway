@@ -2,7 +2,7 @@
 
 Access rules (see docs/tracing.md):
 
-* Tracing is opt-in per user — ``users.tracing_enabled`` (default off).
+* Tracing starts enabled for new accounts and follows ``users.tracing_enabled``.
 * Regular users may access only their own per-API-key analytics and
   per-gateway-model analytics.
 * Superusers may access message traces, individual call traces, and all four

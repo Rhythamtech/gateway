@@ -3,18 +3,21 @@ from datetime import timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from backend.api_keys.middleware import API_KEY_REQUESTS_PER_MINUTE
 from backend.auth.models import User
 from backend.core.database import get_db
-from backend.dependencies import require_superuser
+from backend.dependencies import get_current_user, require_superuser
 from backend.gateway.provider_models import service
 from backend.gateway.model_groups.service import list_enabled_groups
 from backend.gateway.provider_models.dtos import (
+    ModelCatalog,
     ModelSyncResponse,
     ProviderModelResponse,
 )
 
 router = APIRouter(prefix="/provider", tags=["Provider Models"])
 gateway_router = APIRouter(prefix="/v1", tags=["Gateway"])
+catalog_router = APIRouter(tags=["Models"])
 
 
 def _epoch_seconds(value) -> int:
@@ -57,3 +60,13 @@ def list_models(db: Session = Depends(get_db)) -> dict:
         )
 
     return {"object": "list", "data": data}
+
+
+@catalog_router.get("/models", response_model=ModelCatalog)
+def list_model_catalog(
+    db: Session = Depends(get_db), _: User = Depends(get_current_user)
+):
+    return ModelCatalog(
+        models=service.list_catalog_models(db),
+        requests_per_minute_per_key=API_KEY_REQUESTS_PER_MINUTE,
+    )
