@@ -23,13 +23,14 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 from uuid import uuid4
 
+import httpx
 from opentelemetry.trace import Span
 
 from backend.core.errors import GatewayError
-from backend.gateway.providers.service import get_provider
+from backend.gateway.providers.service import get_provider, inference_endpoint
 from backend.telemetry import finish_attempt_span, start_attempt_span
 from backend.traces import service
-from backend.traces.redaction import serialize_request_payload
+from backend.traces.redaction import provider_error_details, serialize_request_payload
 from backend.traces.usage import (
     TokenUsage,
     canonical_input_tokens,
@@ -51,7 +52,7 @@ def _elapsed_ms(started: float) -> int:
     return max(0, round((time.monotonic() - started) * 1000))
 
 
-def _failure_status(error: Exception, default_error_code: str) -> tuple[str, str]:
+def _failure_status(error: BaseException, default_error_code: str) -> tuple[str, str]:
     """Map a capture failure to its (attempt status, error_code) pair."""
 
     status = service.STATUS_FAILED
@@ -94,6 +95,9 @@ class CallCapture:
         self._provider_model_id: str | None = None
         self._provider_id: str | None = None
         self._upstream_model: str | None = None
+        self._request_operation: str | None = None
+        self._provider_operation: str | None = None
+        self._secrets: tuple[str, ...] = ()
         self.request_id = str(uuid4())
         self.message_trace_id: str | None = None
 
@@ -107,13 +111,25 @@ class CallCapture:
         # Spans carry the key owner's own opt-out (see docs/tracing.md).
         spans_on = bool(getattr(request.state, "telemetry_enabled", False))
 
-        return cls(
+        capture = cls(
             user_id=user_id,
             api_key_id=api_key_id,
             request_json=request_json,
             tracing_enabled=tracing_on,
             spans_on=spans_on,
         )
+        if capture.records_traces:
+            capture._request_operation = f"{request.method} {request.url.path}"
+            authorization = request.headers.get("authorization", "")
+            key = request.headers.get("x-api-key")
+            if not key and authorization.lower().startswith("bearer "):
+                key = authorization[7:].strip()
+            capture._secrets = (key,) if key else ()
+        return capture
+
+    @property
+    def records_traces(self) -> bool:
+        return bool(self._user_id and self._tracing_enabled)
 
     # -- attempt lifecycle --------------------------------------------------
 
@@ -142,7 +158,13 @@ class CallCapture:
         if provider.id != candidate.provider_id or provider.protocol != candidate.protocol:
             raise GatewayError(503, "model_unavailable", "Provider changed during admission")
 
-        if self._user_id and self._tracing_enabled:
+        if self.records_traces:
+            self._provider_operation = f"POST /v1{inference_endpoint(provider.protocol)}"
+            secrets = {*self._secrets, provider.api_key, *provider.headers.values()}
+            for value in provider.headers.values():
+                if value.lower().startswith("bearer "):
+                    secrets.add(value[7:].strip())
+            self._secrets = tuple(sorted(filter(None, secrets), key=len, reverse=True))
             try:
                 self.message_trace_id, self._call_trace_id = (
                     service.start_pending_attempt(
@@ -190,6 +212,8 @@ class CallCapture:
         latency_ms: int,
         message_id: str | None = None,
         usage: TokenUsage | None = None,
+        error: BaseException | None = None,
+        gateway_status: int | None = None,
     ) -> None:
         try:
             finish_attempt_span(
@@ -204,7 +228,7 @@ class CallCapture:
             logger.exception("Failed to finalize LLM attempt span")
         self._span = None
 
-        if not (self._user_id and self._tracing_enabled):
+        if not self.records_traces:
             return  # nothing persistable for this context
 
         telemetry_usage = self._telemetry_usage(usage)
@@ -212,11 +236,28 @@ class CallCapture:
         self._call_trace_id = None
 
         try:
+            error_details = None
+            if error is not None:
+                error_details = {
+                    "operation": self._provider_operation or self._request_operation,
+                    "upstream_model": self._upstream_model,
+                }
+                if isinstance(error, GatewayError):
+                    error_details.update(
+                        message=error.message,
+                        provider_status=error.provider_status,
+                        gateway_status=gateway_status,
+                    )
+                    if error.provider_response is not None:
+                        error_details.update(
+                            provider_error_details(error.provider_response, secrets=self._secrets)
+                        )
             if call_trace_id is not None:
                 service.finish_pending_attempt(
                     call_trace_id=call_trace_id,
                     status=status,
                     error_code=error_code,
+                    error_details=error_details,
                     latency_ms=latency_ms,
                     message_id=message_id,
                     input_tokens=telemetry_usage["input_tokens"],
@@ -248,6 +289,7 @@ class CallCapture:
                     latency_ms=latency_ms,
                     status=status,
                     error_code=error_code,
+                    error_details=error_details,
                     created_at=_utcnow(),
                     finished_at=_utcnow(),
                 )
@@ -274,12 +316,14 @@ class CallCapture:
             usage=usage,
         )
 
-    def failure(self, error: Exception) -> None:
+    def failure(self, error: BaseException) -> None:
         status, error_code = _failure_status(error, "internal_error")
         self._finish(
             status=status,
             error_code=error_code,
             latency_ms=_elapsed_ms(self._started),
+            error=error,
+            gateway_status=error.status_code if isinstance(error, GatewayError) else None,
         )
 
     def stream_done(
@@ -309,6 +353,7 @@ class CallCapture:
             latency_ms=latency_ms,
             message_id=message_id,
             usage=usage,
+            error=error,
         )
 
 
@@ -333,6 +378,7 @@ def monitor_stream(
     capture: CallCapture,
     *,
     protocol: str | None = None,
+    provider_status: int | None = None,
 ) -> AsyncIterator[Any]:
     """Yield untouched stream pieces while extracting usage for the attempt.
 
@@ -373,9 +419,15 @@ def monitor_stream(
                     elif protocol == "openai" and isinstance(piece.get("usage"), dict):
                         raw_usage.update(piece["usage"])
 
-                    if piece.get("error") or piece.get("type") == "error":
+                    if error is None and (
+                        piece.get("error") or "error" in (piece.get("type"), piece.get("event"))
+                    ):
                         error = GatewayError(
-                            502, "upstream_error", "Provider reported a stream error"
+                            502,
+                            "upstream_error",
+                            "Provider reported a stream error",
+                            provider_status=provider_status,
+                            provider_response=piece.copy() if capture.records_traces else None,
                         )
                     terminal = piece.get("done") or piece.get("type") == "message_stop"
                     if terminal and not completed:
@@ -386,7 +438,19 @@ def monitor_stream(
 
                 yield piece
         except BaseException as exc:  # noqa: BLE001 - re-raised below
-            error = exc
+            if error is None:
+                if isinstance(exc, httpx.TimeoutException):
+                    error = GatewayError(
+                        504, "upstream_timeout", "Provider stream timed out",
+                        provider_status=provider_status,
+                    )
+                elif isinstance(exc, httpx.HTTPError):
+                    error = GatewayError(
+                        502, "stream_error", "Connection to the provider ended during streaming",
+                        provider_status=provider_status,
+                    )
+                else:
+                    error = exc
             raise
         finally:
             if not completed:
@@ -395,6 +459,7 @@ def monitor_stream(
                         502,
                         "incomplete_stream",
                         "Provider stream ended without a completion event",
+                        provider_status=provider_status,
                     )
                 await run_in_threadpool(capture.stream_done,
                     raw_usage=raw_usage, error=error, message_id=message_id

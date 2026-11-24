@@ -306,14 +306,22 @@ def reserve_request_credits(
         model_output_room = min(
             1_000_000, (rate.max_request_tokens or 10_000_000) - estimated_input_tokens
         )
-        if model_output_room < 1 or (
+        if model_output_room < 1:
+            raise GatewayError(
+                400,
+                "output_limit_exceeded",
+                "The prompt and chat history leave no room for a reply on this model. "
+                "Shorten the prompt, start a new chat, or choose a model with a larger context window.",
+            )
+        if (
             requested_output_tokens is not None
             and requested_output_tokens > model_output_room
         ):
             raise GatewayError(
                 400,
                 "output_limit_exceeded",
-                f"The input leaves room for at most {max(0, model_output_room)} output tokens",
+                f"This model can reply with up to {model_output_room:,} tokens for this prompt. "
+                "Lower the reply limit or choose a model with a larger context window.",
             )
 
         provider_balance = get_credit_balance(db, "provider", provider.id, create=True)
@@ -321,10 +329,10 @@ def reserve_request_credits(
         provider_available = provider_balance.remaining - provider_balance.reserved
         user_available = user_balance.remaining - user_balance.reserved
         available = min(provider_available, user_available)
-        affordable_output = (
+        affordable_tokens = (
             available * rate.tokens_per_credit_micros // MICROCREDITS**2
-            - estimated_input_tokens
         )
+        affordable_output = affordable_tokens - estimated_input_tokens
         output_tokens = requested_output_tokens or min(
             settings.CREDITS_DEFAULT_OUTPUT_TOKENS, model_output_room, affordable_output
         )
@@ -333,13 +341,30 @@ def reserve_request_credits(
                 raise GatewayError(
                     503,
                     "provider_credits_exhausted",
-                    "Provider has insufficient available credits",
+                    "This model is currently unavailable. Try another model or contact your administrator.",
                 )
-            raise GatewayError(
-                402,
-                "insufficient_credits",
-                f"Your balance can cover at most {max(0, affordable_output)} output tokens after input",
-            )
+            if user_available <= 0:
+                message = (
+                    "You have no available credits. "
+                    "Open Credits to check your balance and pending holds."
+                )
+            elif affordable_output < 1:
+                message = (
+                    "Not enough credits to answer with this model. "
+                    f"The prompt and chat history use an estimated {estimated_input_tokens:,} tokens, "
+                    f"and your available credits cover {affordable_tokens:,} at this model's rate. "
+                    "Shorten the prompt, start a new chat, or choose a cheaper model."
+                )
+            else:
+                request_tokens = estimated_input_tokens + output_tokens
+                reply_limit = min(affordable_output, model_output_room)
+                message = (
+                    "Not enough credits for this request. "
+                    f"It could use up to {request_tokens:,} tokens, and your available credits "
+                    f"cover {affordable_tokens:,} at this model's rate. "
+                    f"Lower the reply limit to {reply_limit:,} tokens or choose a cheaper model."
+                )
+            raise GatewayError(402, "insufficient_credits", message)
 
         reserved_tokens = estimated_input_tokens + output_tokens
         amount = calculate_credit_charge(

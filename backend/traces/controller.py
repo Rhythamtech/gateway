@@ -24,12 +24,13 @@ from backend.api_keys.models import APIKey
 from backend.auth.models import User, UserRole
 from backend.credits.models import CreditUsage
 from backend.core.database import SessionLocal, get_db, write_engine
-from backend.dependencies import get_current_user
+from backend.dependencies import get_current_user, require_superuser
 from backend.gateway.model_groups.models import ModelGroup
 from backend.traces import service
 from backend.traces.dtos import (
     CallTraceItem,
     CallsPage,
+    ClearTracesResult,
     DailyUsageEntry,
     GatewayModelRef,
     HourlyCallActivity,
@@ -215,6 +216,7 @@ def _call_item(call: dict[str, Any]) -> CallTraceItem:
         latency_ms=call["latency_ms"],
         status=call["status"],
         error_code=call["error_code"],
+        error_details=call.get("error_details"),
         created_at=call["created_at"],
         finished_at=call["finished_at"],
     )
@@ -244,6 +246,11 @@ def list_messages(
         page_size=page_size,
         total=total,
     )
+
+
+@router.delete("/messages", response_model=ClearTracesResult)
+def clear_traces(_: User = Depends(require_superuser)) -> ClearTracesResult:
+    return ClearTracesResult(deleted_count=service.clear_completed_traces())
 
 
 @router.get("/messages/{trace_id}", response_model=MessageTraceDetail)

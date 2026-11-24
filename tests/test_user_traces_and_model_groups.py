@@ -323,7 +323,13 @@ def test_traces_scoped_to_user(test_db, client):
             id=call1_id,
             message_trace_id=msg1_id,
             user_id=user1_id,
-            status="success",
+            status="failed",
+            error_code="upstream_error",
+            error_details={
+                "provider_status": 429,
+                "provider_message": "Quota exceeded",
+                "provider_response": {"error": {"message": "Quota exceeded"}},
+            },
             created_at=now,
         )
         call2 = LLMCallTrace(
@@ -350,6 +356,7 @@ def test_traces_scoped_to_user(test_db, client):
     detail1 = client.get(f"/traces/messages/{msg1_id}", headers=token1)
     assert detail1.status_code == 200
     assert detail1.json()["id"] == msg1_id
+    assert detail1.json()["calls"][0]["error_details"]["provider_status"] == 429
 
     # User 1 CANNOT view user 2's message trace (403)
     forbidden_detail = client.get(f"/traces/messages/{msg2_id}", headers=token1)
@@ -360,15 +367,20 @@ def test_traces_scoped_to_user(test_db, client):
     assert calls_res1.status_code == 200
     assert calls_res1.json()["total"] == 1
     assert calls_res1.json()["items"][0]["id"] == call1_id
+    assert calls_res1.json()["items"][0]["error_details"] is None
 
     # User 1 can view own call trace
     call_detail1 = client.get(f"/traces/calls/{call1_id}", headers=token1)
     assert call_detail1.status_code == 200
     assert call_detail1.json()["id"] == call1_id
+    assert call_detail1.json()["error_details"]["provider_response"] == {
+        "error": {"message": "Quota exceeded"}
+    }
 
     # User 1 CANNOT view user 2's call trace (403)
     call_forbidden = client.get(f"/traces/calls/{call2_id}", headers=token1)
     assert call_forbidden.status_code == 403
+    assert client.get(f"/traces/calls/{call1_id}", headers=token2).status_code == 403
 
     # Superuser sees both messages and both calls
     admin_msgs = client.get("/traces/messages", headers=admin_token)
@@ -395,6 +407,55 @@ def test_traces_scoped_to_user(test_db, client):
         assert search(admin_token, msg2_id) == [other_id]
         assert search(admin_token, "m-2") == [other_id]
         assert search(admin_token, "m-") == []
+
+
+def test_superuser_can_clear_completed_traces_for_every_user(test_db, client):
+    from backend.traces import service
+    from backend.traces.models import LLMUserUsageDaily
+
+    admin_id = str(uuid4())
+    user_id = str(uuid4())
+    with test_db.writes.begin() as db:
+        db.add_all([
+            User(
+                id=admin_id,
+                email="admin@example.com",
+                hashed_password="hash",
+                role=UserRole.SUPERUSER,
+            ),
+            User(
+                id=user_id,
+                email="regular@example.com",
+                hashed_password="hash",
+                role=UserRole.USER,
+            ),
+        ])
+
+    completed = [
+        service.record_attempt(user_id=owner_id, status=service.STATUS_SUCCESS)
+        for owner_id in (admin_id, user_id)
+    ]
+    pending_message, pending_call = service.start_pending_attempt(user_id=user_id)
+
+    assert client.delete("/traces/messages").status_code == 401
+    forbidden = client.delete("/traces/messages", headers=make_token(user_id))
+    assert forbidden.status_code == 403
+    assert forbidden.json()["error"]["code"] == "FORBIDDEN"
+
+    admin_token = make_token(admin_id)
+    response = client.delete("/traces/messages", headers=admin_token)
+    assert response.status_code == 200
+    assert response.json() == {"deleted_count": 2}
+    with test_db.reads() as db:
+        assert [row.id for row in db.query(LLMMessageTrace).all()] == [pending_message]
+        assert [row.id for row in db.query(LLMCallTrace).all()] == [pending_call]
+        assert db.query(LLMUserUsageDaily).count() == 2
+
+    assert client.get(f"/traces/messages/{completed[1]}", headers=admin_token).status_code == 404
+    assert client.delete("/traces/messages", headers=admin_token).json() == {"deleted_count": 0}
+
+    service.finish_pending_attempt(call_trace_id=pending_call, status=service.STATUS_SUCCESS)
+    assert client.delete("/traces/messages", headers=admin_token).json() == {"deleted_count": 1}
 
 
 def test_gateway_model_usage_reports_no_cost(test_db, client):

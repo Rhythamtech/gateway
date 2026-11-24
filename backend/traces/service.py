@@ -15,10 +15,10 @@ import json
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import case, func, or_, select, text
+from sqlalchemy import case, delete, func, or_, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Load, Session
 
 from backend.core.database import SessionLocal
 from backend.credits.calculation import format_credits
@@ -39,6 +39,22 @@ from backend.traces.redaction import serialize_request_payload
 STATUS_PENDING = "pending"
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
+
+
+def clear_completed_traces() -> int:
+    """Clear request logs while allowing pending attempts to finalize."""
+
+    pending_attempt = (
+        select(LLMCallTrace.id)
+        .where(
+            LLMCallTrace.message_trace_id == LLMMessageTrace.id,
+            LLMCallTrace.status == STATUS_PENDING,
+        )
+        .exists()
+    )
+    with SessionLocal.begin() as db:
+        result = db.execute(delete(LLMMessageTrace.__table__).where(~pending_attempt))
+        return result.rowcount
 
 
 def purge_expired_logs() -> int:
@@ -180,6 +196,7 @@ def record_attempt(
     latency_ms: int | None = None,
     status: str = STATUS_FAILED,
     error_code: str | None = None,
+    error_details: dict[str, Any] | None = None,
     created_at: datetime | None = None,
     finished_at: datetime | None = None,
 ) -> str:
@@ -244,6 +261,7 @@ def record_attempt(
                 latency_ms=latency_ms,
                 status=status,
                 error_code=error_code,
+                error_details=error_details,
                 created_at=started_at,
                 finished_at=finished,
             )
@@ -373,6 +391,7 @@ def finish_pending_attempt(
     call_trace_id: str,
     status: str,
     error_code: str | None = None,
+    error_details: dict[str, Any] | None = None,
     latency_ms: int | None = None,
     message_id: str | None = None,
     input_tokens: int | None = None,
@@ -409,6 +428,7 @@ def finish_pending_attempt(
 
         call.status = status
         call.error_code = error_code
+        call.error_details = error_details
         call.latency_ms = latency_ms
         call.input_tokens = input_tokens
         call.output_tokens = output_tokens
@@ -587,7 +607,7 @@ def list_call_rows_by_message(db: Session, trace_id: str) -> list[dict[str, Any]
         .order_by(LLMCallTrace.created_at.asc(), LLMCallTrace.id.asc())
         .all()
     )
-    return [_call_row_data(row) for row in rows]
+    return [_call_row_data(row, include_error_details=True) for row in rows]
 
 
 def _calls_query(db: Session):
@@ -600,7 +620,7 @@ def _calls_query(db: Session):
     )
 
 
-def _call_row_data(row: Any) -> dict[str, Any]:
+def _call_row_data(row: Any, *, include_error_details: bool = False) -> dict[str, Any]:
     call, message, group, provider_model, provider = row
 
     return {
@@ -635,6 +655,7 @@ def _call_row_data(row: Any) -> dict[str, Any]:
         "latency_ms": call.latency_ms,
         "status": call.status,
         "error_code": call.error_code,
+        "error_details": call.error_details if include_error_details else None,
         "created_at": call.created_at,
         "finished_at": call.finished_at,
     }
@@ -655,7 +676,7 @@ def list_calls(
     started: datetime | None = None,
     ended: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    query = _calls_query(db)
+    query = _calls_query(db).options(Load(LLMCallTrace).defer(LLMCallTrace.error_details))
 
     if user_id:
         query = query.filter(LLMCallTrace.user_id == user_id)
@@ -691,7 +712,7 @@ def list_calls(
 
 def get_call(db: Session, call_id: str) -> dict[str, Any] | None:
     row = _calls_query(db).filter(LLMCallTrace.id == call_id).first()
-    return _call_row_data(row) if row else None
+    return _call_row_data(row, include_error_details=True) if row else None
 
 
 # ---------------------------------------------------------------------------

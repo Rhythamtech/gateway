@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -776,12 +777,45 @@ def count_anthropic_input_tokens(
     return count if type(count) is int and 0 < count <= 10_000_000 else None
 
 
+_MAX_PROVIDER_ERROR_BYTES = 16 * 1024
+
+
+def inference_endpoint(protocol: str) -> str:
+    return "/messages" if protocol == "anthropic" else "/chat/completions"
+
+
+def provider_error_body(response: httpx.Response, body: bytes | bytearray) -> str | None:
+    if not body or len(body) > _MAX_PROVIDER_ERROR_BYTES:
+        return None
+    try:
+        return body.decode(response.encoding or "utf-8", errors="replace")
+    except (LookupError, UnicodeError):
+        return body.decode("utf-8", errors="replace")
+
+
+async def _read_provider_error(response: httpx.Response) -> str | None:
+    """Read a small diagnostic body without delaying an upstream rejection indefinitely."""
+
+    body = bytearray()
+    try:
+        async with asyncio.timeout(0.25):
+            async for chunk in response.aiter_bytes():
+                if len(body) + len(chunk) > _MAX_PROVIDER_ERROR_BYTES:
+                    return None
+                body.extend(chunk)
+    except (TimeoutError, httpx.HTTPError):
+        return None
+    return provider_error_body(response, body)
+
+
 async def call_provider(
     provider: RuntimeProvider,
     payload: dict[str, Any],
     stream: bool,
+    *,
+    capture_error: bool = False,
 ) -> httpx.Response:
-    suffix = "/messages" if provider.protocol == "anthropic" else "/chat/completions"
+    suffix = inference_endpoint(provider.protocol)
 
     try:
         url = provider_api_url(provider.base_url, suffix)
@@ -797,9 +831,16 @@ async def call_provider(
         )
         response = await get_client().send(request, stream=True)
         if response.status_code >= 400:
-            await response.aclose()
+            try:
+                body = await _read_provider_error(response) if capture_error else None
+            finally:
+                await response.aclose()
             raise GatewayError(
-                response.status_code, "upstream_error", "Provider returned an error"
+                response.status_code,
+                "upstream_error",
+                "Provider returned an error",
+                provider_status=response.status_code,
+                provider_response=body,
             )
 
         if not stream:

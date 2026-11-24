@@ -6,12 +6,24 @@ import {
   IconRoute,
   IconSearch,
   IconServer,
+  IconTrash,
 } from "@tabler/icons-react"
+import { toast } from "sonner"
 import { PageContent } from "@/components/dashboard-shell"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
@@ -32,6 +44,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
+  clearCompletedTraces,
   listCallTraces,
   listMessageTraces,
   type CallTraceFilters,
@@ -72,6 +85,66 @@ function matches(
     value.tick === tick &&
     value.requestId === requestId &&
     value.filters === filters
+  )
+}
+
+function ClearTracesButton({ onCleared }: { onCleared: () => void }) {
+  const [open, setOpen] = React.useState(false)
+  const [clearing, setClearing] = React.useState(false)
+
+  async function clearTraces() {
+    setClearing(true)
+    try {
+      const { deleted_count: count } = await clearCompletedTraces()
+      toast.success(
+        count === 0
+          ? "There were no completed traces to clear."
+          : `Cleared ${formatInt(count)} request ${count === 1 ? "trace" : "traces"}.`
+      )
+      setOpen(false)
+      onCleared()
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to clear traces."
+      )
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !clearing && setOpen(next)}>
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <IconTrash data-icon="inline-start" />
+          Clear all traces
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="w-[calc(100%-2rem)] max-w-sm">
+        <DialogHeader className="pr-10">
+          <DialogTitle>Clear all traces?</DialogTitle>
+          <DialogDescription>
+            Permanently delete completed request traces and provider attempts
+            for every user. In-progress requests can still appear when they
+            finish.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" disabled={clearing}>
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button
+            variant="destructive"
+            disabled={clearing}
+            onClick={clearTraces}
+          >
+            {clearing ? "Clearing…" : "Clear all traces"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -140,6 +213,11 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
   const items = data?.items ?? []
   const appliedCount = Object.keys(filters).length
 
+  function reloadTraces() {
+    setPage(1)
+    setReloadTick((tick) => tick + 1)
+  }
+
   function resetFilters() {
     setDraftFilters({})
     setFilters({})
@@ -159,20 +237,18 @@ export function TracesContent({ user }: { user?: CurrentUser } = {}) {
               <Badge variant="outline">Superuser</Badge>
             ) : null}
           </div>
-          <Button
-            variant="outline"
-            disabled={loading}
-            onClick={() => {
-              setPage(1)
-              setReloadTick((tick) => tick + 1)
-            }}
-          >
-            <IconRefresh
-              data-icon="inline-start"
-              className={cn(loading && "motion-safe:animate-spin")}
-            />
-            Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {user?.role === "superuser" ? (
+              <ClearTracesButton onCleared={reloadTraces} />
+            ) : null}
+            <Button variant="outline" disabled={loading} onClick={reloadTraces}>
+              <IconRefresh
+                data-icon="inline-start"
+                className={cn(loading && "motion-safe:animate-spin")}
+              />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {user && !user.tracing_enabled ? (

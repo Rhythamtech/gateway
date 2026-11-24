@@ -9,7 +9,7 @@ names are snake_case.
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 from backend.core.datetime_safety import UTCDateTime
 
@@ -39,6 +39,10 @@ class MessageTraceDetail(MessageTraceItem):
     calls: list["CallTraceItem"]
 
 
+class ClearTracesResult(BaseModel):
+    deleted_count: int
+
+
 class MessagesPage(BaseModel):
     items: list[MessageTraceItem]
     page: int
@@ -57,6 +61,18 @@ class ProviderModelRef(BaseModel):
     provider_id: UUID
     provider_name: str
     provider_alias: str
+
+
+class CallErrorDetails(BaseModel):
+    message: str | None = None
+    operation: str | None = None
+    upstream_model: str | None = None
+    gateway_status: int | None = None
+    provider_status: int | None = None
+    provider_message: str | None = None
+    provider_code: str | None = None
+    provider_type: str | None = None
+    provider_response: JsonValue = None
 
 
 class CallTraceItem(BaseModel):
@@ -78,6 +94,7 @@ class CallTraceItem(BaseModel):
     latency_ms: int | None
     status: TraceStatus
     error_code: str | None
+    error_details: CallErrorDetails | None = None
     created_at: UTCDateTime
     finished_at: UTCDateTime | None
 

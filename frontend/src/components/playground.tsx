@@ -538,7 +538,10 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
       if (!response.ok) {
         setInputPrompt((value) => value || textToSend)
 
-        let errMessage = `Error ${response.status}: ${response.statusText}`
+        let errMessage =
+          response.status === 402
+            ? "Not enough credits for this request. Check your available credits or choose a cheaper model."
+            : `Error ${response.status}: ${response.statusText}`
         let errCode: string | undefined
         let errorAction: { label: string; href: string } | undefined
 
@@ -574,10 +577,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
           response.status === 402 ||
           errCode === "insufficient_credits"
         ) {
-          errMessage =
-            "Insufficient available credits. This request requires reserving its maximum token allowance up front, which exceeds your available credit balance."
           errorAction = {
-            label: "View Credits balance",
+            label: "View Credits",
             href: "/dashboard/credits",
           }
         } else if (response.status === 503) {
@@ -586,8 +587,6 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
             errMessage.includes("Provider has insufficient available credits")
           ) {
             if (isSuperuser) {
-              errMessage =
-                "The upstream provider balance is insufficient to fund this request's credit reservation."
               if (activeModelChoice?.providerId) {
                 errorAction = {
                   label: `Manage ${activeModelChoice.providerName ?? "Provider"} credits`,
@@ -599,9 +598,6 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
                   href: "/dashboard/model-groups",
                 }
               }
-            } else {
-              errMessage =
-                "The provider for this model has temporarily exhausted its credit balance. Please select another model or try again later."
             }
           } else if (
             errCode === "model_rate_missing" ||
@@ -668,7 +664,6 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
           (errCode === "output_limit_exceeded" ||
             errMessage.includes("Requested output exceeds"))
         ) {
-          errMessage = `Requested output (${maxTokens} tokens) exceeds the model's configured limit. Open the Parameters dialog to lower Max Output Tokens and retry.`
           if (isSuperuser && activeModelChoice?.providerId) {
             errorAction = {
               label: `Check ${activeModelChoice.providerName ?? "model"} rate limits`,

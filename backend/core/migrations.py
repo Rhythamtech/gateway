@@ -779,6 +779,11 @@ def _migration_0026_block_disposable_emails(connection: Connection) -> None:
         ))
 
 
+def _migration_0027_trace_error_details(connection: Connection) -> None:
+    if "error_details" not in _sqlite_columns(connection, "llm_call_traces"):
+        connection.execute(text("ALTER TABLE llm_call_traces ADD COLUMN error_details JSON"))
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -812,6 +817,7 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0024_announcements", _migration_0024_announcements),
     ("0025_notification_preferences", _migration_0025_notification_preferences),
     ("0026_block_disposable_emails", _migration_0026_block_disposable_emails),
+    ("0027_trace_error_details", _migration_0027_trace_error_details),
 ]
 
 

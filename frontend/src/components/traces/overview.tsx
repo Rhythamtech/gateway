@@ -237,7 +237,19 @@ export function TraceOverview({ trace }: { trace: MessageTraceDetail }) {
         </div>
       </div>
 
-      {/* 3. Trace metadata */}
+      {/* 3. Provider attempts */}
+      <section className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-foreground">
+            Provider attempts
+          </h2>
+        </div>
+        <AttemptTimeline calls={trace.calls} />
+      </section>
+
+      <Separator />
+
+      {/* 4. Trace metadata */}
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold text-foreground">
           Trace metadata
@@ -247,7 +259,7 @@ export function TraceOverview({ trace }: { trace: MessageTraceDetail }) {
 
       <Separator />
 
-      {/* 4. Messages Section */}
+      {/* 5. Messages Section */}
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-foreground">Messages</h2>
@@ -259,23 +271,6 @@ export function TraceOverview({ trace }: { trace: MessageTraceDetail }) {
         </div>
         <RequestParametersView request={trace.request} />
         <RequestMessagesView request={trace.request} modelName={modelName} />
-      </section>
-
-      <Separator />
-
-      {/* 5. Provider attempts Section */}
-      <section className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground">
-            Provider attempts
-          </h2>
-          {trace.calls.length > 0 ? (
-            <Badge variant="secondary" className="px-2 py-0.5 text-xs">
-              {trace.calls.length} attempt{trace.calls.length > 1 ? "s" : ""}
-            </Badge>
-          ) : null}
-        </div>
-        <AttemptTimeline calls={trace.calls} />
       </section>
 
       <Separator />

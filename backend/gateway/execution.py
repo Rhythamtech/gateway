@@ -18,6 +18,7 @@ from backend.gateway.providers.service import (
     call_provider,
     count_anthropic_input_tokens,
     get_provider,
+    provider_error_body,
     read_sse_data,
 )
 from backend.gateway.routing import RouteCandidate, plan
@@ -167,7 +168,10 @@ class CreditExecution:
         self.dispatch_started = time.monotonic()
         try:
             self.response = await call_provider(
-                self.provider, payload, bool(payload.get("stream"))
+                self.provider,
+                payload,
+                bool(payload.get("stream")),
+                capture_error=self.capture.records_traces,
             )
             if self.capture._span is not None:
                 self.capture._span.set_attribute("gateway.upstream_headers_ms", (time.monotonic() - self.dispatch_started) * 1000)
@@ -204,11 +208,15 @@ class CreditExecution:
                 data = self.response.json()
             except ValueError:
                 raise GatewayError(
-                    502, "upstream_error", "Provider returned invalid JSON"
+                    502, "upstream_error", "Provider returned invalid JSON",
+                    provider_status=self.response.status_code,
+                    provider_response=self._error_response_body(),
                 ) from None
-            if not isinstance(data, dict) or data.get("error"):
+            if not isinstance(data, dict) or data.get("error") or data.get("type") == "error":
                 raise GatewayError(
-                    502, "upstream_error", "Provider returned an invalid response"
+                    502, "upstream_error", "Provider returned an invalid response",
+                    provider_status=self.response.status_code,
+                    provider_response=self._error_response_body(),
                 )
             self.raw_usage = (
                 data.get("usage") if isinstance(data.get("usage"), dict) else {}
@@ -226,6 +234,11 @@ class CreditExecution:
         finally:
             await self.response.aclose()
 
+    def _error_response_body(self) -> str | None:
+        if self.capture.records_traces:
+            return provider_error_body(self.response, self.response.content)
+        return None
+
     async def observe_events(self) -> AsyncIterator[dict[str, Any]]:
         try:
             async for event in read_sse_data(self.response):
@@ -240,7 +253,7 @@ class CreditExecution:
                         if self.capture._span is not None:
                             self.capture._span.set_attribute("gateway.upstream_first_content_ms", (time.monotonic() - self.dispatch_started) * 1000)
                 previous_id = self.provider_request_id
-                if event.get("error") or event.get("type") == "error":
+                if event.get("error") or "error" in (event.get("type"), event.get("event")):
                     self.stream_failed = True
                 if self.provider.protocol == "anthropic":
                     event_type = event.get("type") or event.get("event")
@@ -282,7 +295,8 @@ class CreditExecution:
 
     def stream_events(self) -> AsyncIterator[dict[str, Any]]:
         self.events = monitor_stream(
-            self.observe_events(), self.capture, protocol=self.provider.protocol
+            self.observe_events(), self.capture,
+            protocol=self.provider.protocol, provider_status=self.response.status_code,
         )
         return self.events
 

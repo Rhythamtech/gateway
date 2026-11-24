@@ -1,5 +1,12 @@
-import { CornerDownRight } from "lucide-react"
+import { ChevronDown, CircleAlert, CornerDownRight } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Table,
   TableBody,
@@ -16,8 +23,107 @@ import {
   formatMs,
   shortId,
   TokenPair,
+  TraceField,
   TraceStatusBadge,
 } from "./shared"
+
+function AttemptError({ call }: { call: CallTraceItem }) {
+  const details = call.error_details
+  const response = details?.provider_response
+  const responseText =
+    typeof response === "string"
+      ? response
+      : response == null
+        ? null
+        : JSON.stringify(response, null, 2)
+  const providerIdentifiers = [
+    ...new Set(
+      [details?.provider_type, details?.provider_code].filter(Boolean)
+    ),
+  ].join(" · ")
+  const status = [
+    details?.provider_status && `Upstream HTTP ${details.provider_status}`,
+    details?.gateway_status &&
+      details.gateway_status !== details.provider_status &&
+      `Gateway HTTP ${details.gateway_status}`,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+  const summary =
+    details?.provider_message ??
+    details?.message ??
+    (call.status === "timeout"
+      ? "The attempt timed out."
+      : "The attempt failed.")
+  const visibleSummary =
+    responseText !== null && summary.length > 360
+      ? `${summary.slice(0, 360)}…`
+      : summary
+  const responseUnavailable = details
+    ? details.provider_status && "Provider response body unavailable."
+    : "No error details were recorded for this attempt."
+
+  return (
+    <Alert variant="destructive" role="group" aria-label="Attempt failure">
+      <CircleAlert aria-hidden="true" />
+      <AlertDescription className="min-w-0 gap-3">
+        <p className="wrap-anywhere whitespace-pre-wrap">{visibleSummary}</p>
+        {status ||
+        details?.operation ||
+        providerIdentifiers ||
+        call.error_code ? (
+          <dl className="flex flex-wrap gap-x-6 gap-y-2">
+            {status ? <TraceField label="Status">{status}</TraceField> : null}
+            {details?.operation ? (
+              <TraceField label="Operation" mono>
+                {details.operation}
+              </TraceField>
+            ) : null}
+            {providerIdentifiers || call.error_code ? (
+              <TraceField
+                label={providerIdentifiers ? "Provider error" : "Gateway error"}
+                mono
+              >
+                {providerIdentifiers || call.error_code}
+              </TraceField>
+            ) : null}
+          </dl>
+        ) : null}
+        {responseText !== null ? (
+          <Collapsible className="grid w-full min-w-0 gap-2">
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="group justify-self-start"
+              >
+                Provider response
+                <ChevronDown
+                  data-icon="inline-end"
+                  className="group-data-[state=open]:rotate-180"
+                />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="min-w-0">
+              <div className="flex justify-end">
+                <CopyButton value={responseText} label="Copy response" />
+              </div>
+              <pre
+                tabIndex={0}
+                aria-label="Provider response body"
+                className="max-h-80 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs wrap-anywhere whitespace-pre-wrap text-foreground"
+              >
+                {responseText}
+              </pre>
+            </CollapsibleContent>
+          </Collapsible>
+        ) : responseUnavailable ? (
+          <p className="text-xs text-muted-foreground">{responseUnavailable}</p>
+        ) : null}
+      </AlertDescription>
+    </Alert>
+  )
+}
 
 export function AttemptTimeline({ calls }: { calls: CallTraceItem[] }) {
   if (!calls.length) {
@@ -37,7 +143,7 @@ export function AttemptTimeline({ calls }: { calls: CallTraceItem[] }) {
 
         return (
           <div key={call.id} className="flex flex-col gap-3">
-            <div className="flex flex-col gap-3 rounded-lg border p-4">
+            <div className="flex min-w-0 flex-col gap-3 rounded-lg border p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={failed ? "destructive" : "outline"}>
@@ -47,7 +153,9 @@ export function AttemptTimeline({ calls }: { calls: CallTraceItem[] }) {
                     {call.provider_model?.provider_name ?? "Provider"}
                     <span className="font-normal text-muted-foreground">
                       {" · "}
-                      {call.provider_model?.model_id ?? "Unresolved Model"}
+                      {call.error_details?.upstream_model ??
+                        call.provider_model?.model_id ??
+                        "Unresolved Model"}
                     </span>
                   </span>
                 </div>
@@ -60,18 +168,15 @@ export function AttemptTimeline({ calls }: { calls: CallTraceItem[] }) {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              {failed ? <AttemptError call={call} /> : null}
+
+              <div className="text-xs text-muted-foreground">
                 <span>
                   Started: {formatDateTime(call.created_at)}
                   {call.finished_at
                     ? ` · Finished: ${formatDateTime(call.finished_at)}`
                     : ""}
                 </span>
-                {call.error_code ? (
-                  <Badge variant="destructive" className="font-mono text-xs">
-                    Error: {call.error_code}
-                  </Badge>
-                ) : null}
               </div>
 
               <div className="overflow-x-auto">

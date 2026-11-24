@@ -827,6 +827,17 @@ export type CallTraceItem = {
   latency_ms: number | null
   status: string
   error_code: string | null
+  error_details: {
+    message: string | null
+    operation: string | null
+    upstream_model: string | null
+    gateway_status: number | null
+    provider_status: number | null
+    provider_message: string | null
+    provider_code: string | null
+    provider_type: string | null
+    provider_response: unknown
+  } | null
   created_at: string
   finished_at: string | null
 }
@@ -863,6 +874,12 @@ export type CallTraceFilterOptions = {
   page?: number
   pageSize?: number
   filters?: CallTraceFilters
+}
+
+export function clearCompletedTraces(): Promise<{ deleted_count: number }> {
+  return authenticatedRequest<{ deleted_count: number }>("/traces/messages", {
+    method: "DELETE",
+  })
 }
 
 export function listMessageTraces(

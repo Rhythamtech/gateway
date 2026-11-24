@@ -428,7 +428,7 @@ def test_automatic_rate_caps_output_to_available_credits(client, credits_db, mon
     service.add_credits("user", "user", addition("10"), "admin")
     service.add_credits("provider", "provider", addition("100"), "admin")
 
-    async def send(_, payload, stream):
+    async def send(_, payload, stream, *, capture_error):
         assert balances(credits_db)[0].reserved_credits == "10.000000"
         assert 10 <= payload["max_tokens"] < 100
         return httpx.Response(200, json=upstream_response())
@@ -691,6 +691,7 @@ def test_fresh_and_existing_schema_migrations_are_idempotent(credits_db):
     fund_request(credits_db)
     applied = run_pending_migrations(credits_db.writer)
     assert "0013_usage_credits" in applied
+    assert "0027_trace_error_details" in applied
     assert run_pending_migrations(credits_db.writer) == []
     with credits_db.reads() as db:
         assert db.query(ModelCreditRate).count() == 1
@@ -953,21 +954,100 @@ def test_priced_provider_with_zero_credits_is_skipped(client, credits_db, monkey
     assert send.call_args.args[0].id == "provider"
 
 
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/v1/chat/completions", {}),
+        ("/v1/messages", {}),
+        ("/v1/responses", {"input": "Hello"}),
+    ],
+)
 def test_insufficient_user_credits_returns_402_before_dispatch(
-    client, credits_db, monkeypatch
+    client, credits_db, monkeypatch, path, payload
 ):
     configure_rate()
     service.add_credits("provider", "provider", addition(), "admin")
     send = AsyncMock()
     monkeypatch.setattr("backend.gateway.execution.call_provider", send)
     result = client.post(
-        "/v1/chat/completions",
+        path,
         headers={"x-api-key": "test-key"},
-        json={"model": "a/model-a"},
+        json={"model": "a/model-a", **payload},
     )
     assert result.status_code == 402
-    assert result.json()["error"]["code"] == "insufficient_credits"
+    error = result.json()["error"]
+    if path == "/v1/messages":
+        assert result.json()["type"] == "error"
+        assert error["type"] == "invalid_request_error"
+    else:
+        assert error["code"] == "insufficient_credits"
+    assert error["message"] == (
+        "You have no available credits. Open Credits to check your balance and pending holds."
+    )
     send.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "input_tokens,output_tokens,model_limit,provider_credits,status,code,guidance",
+    [
+        pytest.param(
+            20_000, 880_000, 1_000_000, "100000", 402, "insufficient_credits",
+            ("up to 900,000 tokens", "cover 100,000",
+             "Lower the reply limit to 80,000 tokens or choose a cheaper model."),
+            id="reply-unaffordable",
+        ),
+        pytest.param(
+            100_000, None, 1_000_000, "100000", 402, "insufficient_credits",
+            ("The prompt and chat history use an estimated 100,000 tokens",
+             "Shorten the prompt, start a new chat, or choose a cheaper model."),
+            id="input-uses-budget",
+        ),
+        pytest.param(
+            20_000, 80_000, 1_000_000, "0", 503, "provider_credits_exhausted",
+            ("This model is currently unavailable. Try another model or contact your administrator.",),
+            id="provider-balance",
+        ),
+        pytest.param(
+            20_000, 880_000, 60_000, "100000", 400, "output_limit_exceeded",
+            ("This model can reply with up to 40,000 tokens for this prompt.", "Lower the reply limit"),
+            id="model-reply-limit",
+        ),
+        pytest.param(
+            60_000, None, 60_000, "100000", 400, "output_limit_exceeded",
+            ("The prompt and chat history leave no room for a reply on this model.", "Shorten the prompt"),
+            id="model-input-limit",
+        ),
+    ],
+)
+def test_admission_errors_explain_how_to_fix_request(
+    client, credits_db, monkeypatch, input_tokens, output_tokens, model_limit,
+    provider_credits, status, code, guidance,
+):
+    configure_rate(max_tokens=model_limit)
+    service.add_credits("user", "user", addition("10000"), "admin")
+    if provider_credits != "0":
+        service.add_credits("provider", "provider", addition(provider_credits), "admin")
+    before = balances(credits_db)
+    monkeypatch.setattr(
+        "backend.gateway.execution.estimate_input_tokens", lambda payload, candidate: input_tokens
+    )
+    send = AsyncMock()
+    monkeypatch.setattr("backend.gateway.execution.call_provider", send)
+    result = client.post(
+        "/v1/chat/completions",
+        headers={"x-api-key": "test-key"},
+        json={"model": "a/model-a", "max_tokens": output_tokens},
+    )
+    assert result.status_code == status, result.text
+    error = result.json()["error"]
+    assert error["code"] == code
+    assert all(part in error["message"] for part in guidance), error["message"]
+    if code == "insufficient_credits" and output_tokens is None:
+        assert "reply limit" not in error["message"]
+    send.assert_not_called()
+    assert balances(credits_db) == before
+    with credits_db.reads() as db:
+        assert db.query(CreditUsage).count() == 0
 
 
 @pytest.mark.parametrize(
@@ -1329,6 +1409,8 @@ def test_responses_stream_reports_upstream_failure(
 @pytest.mark.parametrize("stream", [False, True])
 def test_provider_error_is_closed_without_reading_body(client, credits_db, monkeypatch, stream):
     fund_request(credits_db)
+    with credits_db.writes.begin() as db:
+        db.get(User, "user").tracing_enabled = False
 
     class ProviderErrorBody(httpx.AsyncByteStream):
         async def __aiter__(self):
@@ -1348,6 +1430,110 @@ def test_provider_error_is_closed_without_reading_body(client, credits_db, monke
     assert result.status_code == 429
     assert result.json()["error"]["message"] == "Provider returned an error"
     assert upstream_response.is_closed
+
+
+@pytest.mark.parametrize(
+    "protocol,status,body,stream_event,message,code",
+    [
+        ("openai", 429, '{"error":{"message":"Quota exceeded","code":"insufficient_quota"}}',
+         False, "Quota exceeded", "insufficient_quota"),
+        ("anthropic", 403, '{"type":"error","error":{"type":"permission_error","message":"Access denied"}}',
+         False, "Access denied", None),
+        ("openai", 503, "Provider maintenance", False, "Provider maintenance", None),
+        (
+            "openai", 200,
+            '{"error":{"message":"Invalid model test-key provider-secret","code":"model_not_found","token":"private"}}',
+            False, "Invalid model [REDACTED] [REDACTED]", "model_not_found",
+        ),
+        ("openai", 200, '{"error":{"message":"Server overloaded","code":"overloaded"}}',
+         True, "Server overloaded", "overloaded"),
+    ],
+)
+def test_trace_records_provider_failure(
+    client, credits_db, monkeypatch, protocol, status, body, stream_event, message, code
+):
+    from backend.core.crypto import encrypt_secret
+    from backend.traces.models import LLMCallTrace
+
+    fund_request(credits_db)
+    with credits_db.writes.begin() as db:
+        db.get(User, "user").tracing_enabled = True
+        provider = db.get(Provider, "provider")
+        provider.protocol = protocol
+        provider.api_key = encrypt_secret("provider-secret")
+
+    if stream_event:
+        body = f"event: error\ndata: {body}\n\ndata: [DONE]\n\n"
+    response = httpx.Response(status, text=body)
+    upstream_client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: response))
+    monkeypatch.setattr("backend.gateway.providers.service.get_client", lambda: upstream_client)
+
+    result = client.post(
+        "/v1/responses",
+        headers={"x-api-key": "test-key"},
+        json={"model": "a/model-a", "input": "Hello", "stream": stream_event},
+    )
+
+    assert result.status_code == (502 if status == 200 and not stream_event else status)
+    assert message not in result.text
+    assert response.is_closed
+    with credits_db.reads() as db:
+        call = db.query(LLMCallTrace).one()
+        assert call.status == "failed"
+        assert call.error_code == "upstream_error"
+        details = call.error_details
+        assert details["provider_status"] == status
+        assert details["provider_message"] == message
+        assert details["provider_code"] == code
+        assert details["upstream_model"] == "model-a"
+        assert details["operation"] == (
+            "POST /v1/messages" if protocol == "anthropic" else "POST /v1/chat/completions"
+        )
+        if protocol == "anthropic":
+            assert details["provider_type"] == "permission_error"
+        if code == "model_not_found":
+            assert details["provider_response"]["error"]["token"] == "[REDACTED]"
+            assert "test-key" not in json.dumps(details)
+            assert "provider-secret" not in json.dumps(details)
+        assert details["provider_response"] is not None
+
+
+@pytest.mark.parametrize("slow_body", [False, True])
+def test_trace_keeps_upstream_status_when_body_exceeds_capture_budget(
+    client, credits_db, monkeypatch, slow_body
+):
+    import asyncio
+
+    from backend.traces.models import LLMCallTrace
+
+    fund_request(credits_db)
+    with credits_db.writes.begin() as db:
+        db.get(User, "user").tracing_enabled = True
+
+    class ProviderErrorBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            if slow_body:
+                await asyncio.sleep(5)
+                pytest.fail("The error body read was not interrupted")
+            yield b"x" * (32 * 1024)
+
+    response = httpx.Response(429, stream=ProviderErrorBody())
+    transport = httpx.MockTransport(lambda request: response)
+    upstream_client = httpx.AsyncClient(transport=transport)
+    monkeypatch.setattr("backend.gateway.providers.service.get_client", lambda: upstream_client)
+
+    result = client.post(
+        "/v1/responses",
+        headers={"x-api-key": "test-key"},
+        json={"model": "a/model-a", "input": "Hello"},
+    )
+
+    assert result.status_code == 429
+    assert response.is_closed
+    with credits_db.reads() as db:
+        details = db.query(LLMCallTrace).one().error_details
+        assert details["provider_status"] == 429
+        assert details.get("provider_response") is None
 
 
 def test_messages_pass_stop_sequences_to_openai(client, credits_db, monkeypatch):

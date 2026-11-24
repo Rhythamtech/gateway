@@ -7,6 +7,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
 )
@@ -129,6 +130,7 @@ class LLMCallTrace(Base):
     # pending: attempt opened before dispatch, awaiting its outcome.
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_details: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
