@@ -743,6 +743,39 @@ def build_headers(provider: RuntimeProvider) -> dict[str, str]:
     )
 
 
+def count_anthropic_input_tokens(
+    provider: RuntimeProvider, model: str, payload: dict[str, Any]
+) -> int | None:
+    if provider.protocol != "anthropic" or provider.base_url not in (
+        "https://api.anthropic.com",
+        "https://api.anthropic.com/v1",
+    ):
+        return None
+
+    count_payload = {
+        key: payload[key]
+        for key in (
+            "messages", "system", "tools", "tool_choice", "thinking",
+            "output_config", "cache_control", "speed",
+        )
+        if key in payload
+    }
+    count_payload["model"] = model
+    try:
+        response = httpx.post(
+            provider_api_url(provider.base_url, "/messages/count_tokens"),
+            headers=build_headers(provider),
+            json=count_payload,
+            timeout=2.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    count = data.get("input_tokens") if isinstance(data, dict) else None
+    return count if type(count) is int and 0 < count <= 10_000_000 else None
+
+
 async def call_provider(
     provider: RuntimeProvider,
     payload: dict[str, Any],

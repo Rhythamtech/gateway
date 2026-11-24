@@ -970,6 +970,79 @@ def test_insufficient_user_credits_returns_402_before_dispatch(
     send.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("protocol", "count_times_out"),
+    [("openai", False), ("anthropic", False), ("anthropic", True)],
+)
+def test_provider_aware_count_allows_request_rejected_by_byte_estimate(
+    client, credits_db, monkeypatch, protocol, count_times_out
+):
+    configure_rate()
+    service.add_credits("provider", "provider", addition(), "admin")
+    service.add_credits("user", "user", addition("15"), "admin")
+    model = "gpt-4o-mini" if protocol == "openai" else "claude-sonnet-4-6"
+    model_id = f"a/{model}"
+    with credits_db.writes.begin() as db:
+        synced_model = db.get(ProviderModel, "model")
+        synced_model.model_name = model
+        synced_model.model_id = model_id
+        provider = db.get(Provider, "provider")
+        provider.protocol = protocol
+        if protocol == "anthropic":
+            provider.base_url = "https://api.anthropic.com/v1"
+
+    def count(url, *, headers, json, timeout):
+        assert url == "https://api.anthropic.com/v1/messages/count_tokens"
+        assert json["model"] == model
+        assert json["messages"][0]["content"] == [{"type": "text", "text": prompt}]
+        assert "max_tokens" not in json
+        if count_times_out:
+            raise httpx.ReadTimeout("Token counter timed out")
+        return httpx.Response(
+            200, json={"input_tokens": 65}, request=httpx.Request("POST", url)
+        )
+
+    prompt = "hello " * 60
+    body = upstream_response(protocol)
+    if protocol == "anthropic":
+        monkeypatch.setattr("backend.gateway.providers.service.httpx.post", count)
+    else:
+
+        def encoding_for_model(name):
+            assert name == model
+            return SimpleNamespace(encode_ordinary=lambda text: range(65))
+
+        monkeypatch.setattr(
+            "backend.gateway.execution.tiktoken.encoding_for_model", encoding_for_model
+        )
+    send = AsyncMock(return_value=httpx.Response(200, json=body))
+    monkeypatch.setattr("backend.gateway.execution.call_provider", send)
+    result = client.post(
+        "/v1/chat/completions",
+        headers={"x-api-key": "test-key"},
+        json={
+            "model": model_id,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 20,
+        },
+    )
+    if count_times_out:
+        assert result.status_code == 402, result.text
+        assert result.json()["error"]["code"] == "insufficient_credits"
+        send.assert_not_awaited()
+        with credits_db.reads() as db:
+            assert db.query(CreditUsage).count() == 0
+        return
+
+    assert result.status_code == 200, result.text
+    send.assert_awaited_once()
+    assert send.call_args.args[1]["max_tokens"] == 20
+    with credits_db.reads() as db:
+        usage = db.query(CreditUsage).one()
+        assert usage.status == "settled"
+        assert (usage.input_tokens, usage.output_tokens) == (25, 10)
+
+
 @pytest.mark.parametrize("protocol", ["openai", "anthropic"])
 def test_converted_streams_finalize_successful_traces_once(
     client, credits_db, monkeypatch, protocol

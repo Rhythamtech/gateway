@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
+import tiktoken
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
@@ -15,6 +16,8 @@ from backend.gateway.chat.models import anthropic_to_openai, openai_to_anthropic
 from backend.gateway.providers.service import (
     RuntimeProvider,
     call_provider,
+    count_anthropic_input_tokens,
+    get_provider,
     read_sse_data,
 )
 from backend.gateway.routing import RouteCandidate, plan
@@ -308,18 +311,37 @@ class CreditExecution:
         )
 
 
-def estimate_input_tokens(payload: dict[str, Any]) -> int:
-    # Allow one token per UTF-8 byte of input plus provider framing. Provider
-    # tokenization and hidden framing can differ from this local estimate.
+def estimate_input_tokens(payload: dict[str, Any], candidate: RouteCandidate) -> int:
+    if candidate.protocol == "anthropic":
+        try:
+            provider = get_provider(candidate.provider_alias)
+        except GatewayError:
+            provider = None
+        if provider and provider.id == candidate.provider_id:
+            count = count_anthropic_input_tokens(provider, candidate.upstream_model, payload)
+            if count is not None:
+                return count
+
     prompt = {
         key: payload[key]
         for key in (
             "messages", "system", "tools", "tool_choice", "functions",
-            "function_call", "response_format",
+            "function_call", "response_format", "output_config",
         )
         if payload.get(key)
     }
-    return 16 + len(json.dumps(prompt, ensure_ascii=False).encode("utf-8", "surrogatepass"))
+    serialized = json.dumps(prompt, ensure_ascii=False)
+    if candidate.protocol == "openai":
+        model = candidate.upstream_model.removeprefix("openai/")
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+        except (KeyError, OSError):
+            pass
+        else:
+            # Budget for message framing in addition to the serialized input.
+            return 16 + len(encoding.encode_ordinary(serialized))
+
+    return 16 + len(serialized.encode("utf-8", "surrogatepass"))
 
 
 def admit_request(
@@ -342,7 +364,7 @@ def admit_request(
                 openai_to_anthropic if candidate.protocol == "anthropic" else anthropic_to_openai
             )
             provider_payload = convert(payload)
-        estimated_input_tokens = estimate_input_tokens(provider_payload)
+        estimated_input_tokens = estimate_input_tokens(provider_payload, candidate)
         try:
             reservation_started = time.monotonic()
             reservation = service.reserve_request_credits(
