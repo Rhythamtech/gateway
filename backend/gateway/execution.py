@@ -1,6 +1,7 @@
+import asyncio
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 import httpx
@@ -10,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
-from backend.core.errors import GatewayError
+from backend.core.errors import GatewayError, request_timeout
 from backend.credits import service
 from backend.gateway.chat.models import anthropic_to_openai, openai_to_anthropic
 from backend.gateway.providers.service import (
@@ -22,6 +23,7 @@ from backend.gateway.providers.service import (
     read_sse_data,
 )
 from backend.gateway.routing import RouteCandidate, plan
+from backend.gateway.streaming import sse
 from backend.traces.capture import CallCapture, monitor_stream
 
 
@@ -123,6 +125,8 @@ def provider_token_usage(raw: dict[str, Any], protocol: str) -> tuple[int, int] 
 
 def dispatch_review_reason(error: BaseException) -> str:
     if isinstance(error, GatewayError):
+        if error.code == "request_timeout":
+            return error.message
         if error.code == "upstream_timeout":
             return "Provider timed out before usage could be confirmed."
         if error.code == "dispatch_failed":
@@ -164,15 +168,29 @@ class CreditExecution:
                 **(payload.get("stream_options") or {}),
                 "include_usage": True,
             }
+        if self.capture.remaining_seconds() <= 0:
+            error = request_timeout()
+            await run_in_threadpool(service.release_undispatched_request, self.reservation.usage_id)
+            await run_in_threadpool(self.capture.failure, error)
+            raise error
+
         await run_in_threadpool(service.mark_dispatched, self.reservation.usage_id)
         self.dispatch_started = time.monotonic()
         try:
-            self.response = await call_provider(
-                self.provider,
-                payload,
-                bool(payload.get("stream")),
-                capture_error=self.capture.records_traces,
-            )
+            try:
+                remaining = self.capture.remaining_seconds()
+                if remaining <= 0:
+                    raise request_timeout()
+                async with asyncio.timeout(remaining):
+                    self.response = await call_provider(
+                        self.provider,
+                        payload,
+                        bool(payload.get("stream")),
+                        capture_error=self.capture.records_traces,
+                        detect_tool_rejection=self.candidate.runtime_fallback,
+                    )
+            except TimeoutError:
+                raise request_timeout() from None
             if self.capture._span is not None:
                 self.capture._span.set_attribute("gateway.upstream_headers_ms", (time.monotonic() - self.dispatch_started) * 1000)
             request_id = self.response.headers.get(
@@ -240,8 +258,19 @@ class CreditExecution:
         return None
 
     async def observe_events(self) -> AsyncIterator[dict[str, Any]]:
+        events = read_sse_data(self.response)
         try:
-            async for event in read_sse_data(self.response):
+            while True:
+                try:
+                    remaining = self.capture.remaining_seconds()
+                    if remaining <= 0:
+                        raise request_timeout()
+                    async with asyncio.timeout(remaining):
+                        event = await anext(events)
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    raise request_timeout() from None
                 if not self.first_content_seen and self.dispatch_started is not None:
                     delta = event.get("delta") or {}
                     choices = event.get("choices") or []
@@ -290,7 +319,10 @@ class CreditExecution:
                         await run_in_threadpool(service.mark_for_review, self.reservation.usage_id,
                                                 "Stream did not provide trustworthy final usage")
                 yield event
+                if terminal:
+                    break
         finally:
+            await events.aclose()
             await self.close_stream()
 
     def stream_events(self) -> AsyncIterator[dict[str, Any]]:
@@ -307,11 +339,28 @@ class CreditExecution:
             await run_in_threadpool(service.mark_for_review, self.reservation.usage_id,
                                     "Stream ended before complete provider usage was confirmed")
 
-    def stream_response(self, pieces: AsyncIterator[str]) -> StreamingResponse:
+    def stream_response(
+        self, pieces: AsyncIterator[str], *, anthropic: bool = False
+    ) -> StreamingResponse:
         async def managed_stream():
             try:
                 async for piece in pieces:
                     yield piece
+            except GatewayError as error:
+                if error.code != "request_timeout":
+                    raise
+                if anthropic:
+                    yield sse({
+                        "type": "error",
+                        "error": {"type": "timeout_error", "message": error.message},
+                    }, "error")
+                else:
+                    yield sse({
+                        "error": {
+                            "type": error.code, "code": error.code,
+                            "message": error.message,
+                        },
+                    })
             finally:
                 await pieces.aclose()
                 if self.events is not None:
@@ -358,16 +407,17 @@ def estimate_input_tokens(payload: dict[str, Any], candidate: RouteCandidate) ->
     return 16 + len(serialized.encode("utf-8", "surrogatepass"))
 
 
-def admit_request(
+def _admit_attempts(
     request: Request,
     payload: dict[str, Any],
     capture: CallCapture,
     *,
     input_protocol: str = "openai",
-) -> CreditExecution:
+) -> Iterator[CreditExecution]:
     output_tokens = validate_credit_request(payload)
     request_id = capture.request_id
     errors: list[GatewayError] = []
+    admitted = False
     routing_started = time.monotonic()
     candidates = plan(payload["model"])
     routing_ms = (time.monotonic() - routing_started) * 1000
@@ -402,7 +452,7 @@ def admit_request(
                 continue
             raise
         try:
-            bounded_payload = dict(payload)
+            bounded_payload = dict(provider_payload)
             output_key = (
                 "max_completion_tokens"
                 if candidate.protocol == "openai" and "max_completion_tokens" in payload
@@ -411,18 +461,29 @@ def admit_request(
             for key in ("max_tokens", "max_completion_tokens", "max_output_tokens"):
                 bounded_payload.pop(key, None)
             bounded_payload[output_key] = reservation.output_tokens
+            bounded_payload["model"] = candidate.upstream_model
             provider = capture.begin_attempt(
                 candidate, bounded_payload, stream=bool(payload.get("stream"))
             )
             if capture._span is not None:
                 capture._span.set_attribute("gateway.routing_ms", routing_ms)
                 capture._span.set_attribute("gateway.reservation_ms", reservation_ms)
-        except BaseException:
+        except BaseException as error:
             service.release_undispatched_request(reservation.usage_id)
+            if (
+                candidate.runtime_fallback
+                and isinstance(error, GatewayError)
+                and error.code in (
+                    "model_unavailable", "invalid_request_error", "configuration_error",
+                )
+            ):
+                errors.append(error)
+                continue
             raise
-        return CreditExecution(
-            candidate, provider, reservation, capture, bounded_payload
-        )
+        admitted = True
+        yield CreditExecution(candidate, provider, reservation, capture, bounded_payload)
+    if admitted:
+        return
     if errors:
         user_error = next(
             (error for error in errors if error.code == "insufficient_credits"), None
@@ -431,3 +492,49 @@ def admit_request(
     raise GatewayError(
         503, "no_available_member", "No eligible provider can serve this request"
     )
+
+
+def _can_fallback(error: GatewayError) -> bool:
+    status = error.provider_status
+    if status is not None:
+        return (
+            status in (408, 429)
+            or 500 <= status < 600
+            or (status == 400 and error.automatic_tool_choice_rejected)
+        )
+    return error.code in ("dispatch_failed", "upstream_timeout", "upstream_error")
+
+
+async def dispatch_request(
+    request: Request,
+    payload: dict[str, Any],
+    capture: CallCapture,
+    *,
+    input_protocol: str = "openai",
+) -> tuple[CreditExecution, httpx.Response]:
+    """Open one upstream response, trying eligible fallback members as needed."""
+
+    attempts = _admit_attempts(request, payload, capture, input_protocol=input_protocol)
+    last_error: GatewayError | None = None
+    while True:
+        if last_error is not None and capture.remaining_seconds() <= 0:
+            raise request_timeout()
+        try:
+            execution = await run_in_threadpool(next, attempts, None)
+        except GatewayError as error:
+            if last_error is None:
+                await run_in_threadpool(capture.failure, error)
+            raise
+        if execution is None:
+            # Admission raises its own error when no attempt can be made.
+            assert last_error is not None
+            raise last_error
+
+        try:
+            response = await execution.send(execution.payload)
+        except GatewayError as error:
+            if not execution.candidate.runtime_fallback or not _can_fallback(error):
+                raise
+            last_error = error
+        else:
+            return execution, response

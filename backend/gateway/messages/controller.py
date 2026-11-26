@@ -1,15 +1,12 @@
-from starlette.concurrency import run_in_threadpool
 from typing import Any
 
 from fastapi import APIRouter, Request
 
-from backend.core.errors import GatewayError
 from backend.gateway.chat.models import (
-    anthropic_to_openai,
     openai_stream_to_anthropic,
     openai_to_anthropic_response,
 )
-from backend.gateway.execution import admit_request
+from backend.gateway.execution import dispatch_request
 from backend.gateway.messages.dtos import AnthropicMessageRequest
 from backend.gateway.streaming import sse
 from backend.traces.capture import start_capture
@@ -21,17 +18,7 @@ router = APIRouter(prefix="/v1", tags=["Gateway"])
 async def create_message(request: Request, data: AnthropicMessageRequest) -> Any:
     payload = data.model_dump(exclude_none=True)
     capture = start_capture(request, payload)
-    try:
-        execution = await run_in_threadpool(admit_request, request, payload, capture, input_protocol="anthropic")
-    except GatewayError as exc:
-        await run_in_threadpool(capture.failure, exc)
-        raise
-
-    upstream_payload = execution.payload
-    upstream_payload["model"] = execution.candidate.upstream_model
-    if execution.provider.protocol == "openai":
-        upstream_payload = anthropic_to_openai(upstream_payload)
-    response = await execution.send(upstream_payload)
+    execution, response = await dispatch_request(request, payload, capture, input_protocol="anthropic")
 
     if not payload.get("stream"):
         result = await execution.read_json()
@@ -57,4 +44,4 @@ async def create_message(request: Request, data: AnthropicMessageRequest) -> Any
                 yield sse(event, event_type)
 
         pieces = stream_anthropic()
-    return execution.stream_response(pieces)
+    return execution.stream_response(pieces, anthropic=True)

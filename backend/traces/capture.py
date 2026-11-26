@@ -26,7 +26,7 @@ from uuid import uuid4
 import httpx
 from opentelemetry.trace import Span
 
-from backend.core.errors import GatewayError
+from backend.core.errors import GatewayError, REQUEST_TIMEOUT_SECONDS
 from backend.gateway.providers.service import get_provider, inference_endpoint
 from backend.telemetry import finish_attempt_span, start_attempt_span
 from backend.traces import service
@@ -85,6 +85,7 @@ class CallCapture:
         self._spans_on = spans_on
         self._span: Span | None = None
         self._started = time.monotonic()
+        self._deadline = self._started + REQUEST_TIMEOUT_SECONDS
         self._call_trace_id: str | None = None
         self._last_payload: dict[str, Any] = {}
         self._stream_protocol: str | None = None
@@ -131,6 +132,9 @@ class CallCapture:
     def records_traces(self) -> bool:
         return bool(self._user_id and self._tracing_enabled)
 
+    def remaining_seconds(self) -> float:
+        return self._deadline - time.monotonic()
+
     # -- attempt lifecycle --------------------------------------------------
 
     def begin_attempt(
@@ -147,6 +151,8 @@ class CallCapture:
         the runtime provider on success.
         """
 
+        if self._provider_id is not None:
+            self._started = time.monotonic()
         self._gateway_model_id = candidate.gateway_model_id
         self._provider_model_id = candidate.provider_model_id
         self._provider_id = candidate.provider_id

@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from backend.core.datetime_safety import UTCDateTime
 
-RoutingStrategy = Literal["round_robin", "weighted_round_robin", "priority"]
+RoutingStrategy = Literal["round_robin", "weighted_round_robin", "runtime_fallback"]
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/\S+$")
 
 

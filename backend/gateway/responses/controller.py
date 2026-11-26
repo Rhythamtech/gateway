@@ -1,4 +1,3 @@
-from starlette.concurrency import run_in_threadpool
 import json
 import uuid
 from typing import Any
@@ -10,9 +9,8 @@ from backend.core.errors import GatewayError
 from backend.gateway.chat.models import (
     anthropic_stream_to_openai,
     anthropic_to_openai_response,
-    openai_to_anthropic,
 )
-from backend.gateway.execution import admit_request, validate_credit_request
+from backend.gateway.execution import dispatch_request, validate_credit_request
 from backend.gateway.responses.dtos import ResponsesRequest
 from backend.gateway.responses.models import chat_to_responses, responses_to_chat
 from backend.gateway.streaming import sse
@@ -32,17 +30,7 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
     validate_credit_request(payload)
     chat_payload = responses_to_chat(payload)
     capture = start_capture(request, payload)
-    try:
-        execution = await run_in_threadpool(admit_request, request, chat_payload, capture)
-    except GatewayError as exc:
-        await run_in_threadpool(capture.failure, exc)
-        raise
-
-    upstream_payload = execution.payload
-    upstream_payload["model"] = execution.candidate.upstream_model
-    if execution.provider.protocol == "anthropic":
-        upstream_payload = openai_to_anthropic(upstream_payload)
-    response = await execution.send(upstream_payload)
+    execution, response = await dispatch_request(request, chat_payload, capture)
 
     if not payload.get("stream"):
         result = await execution.read_json()
@@ -77,6 +65,8 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
             "response.created",
         )
 
+        failure_code = "server_error"
+        failure_message = "Provider stream failed to complete"
         try:
             async for chunk in events:
                 if isinstance(chunk, str):
@@ -120,6 +110,12 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
                     if function.get("arguments"):
                         tool_calls[index]["arguments"] += function["arguments"]
 
+        except GatewayError as error:
+            if error.code != "request_timeout":
+                raise
+            execution.stream_failed = True
+            failure_code = error.code
+            failure_message = error.message
         except httpx.HTTPError:
             execution.stream_failed = True
 
@@ -134,8 +130,8 @@ async def create_response(request: Request, data: ResponsesRequest) -> Any:
                         "model": payload["model"],
                         "output": [],
                         "error": {
-                            "code": "server_error",
-                            "message": "Provider stream failed to complete",
+                            "code": failure_code,
+                            "message": failure_message,
                         },
                     },
                 },

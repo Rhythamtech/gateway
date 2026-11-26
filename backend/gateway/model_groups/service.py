@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -281,10 +281,21 @@ def delete_model_group_member(db: Session, group_id: UUID, member_id: UUID) -> N
     _commit(db)
 
 
-def list_enabled_groups(db: Session) -> list[ModelGroup]:
-    return (
-        db.query(ModelGroup)
-        .filter(ModelGroup.is_enabled.is_(True))
-        .order_by(ModelGroup.model_id)
-        .all()
-    )
+def list_enabled_groups(
+    db: Session, *, require_available_member: bool = False
+) -> list[ModelGroup]:
+    query = db.query(ModelGroup).filter(ModelGroup.is_enabled.is_(True))
+    if require_available_member:
+        available_member = (
+            select(ModelGroupMember.id)
+            .join(ProviderModel, ProviderModel.id == ModelGroupMember.provider_model_id)
+            .join(Provider, Provider.id == ProviderModel.provider_id)
+            .where(
+                ModelGroupMember.model_group_id == ModelGroup.id,
+                ProviderModel.is_available.is_(True),
+                Provider.is_enabled.is_(True),
+            )
+            .exists()
+        )
+        query = query.filter(available_member)
+    return query.order_by(ModelGroup.model_id).all()

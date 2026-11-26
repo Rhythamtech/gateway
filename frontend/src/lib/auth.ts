@@ -413,7 +413,7 @@ export function syncProviderModels(
 }
 
 export type RoutingStrategy =
-  "round_robin" | "weighted_round_robin" | "priority"
+  "round_robin" | "weighted_round_robin" | "runtime_fallback"
 
 export type ModelGroupMember = {
   id: string

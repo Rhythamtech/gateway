@@ -447,17 +447,16 @@ export function ModelGroupFormDrawer({
                 <SelectItem value="weighted_round_robin">
                   Weighted round robin (Traffic share)
                 </SelectItem>
-                <SelectItem value="priority">
-                  Priority (Sequential failover)
+                <SelectItem value="runtime_fallback">
+                  Runtime Fallback
                 </SelectItem>
               </SelectContent>
             </Select>
-            {strategy === "priority" ? (
+            {strategy === "runtime_fallback" ? (
               <p className="text-xs text-muted-foreground">
-                Inbound requests attempt the lowest priority number first (1 =
-                Primary, 2 = Fallback 1). If a candidate becomes unavailable,
-                traffic automatically falls over to the next priority candidate.
-                Weight breaks ties between equal priorities.
+                Tries members in priority order. If a provider has a retryable
+                error before accepting the request, Gateway tries the next
+                member. Higher weight breaks priority ties.
               </p>
             ) : strategy === "weighted_round_robin" ? (
               <p className="text-xs text-muted-foreground">
@@ -585,7 +584,7 @@ export function ModelGroupFormDrawer({
                             >
                               Priority
                             </Label>
-                            {strategy === "priority" &&
+                            {strategy === "runtime_fallback" &&
                             parsePositiveInt(entry.row.priority) !== null ? (
                               <span className="font-mono text-[10px] text-sky-600 dark:text-sky-400">
                                 {parsePositiveInt(entry.row.priority) === 1
@@ -609,14 +608,14 @@ export function ModelGroupFormDrawer({
                           />
                         </div>
                         {strategy === "weighted_round_robin" ||
-                        strategy === "priority" ? (
+                        strategy === "runtime_fallback" ? (
                           <div className="flex flex-col gap-1">
                             <div className="flex items-center justify-between">
                               <Label
                                 className="text-xs text-muted-foreground"
                                 htmlFor={`member-weight-${entry.key}`}
                               >
-                                {strategy === "priority"
+                                {strategy === "runtime_fallback"
                                   ? "Tie-break weight"
                                   : "Weight"}
                               </Label>

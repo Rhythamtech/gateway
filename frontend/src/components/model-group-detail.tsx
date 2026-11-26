@@ -64,14 +64,14 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function StrategyBadge({ strategy }: { strategy: string }) {
-  if (strategy === "priority") {
+  if (strategy === "runtime_fallback") {
     return (
       <Badge
         variant="outline"
         className="gap-1 border-sky-500/40 px-1.5 text-sky-600 dark:text-sky-400"
       >
         <IconRoute className="size-3" />
-        Priority (Failover)
+        Runtime Fallback
       </Badge>
     )
   }
@@ -114,11 +114,14 @@ function RoutingPipelineVisualizer({ group }: { group: ModelGroup }) {
     )
   }
 
-  if (group.routing_strategy === "priority") {
-    // Priority order: priority ASC, weight DESC
+  if (group.routing_strategy === "runtime_fallback") {
+    // Match the gateway order, including members with equal priority and weight.
     const sorted = [...members].sort((a, b) => {
       if (a.priority !== b.priority) return a.priority - b.priority
-      return b.weight - a.weight
+      return (
+        b.weight - a.weight ||
+        a.provider_model_id.localeCompare(b.provider_model_id)
+      )
     })
 
     return (
@@ -127,14 +130,14 @@ function RoutingPipelineVisualizer({ group }: { group: ModelGroup }) {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <CardTitle className="text-sm font-semibold">
-                Sequential Failover Pipeline
+                Fallback order
               </CardTitle>
               <Badge
                 variant="outline"
                 className="border-sky-500/40 font-mono text-xs text-sky-600 dark:text-sky-400"
               >
                 <IconRoute className="mr-1 size-3" />
-                Priority Routing
+                Runtime Fallback
               </Badge>
             </div>
             <span className="text-xs text-muted-foreground">
@@ -145,9 +148,8 @@ function RoutingPipelineVisualizer({ group }: { group: ModelGroup }) {
             </span>
           </div>
           <CardDescription className="text-xs">
-            Requests always target the Primary candidate first. If a candidate
-            becomes unavailable or disabled, traffic fails over sequentially to
-            the next priority step without client errors.
+            Gateway skips unavailable members and tries the next eligible member
+            after a retryable error opening the upstream request.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -652,7 +654,7 @@ function ModelGroupDetailInner() {
       <div className="flex flex-col items-start justify-between gap-2 px-4 lg:flex-row lg:items-center lg:px-6">
         <div className="flex flex-col gap-1">
           <p className="text-sm text-muted-foreground">
-            Priority routing tries lower priority numbers first. Weights spread
+            Runtime Fallback tries lower priority numbers first. Weights spread
             traffic in weighted round-robin mode.
           </p>
           {group.is_enabled && !hasEligibleMember ? (
@@ -707,7 +709,7 @@ function ModelGroupDetailInner() {
                         <span className="font-mono text-xs font-semibold">
                           {member.priority}
                         </span>
-                        {group.routing_strategy === "priority" ? (
+                        {group.routing_strategy === "runtime_fallback" ? (
                           <Badge
                             variant="outline"
                             className={

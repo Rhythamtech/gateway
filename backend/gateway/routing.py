@@ -17,7 +17,7 @@ weighted_round_robin
     of one with weight=1. Implemented via weighted random selection; unavailable
     members are excluded before sampling.
 
-priority
+runtime_fallback
     Members are tried in ascending priority order (lowest number first).
     The highest-priority available member handles every request; lower-priority
     members act as fallbacks. Ties broken by weight (desc) then id (asc).
@@ -31,7 +31,7 @@ import random
 from dataclasses import dataclass
 
 from backend.core.database import SessionLocal
-from backend.core.errors import GatewayError
+from backend.core.errors import model_not_found
 from backend.gateway.model_groups.models import ModelGroup, ModelGroupMember
 from backend.gateway.provider_models.models import ProviderModel
 from backend.gateway.providers.models import Provider
@@ -53,6 +53,7 @@ class RouteCandidate:
     gateway_model_id: str | None
     protocol: str
     requested_model: str | None = None
+    runtime_fallback: bool = False
 
 
 def _sorted_members(
@@ -92,7 +93,7 @@ def _order_by_strategy(
 
     ``round_robin``         — rotate the sorted list by a global counter.
     ``weighted_round_robin``— probabilistic weighted sample (no rotation).
-    ``priority``            — already sorted by priority; no reordering.
+    ``runtime_fallback``    — deterministic priority ordering.
     """
     eligible = _eligible(members)
     if not eligible:
@@ -105,7 +106,7 @@ def _order_by_strategy(
     if routing_strategy == "weighted_round_robin":
         return _weighted_order(eligible)
 
-    # "priority" and any unknown strategy use deterministic priority ordering.
+    # Runtime Fallback uses deterministic priority ordering.
     return sorted(eligible, key=lambda item: (item[3], -item[2], item[0].id))
 
 
@@ -155,11 +156,13 @@ def plan(model: str) -> list[RouteCandidate]:
 def plan_with_db(db: Session, model: str) -> list[RouteCandidate]:
     group = (
         db.query(ModelGroup)
-        .filter(ModelGroup.model_id == model, ModelGroup.is_enabled.is_(True))
+        .filter(ModelGroup.model_id == model)
         .first()
     )
 
     if group is not None:
+        if not group.is_enabled:
+            raise model_not_found(model)
         candidates: list[RouteCandidate] = []
         for model_row, provider, _weight, _priority in _order_by_strategy(
             _sorted_members(db, group), group.routing_strategy
@@ -173,22 +176,18 @@ def plan_with_db(db: Session, model: str) -> list[RouteCandidate]:
                     gateway_model_id=group.id,
                     protocol=str(provider.protocol),
                     requested_model=model,
+                    runtime_fallback=group.routing_strategy == "runtime_fallback",
                 )
             )
         if not candidates:
-            raise GatewayError(
-                503, "no_route_available",
-                "No enabled group member is available for this model",
-            )
+            raise model_not_found(model)
         return candidates
 
     # Configuration-based routing: a single fixed candidate.
     provider_alias, upstream_model = resolve_model(model, db)
     row = db.query(Provider).filter(Provider.aliases == provider_alias).first()
-    if row is None:
-        raise GatewayError(
-            400, "invalid_request_error", f"Unknown provider: {provider_alias}"
-        )
+    if row is None or not row.is_enabled:
+        raise model_not_found(model)
 
     provider_model = (
         db.query(ProviderModel)
@@ -200,10 +199,7 @@ def plan_with_db(db: Session, model: str) -> list[RouteCandidate]:
         .first()
     )
     if provider_model is None:
-        raise GatewayError(
-            503, "model_not_available",
-            "Model must be synced for this provider before dispatch",
-        )
+        raise model_not_found(model)
 
     return [
         RouteCandidate(

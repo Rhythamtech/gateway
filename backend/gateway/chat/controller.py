@@ -1,16 +1,13 @@
-from starlette.concurrency import run_in_threadpool
 from typing import Any
 
 from fastapi import APIRouter, Request
 
-from backend.core.errors import GatewayError
 from backend.gateway.chat.dtos import ChatCompletionRequest
 from backend.gateway.chat.models import (
     anthropic_stream_to_openai,
     anthropic_to_openai_response,
-    openai_to_anthropic,
 )
-from backend.gateway.execution import admit_request
+from backend.gateway.execution import dispatch_request
 from backend.gateway.streaming import sse
 from backend.traces.capture import start_capture
 
@@ -19,17 +16,7 @@ router = APIRouter(prefix="/v1", tags=["Gateway"])
 
 async def forward_chat(request: Request, payload: dict[str, Any]) -> Any:
     capture = start_capture(request, payload)
-    try:
-        execution = await run_in_threadpool(admit_request, request, payload, capture)
-    except GatewayError as exc:
-        await run_in_threadpool(capture.failure, exc)
-        raise
-
-    upstream_payload = execution.payload
-    upstream_payload["model"] = execution.candidate.upstream_model
-    if execution.provider.protocol == "anthropic":
-        upstream_payload = openai_to_anthropic(upstream_payload)
-    response = await execution.send(upstream_payload)
+    execution, response = await dispatch_request(request, payload, capture)
 
     if not payload.get("stream"):
         data = await execution.read_json()

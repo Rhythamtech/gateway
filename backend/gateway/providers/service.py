@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from backend.core.config import settings
 from backend.core.crypto import CredentialError, decrypt_secret, encrypt_secret
 from backend.core.database import SessionLocal
-from backend.core.errors import GatewayError
+from backend.core.errors import GatewayError, model_not_found
 from backend.core.header_safety import (
     build_headers as build_provider_headers,
     parse_custom_header,
@@ -218,11 +218,7 @@ def resolve_model(
 
                 if provider:
                     if not provider.is_enabled:
-                        raise GatewayError(
-                            400,
-                            "invalid_request_error",
-                            f"Provider is disabled: {provider_alias}",
-                        )
+                        raise model_not_found(model)
 
                     return provider_alias, upstream_model
 
@@ -814,6 +810,7 @@ async def call_provider(
     stream: bool,
     *,
     capture_error: bool = False,
+    detect_tool_rejection: bool = False,
 ) -> httpx.Response:
     suffix = inference_endpoint(provider.protocol)
 
@@ -831,16 +828,34 @@ async def call_provider(
         )
         response = await get_client().send(request, stream=True)
         if response.status_code >= 400:
+            check_tools = (
+                detect_tool_rejection
+                and response.status_code == 400
+                and bool(payload.get("tools"))
+            )
             try:
-                body = await _read_provider_error(response) if capture_error else None
+                body = (
+                    await _read_provider_error(response)
+                    if capture_error or check_tools else None
+                )
             finally:
                 await response.aclose()
+            diagnostic = (body or "").lower()
+            automatic_tool_choice_rejected = check_tools and all(
+                marker in diagnostic
+                for marker in (
+                    "tool choice requires",
+                    "--enable-auto-tool-choice",
+                    "--tool-call-parser",
+                )
+            )
             raise GatewayError(
                 response.status_code,
                 "upstream_error",
                 "Provider returned an error",
                 provider_status=response.status_code,
-                provider_response=body,
+                provider_response=body if capture_error else None,
+                automatic_tool_choice_rejected=automatic_tool_choice_rejected,
             )
 
         if not stream:

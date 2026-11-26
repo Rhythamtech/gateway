@@ -64,14 +64,14 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 export function StrategyBadge({ strategy }: { strategy: string }) {
-  if (strategy === "priority") {
+  if (strategy === "runtime_fallback") {
     return (
       <Badge
         variant="outline"
         className="gap-1 border-sky-500/40 px-1.5 text-sky-600 dark:text-sky-400"
       >
         <IconRoute className="size-3" />
-        Priority (Failover)
+        Runtime Fallback
       </Badge>
     )
   }

@@ -290,8 +290,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
         if (!cancelled && groupList.items) {
           for (const g of groupList.items) {
             const strategyLabel =
-              g.routing_strategy === "priority"
-                ? "Priority Failover"
+              g.routing_strategy === "runtime_fallback"
+                ? "Runtime Fallback"
                 : g.routing_strategy === "weighted_round_robin"
                   ? "Weighted Round-Robin"
                   : "Round-Robin"
@@ -900,8 +900,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
                 variant="secondary"
                 className="h-4 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
               >
-                {activeModelChoice.strategy === "priority"
-                  ? "Priority"
+                {activeModelChoice.strategy === "runtime_fallback"
+                  ? "Runtime Fallback"
                   : activeModelChoice.strategy === "weighted_round_robin"
                     ? "WRR"
                     : "Group"}
@@ -1042,8 +1042,8 @@ export function PlaygroundContent({ user }: PlaygroundProps) {
                       className="shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
                     >
                       {m.category === "model-group"
-                        ? m.strategy === "priority"
-                          ? "Priority"
+                        ? m.strategy === "runtime_fallback"
+                          ? "Runtime Fallback"
                           : m.strategy === "weighted_round_robin"
                             ? "Weighted"
                             : "Round Robin"

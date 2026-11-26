@@ -120,7 +120,7 @@ def test_model_catalog_lists_enabled_groups_with_current_rates(test_db, client):
         ):
             db.add(ModelGroup(
                 id=group_id, name=name, model_id=f"group/{group_id}",
-                routing_strategy="priority", created_by=user_id, is_enabled=enabled,
+                routing_strategy="runtime_fallback", created_by=user_id, is_enabled=enabled,
             ))
         db.flush()
 
@@ -201,6 +201,43 @@ def test_user_preferences_toggle_tracing(test_db, client):
     )
     assert patch_res.status_code == 200
     assert patch_res.json()["tracing_enabled"] is False
+
+
+def test_runtime_fallback_migrates_and_saves_model_groups(test_db, client):
+    from backend.core.migrations import _migration_0028_runtime_fallback
+
+    admin_id = str(uuid4())
+    group_id = str(uuid4())
+    with test_db.writes.begin() as db:
+        db.add(User(
+            id=admin_id, email="route-admin@example.com",
+            hashed_password="hash", role=UserRole.SUPERUSER,
+        ))
+        db.flush()
+        db.add(ModelGroup(
+            id=group_id, name="Legacy", model_id="legacy/group",
+            routing_strategy="priority", created_by=admin_id, is_enabled=False,
+        ))
+        db.flush()
+        _migration_0028_runtime_fallback(db.connection())
+        _migration_0028_runtime_fallback(db.connection())
+
+    headers = make_token(admin_id)
+    response = client.get(f"/model-groups/{group_id}", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["routing_strategy"] == "runtime_fallback"
+
+    for strategy in ("weighted_round_robin", "runtime_fallback"):
+        response = client.patch(
+            f"/model-groups/{group_id}", headers=headers, json={"routing_strategy": strategy},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["routing_strategy"] == strategy
+
+    response = client.patch(
+        f"/model-groups/{group_id}", headers=headers, json={"routing_strategy": "priority"},
+    )
+    assert response.status_code == 400
 
 
 def test_regular_user_can_view_model_groups(test_db, client):

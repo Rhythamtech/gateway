@@ -784,6 +784,13 @@ def _migration_0027_trace_error_details(connection: Connection) -> None:
         connection.execute(text("ALTER TABLE llm_call_traces ADD COLUMN error_details JSON"))
 
 
+def _migration_0028_runtime_fallback(connection: Connection) -> None:
+    connection.execute(text(
+        "UPDATE model_groups SET routing_strategy = 'runtime_fallback' "
+        "WHERE routing_strategy = 'priority'"
+    ))
+
+
 MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0001_users_tracing_enabled", _migration_0001_users_tracing_enabled),
     ("0002_users_telemetry_enabled", _migration_0002_users_telemetry_enabled),
@@ -818,6 +825,7 @@ MIGRATIONS: list[tuple[str, Callable[[Connection], None]]] = [
     ("0025_notification_preferences", _migration_0025_notification_preferences),
     ("0026_block_disposable_emails", _migration_0026_block_disposable_emails),
     ("0027_trace_error_details", _migration_0027_trace_error_details),
+    ("0028_runtime_fallback", _migration_0028_runtime_fallback),
 ]
 
 

@@ -49,7 +49,7 @@ async def sync_provider_models(
 def list_models(db: Session = Depends(get_db)) -> dict:
     data = []
 
-    for group in list_enabled_groups(db):
+    for group in list_enabled_groups(db, require_available_member=True):
         data.append(
             {
                 "id": group.model_id,

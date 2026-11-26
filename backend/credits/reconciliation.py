@@ -3,12 +3,17 @@ import logging
 
 from backend.core.config import settings
 from backend.credits.service import recover_pending_usage
+from backend.traces.service import expire_pending_attempts
 
 logger = logging.getLogger(__name__)
 
 
 async def reconcile_credits() -> None:
     while True:
+        try:
+            await asyncio.to_thread(expire_pending_attempts)
+        except Exception:
+            logger.exception("Pending trace expiration failed")
         try:
             await asyncio.to_thread(
                 recover_pending_usage, settings.CREDITS_REVIEW_AFTER_SECONDS

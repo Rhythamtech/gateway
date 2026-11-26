@@ -428,7 +428,7 @@ def test_automatic_rate_caps_output_to_available_credits(client, credits_db, mon
     service.add_credits("user", "user", addition("10"), "admin")
     service.add_credits("provider", "provider", addition("100"), "admin")
 
-    async def send(_, payload, stream, *, capture_error):
+    async def send(_, payload, stream, *, capture_error, detect_tool_rejection):
         assert balances(credits_db)[0].reserved_credits == "10.000000"
         assert 10 <= payload["max_tokens"] < 100
         return httpx.Response(200, json=upstream_response())
@@ -632,6 +632,328 @@ def test_budget_exhaustion_uses_next_candidate(client, credits_db, monkeypatch):
     )
     assert result.status_code == 200
     assert send.call_args.args[0].id == "provider"
+
+
+@pytest.fixture
+def fallback_group(credits_db):
+    from backend.gateway.model_groups.models import ModelGroup, ModelGroupMember
+
+    fund_request(credits_db)
+    with credits_db.writes.begin() as db:
+        db.get(User, "user").tracing_enabled = True
+        db.add_all([
+            ModelGroup(
+                id="group", name="Fallback", model_id="group",
+                routing_strategy="runtime_fallback", created_by="admin",
+            ),
+            Provider(
+                id="backup", name="Backup", aliases="backup",
+                base_url="https://example.org", api_key="",
+            ),
+        ])
+        db.flush()
+        db.add(ProviderModel(
+            id="backup-model", provider_id="backup", model_name="model-b",
+            model_id="backup/model-b",
+        ))
+        db.flush()
+        db.add_all([
+            ModelGroupMember(model_group_id="group", provider_model_id="model", priority=1),
+            ModelGroupMember(model_group_id="group", provider_model_id="backup-model", priority=2),
+        ])
+    service.set_model_rate(
+        "backup-model", ModelRateUpdate(tokens_per_credit=10, max_request_tokens=1000), "admin"
+    )
+    service.add_credits("provider", "backup", addition(), "admin")
+
+
+def test_disabled_model_and_group_are_removed_from_compatible_endpoints(
+    client, credits_db, fallback_group, monkeypatch
+):
+    from backend.gateway.model_groups.models import ModelGroup
+
+    headers = {"x-api-key": "test-key"}
+    send = AsyncMock(return_value=httpx.Response(200, json=upstream_response()))
+    monkeypatch.setattr("backend.gateway.execution.call_provider", send)
+
+    def catalog_ids():
+        response = client.get("/v1/models", headers=headers)
+        assert response.status_code == 200
+        return {item["id"] for item in response.json()["data"]}
+
+    def assert_removed(path, model, **payload):
+        response = client.post(path, headers=headers, json={"model": model, **payload})
+        assert response.status_code == 404, response.text
+        error = response.json()["error"]
+        if path != "/v1/messages":
+            assert error["code"] == "model_not_found"
+        assert "does not exist or has been removed" in error["message"]
+
+    assert catalog_ids() == {"group"}
+    with credits_db.writes.begin() as db:
+        db.get(ProviderModel, "backup-model").is_available = False
+    assert catalog_ids() == {"group"}
+    assert_removed("/v1/chat/completions", "backup/model-b")
+
+    with credits_db.writes.begin() as db:
+        db.get(Provider, "provider").is_enabled = False
+    assert catalog_ids() == set()
+    assert_removed("/v1/chat/completions", "a/model-a")
+    assert_removed("/v1/responses", "group", input="Hello")
+
+    with credits_db.writes.begin() as db:
+        db.get(Provider, "provider").is_enabled = True
+        group = db.get(ModelGroup, "group")
+        # This public name is also an available direct provider route.
+        group.model_id = "a/model-a"
+        group.is_enabled = False
+    assert catalog_ids() == set()
+    assert_removed("/v1/chat/completions", "a/model-a")
+    assert_removed("/v1/responses", "a/model-a", input="Hello")
+    assert_removed("/v1/messages", "a/model-a", max_tokens=20)
+    send.assert_not_awaited()
+    with credits_db.reads() as db:
+        assert db.query(CreditUsage).count() == 0
+
+    with credits_db.writes.begin() as db:
+        db.get(ModelGroup, "group").is_enabled = True
+    assert catalog_ids() == {"a/model-a"}
+    response = client.post(
+        "/v1/chat/completions", headers=headers,
+        json={"model": "a/model-a", "max_tokens": 20},
+    )
+    assert response.status_code == 200, response.text
+    send.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "path,first_result",
+    [
+        ("/v1/chat/completions", 503),
+        ("/v1/messages", 429),
+        ("/v1/responses", 408),
+        ("/v1/chat/completions", "connect"),
+        ("/v1/chat/completions", "timeout"),
+        ("/v1/chat/completions", "tool_rejection"),
+    ],
+)
+def test_runtime_fallback_retries_and_settles_winning_attempt(
+    client, credits_db, fallback_group, monkeypatch, path, first_result
+):
+    from backend.traces.models import LLMCallTrace
+
+    requests = []
+    if path == "/v1/messages":
+        with credits_db.writes.begin() as db:
+            db.get(Provider, "backup").protocol = "anthropic"
+    if first_result == "tool_rejection":
+        with credits_db.writes.begin() as db:
+            db.get(User, "user").tracing_enabled = False
+
+    def upstream(request):
+        requests.append((request.url.path, json.loads(request.content)))
+        if request.url.host == "example.org":
+            protocol = "anthropic" if path == "/v1/messages" else "openai"
+            return httpx.Response(200, json=upstream_response(protocol))
+        if first_result == "connect":
+            raise httpx.ConnectError("unreachable")
+        if first_result == "timeout":
+            raise httpx.ReadTimeout("timed out")
+        if first_result == "tool_rejection":
+            return httpx.Response(400, json={"error": {"message": (
+                '"auto" tool choice requires --enable-auto-tool-choice '
+                'and --tool-call-parser to be set'
+            )}})
+        return httpx.Response(first_result, json={"error": {"message": "Unavailable"}})
+
+    upstream_client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
+    monkeypatch.setattr("backend.gateway.providers.service.get_client", lambda: upstream_client)
+    payload = {"model": "group", "max_tokens": 20}
+    if path == "/v1/responses":
+        payload = {"model": "group", "input": "Hello", "max_output_tokens": 20}
+    if first_result == "tool_rejection":
+        payload["tools"] = [{"type": "function", "function": {"name": "check"}}]
+    response = client.post(path, headers={"x-api-key": "test-key"}, json=payload)
+
+    assert response.status_code == 200, response.text
+    assert [req["model"] for _, req in requests] == ["model-a", "model-b"]
+    assert [req["max_tokens"] for _, req in requests] == [20, 20]
+    assert requests[0][1].get("tools") == requests[1][1].get("tools")
+    assert requests[0][0] == "/v1/chat/completions"
+    assert requests[1][0] == (
+        "/v1/messages" if path == "/v1/messages" else "/v1/chat/completions"
+    )
+    with credits_db.reads() as db:
+        usage = {row.provider_id: row for row in db.query(CreditUsage).all()}
+        assert usage["provider"].status == "needs_review"
+        assert usage["backup"].status == "settled"
+        assert usage["provider"].charged == 0
+        assert usage["backup"].charged > 0
+        assert usage["provider"].request_id == usage["backup"].request_id
+        calls = db.query(LLMCallTrace).order_by(LLMCallTrace.created_at).all()
+        if first_result == "tool_rejection":
+            assert calls == []
+        else:
+            assert [call.provider_model_id for call in calls] == ["model", "backup-model"]
+            assert [call.status for call in calls] == [
+                "timeout" if first_result == "timeout" else "failed", "success",
+            ]
+            assert all(call.message_trace_id == usage["backup"].request_id for call in calls)
+
+
+@pytest.mark.parametrize(
+    "strategy,first_status,backup_status,backup_funded,expected,count",
+    [
+        ("runtime_fallback", 400, 200, True, 400, 1),
+        ("runtime_fallback", 503, 429, True, 429, 2),
+        ("runtime_fallback", 503, 200, False, 503, 1),
+        ("round_robin", 503, 503, True, 503, 1),
+        ("weighted_round_robin", 503, 503, True, 503, 1),
+    ],
+)
+def test_runtime_fallback_error_boundaries(
+    client, credits_db, fallback_group, monkeypatch,
+    strategy, first_status, backup_status, backup_funded, expected, count,
+):
+    from backend.credits.models import ProviderCredits
+    from backend.gateway.model_groups.models import ModelGroup
+
+    with credits_db.writes.begin() as db:
+        db.get(ModelGroup, "group").routing_strategy = strategy
+        if not backup_funded:
+            db.get(ProviderCredits, "backup").remaining = 0
+
+    hosts = []
+
+    def upstream(request):
+        hosts.append(request.url.host)
+        status = first_status if request.url.host == "example.com" else backup_status
+        return httpx.Response(status, json={"error": {"message": "Provider rejection"}})
+
+    upstream_client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
+    monkeypatch.setattr("backend.gateway.providers.service.get_client", lambda: upstream_client)
+    result = client.post(
+        "/v1/chat/completions", headers={"x-api-key": "test-key"},
+        json={"model": "group", "max_tokens": 20},
+    )
+    assert result.status_code == expected
+    assert len(hosts) == len(set(hosts)) == count
+
+
+@pytest.mark.parametrize("model", ["group", "a/model-a"])
+def test_accepted_stream_failure_does_not_retry(
+    client, credits_db, fallback_group, monkeypatch, model
+):
+    send = AsyncMock(return_value=httpx.Response(
+        200, text='data: {"error":{"message":"Overloaded"}}\n\n'
+    ))
+    monkeypatch.setattr("backend.gateway.execution.call_provider", send)
+    result = client.post(
+        "/v1/chat/completions", headers={"x-api-key": "test-key"},
+        json={"model": model, "max_tokens": 20, "stream": True},
+    )
+    assert result.status_code == 200
+    assert "Overloaded" in result.text
+    send.assert_awaited_once()
+
+
+def test_request_deadline_cancels_dispatch_and_returns_504(
+    client, credits_db, fallback_group, monkeypatch
+):
+    import asyncio
+
+    from backend.traces.models import LLMCallTrace
+
+    cancelled = False
+
+    async def slow_provider(*args, **kwargs):
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(10)
+        finally:
+            cancelled = True
+
+    send = AsyncMock(side_effect=slow_provider)
+    monkeypatch.setattr("backend.traces.capture.REQUEST_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr("backend.gateway.execution.call_provider", send)
+    result = client.post(
+        "/v1/chat/completions", headers={"x-api-key": "test-key"},
+        json={"model": "group", "max_tokens": 20},
+    )
+
+    assert result.status_code == 504
+    assert result.json()["error"]["code"] == "request_timeout"
+    assert cancelled
+    send.assert_awaited_once()
+    with credits_db.reads() as db:
+        assert db.query(CreditUsage).one().status == "needs_review"
+        trace = db.query(LLMCallTrace).one()
+        assert (trace.status, trace.error_code) == ("timeout", "request_timeout")
+
+
+@pytest.mark.parametrize(
+    "path,payload,expected",
+    [
+        ("/v1/chat/completions", {"max_tokens": 20}, "request_timeout"),
+        ("/v1/messages", {"max_tokens": 20}, "timeout_error"),
+        ("/v1/responses", {"input": "Hello", "max_output_tokens": 20}, "response.failed"),
+    ],
+)
+def test_request_deadline_closes_open_stream(
+    client, credits_db, fallback_group, monkeypatch, path, payload, expected
+):
+    import asyncio
+
+    from backend.traces.models import LLMCallTrace
+
+    class StalledStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n'
+            await asyncio.sleep(10)
+
+    upstream = httpx.Response(200, stream=StalledStream())
+    send = AsyncMock(return_value=upstream)
+    monkeypatch.setattr("backend.traces.capture.REQUEST_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr("backend.gateway.execution.call_provider", send)
+    result = client.post(
+        path, headers={"x-api-key": "test-key"},
+        json={"model": "group", "stream": True, **payload},
+    )
+
+    assert result.status_code == 200
+    assert expected in result.text
+    assert "five-minute time limit" in result.text
+    assert "response.completed" not in result.text
+    assert upstream.is_closed
+    send.assert_awaited_once()
+    with credits_db.reads() as db:
+        assert db.query(CreditUsage).one().status == "needs_review"
+        trace = db.query(LLMCallTrace).one()
+        assert (trace.status, trace.error_code) == ("timeout", "request_timeout")
+
+
+def test_expiration_closes_only_stale_pending_traces(credits_db):
+    from datetime import timedelta
+
+    from backend.traces import service as traces
+    from backend.traces.models import LLMCallTrace, LLMMessageTrace
+
+    message_id, stale_id = traces.start_pending_attempt(
+        user_id="user", created_at=utcnow() - timedelta(minutes=6)
+    )
+    traces.start_pending_attempt(user_id="user", created_at=utcnow() - timedelta(minutes=7))
+    _, active_id = traces.start_pending_attempt(user_id="user")
+
+    assert traces.expire_pending_attempts() == 2
+    assert traces.expire_pending_attempts() == 0
+    traces.finish_pending_attempt(call_trace_id=stale_id, status="success")
+    with credits_db.reads() as db:
+        stale = db.get(LLMCallTrace, stale_id)
+        assert (stale.status, stale.error_code) == ("timeout", "request_timeout")
+        assert stale.finished_at is not None
+        assert db.get(LLMMessageTrace, message_id).finished_at is not None
+        assert db.get(LLMCallTrace, active_id).status == "pending"
+        assert db.execute(text("SELECT call_count FROM llm_user_usage_daily")).scalar() == 2
 
 
 def test_stale_usage_can_be_released_without_charging(credits_db):
@@ -1174,7 +1496,7 @@ def test_closing_stream_keeps_unfinished_usage_reserved(credits_db, monkeypatch)
     import asyncio
     import json
 
-    from backend.gateway.execution import admit_request
+    from backend.gateway.execution import dispatch_request
     from backend.gateway.streaming import sse
     from backend.traces.capture import CallCapture
 
@@ -1183,7 +1505,6 @@ def test_closing_stream_keeps_unfinished_usage_reserved(credits_db, monkeypatch)
         state=SimpleNamespace(api_key_owner_id="user", api_key_id="key")
     )
     capture = CallCapture(user_id="user", api_key_id="key", request_json=None)
-    execution = admit_request(request, {"model": "a/model-a", "stream": True}, capture)
     content = f"data: {json.dumps({'id': 'disconnected', 'choices': [{'delta': {'content': 'Hello'}}]})}\n\n"
     response = httpx.Response(200, content=content)
     monkeypatch.setattr(
@@ -1191,7 +1512,9 @@ def test_closing_stream_keeps_unfinished_usage_reserved(credits_db, monkeypatch)
     )
 
     async def disconnect():
-        await execution.send(execution.payload)
+        execution, _ = await dispatch_request(
+            request, {"model": "a/model-a", "stream": True}, capture
+        )
         events = execution.stream_events()
 
         async def pieces():

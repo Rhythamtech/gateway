@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.orm import Load, Session
 
 from backend.core.database import SessionLocal
+from backend.core.errors import REQUEST_TIMEOUT_MESSAGE, REQUEST_TIMEOUT_SECONDS
 from backend.credits.calculation import format_credits
 from backend.credits.models import CreditUsage
 from backend.gateway.model_groups.models import ModelGroup
@@ -147,20 +148,22 @@ def bump_daily_usage(
     output_tokens: int | None,
     cache_tokens: int | None,
     latency_ms: int | None,
+    *,
+    attempt_count: int = 1,
 ) -> None:
-    """Atomically bump one daily aggregate row (idempotent per attempt)."""
+    """Atomically add attempts with the same outcome to one daily aggregate."""
 
     values = {
         **pk_columns,
         "usage_date": usage_date,
-        "call_count": 1,
-        "successful_call_count": 1 if status == STATUS_SUCCESS else 0,
-        "failed_call_count": 1 if status in (STATUS_FAILED, STATUS_TIMEOUT) else 0,
-        "input_tokens": input_tokens or 0,
-        "output_tokens": output_tokens or 0,
-        "cache_tokens": cache_tokens or 0,
-        "total_latency_ms": latency_ms or 0,
-        "latency_sample_count": 1 if latency_ms is not None else 0,
+        "call_count": attempt_count,
+        "successful_call_count": attempt_count if status == STATUS_SUCCESS else 0,
+        "failed_call_count": attempt_count if status in (STATUS_FAILED, STATUS_TIMEOUT) else 0,
+        "input_tokens": (input_tokens or 0) * attempt_count,
+        "output_tokens": (output_tokens or 0) * attempt_count,
+        "cache_tokens": (cache_tokens or 0) * attempt_count,
+        "total_latency_ms": (latency_ms or 0) * attempt_count,
+        "latency_sample_count": attempt_count if latency_ms is not None else 0,
     }
 
     insert = postgresql_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
@@ -417,7 +420,7 @@ def finish_pending_attempt(
 
     db = SessionLocal()
     try:
-        call = db.get(LLMCallTrace, call_trace_id)
+        call = db.get(LLMCallTrace, call_trace_id, with_for_update=True)
         if call is None:
             raise ValueError(f"Unknown call trace id: {call_trace_id}")
 
@@ -438,7 +441,7 @@ def finish_pending_attempt(
         call.cache_write_tokens = cache_write_tokens
         call.finished_at = finished
 
-        message = db.get(LLMMessageTrace, call.message_trace_id)
+        message = db.get(LLMMessageTrace, call.message_trace_id, with_for_update=True)
         if message is not None:
             if message.message_id is None and message_id:
                 message.message_id = message_id
@@ -471,6 +474,61 @@ def finish_pending_attempt(
         raise
     finally:
         db.close()
+
+
+def expire_pending_attempts() -> int:
+    """Close up to 100 overdue traces and account for their failed attempts."""
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=REQUEST_TIMEOUT_SECONDS)
+    latency_ms = REQUEST_TIMEOUT_SECONDS * 1000
+    table_order = (
+        LLMAPIKeyUsageDaily, LLMGatewayModelUsageDaily,
+        LLMUserModelUsageDaily, LLMUserUsageDaily,
+    )
+    with SessionLocal.begin() as db:
+        calls = db.scalars(
+            select(LLMCallTrace)
+            .where(LLMCallTrace.status == STATUS_PENDING, LLMCallTrace.created_at <= cutoff)
+            .order_by(LLMCallTrace.created_at, LLMCallTrace.id)
+            .limit(100)
+            .with_for_update(skip_locked=True)
+        ).all()
+        if not calls:
+            return 0
+
+        messages = db.scalars(
+            select(LLMMessageTrace)
+            .where(LLMMessageTrace.id.in_({call.message_trace_id for call in calls}))
+            .order_by(LLMMessageTrace.id)
+            .with_for_update()
+        ).all()
+        for message in messages:
+            if message.finished_at is None or as_utc(message.finished_at) < now:
+                message.finished_at = now
+
+        counts: dict[tuple[int, tuple[tuple[str, str], ...], str], int] = {}
+        for call in calls:
+            call.status = STATUS_TIMEOUT
+            call.error_code = "request_timeout"
+            call.error_details = {"message": REQUEST_TIMEOUT_MESSAGE, "gateway_status": 504}
+            call.latency_ms = latency_ms
+            call.finished_at = now
+            for table, keys in aggregate_targets(
+                user_id=call.user_id,
+                api_key_id=call.api_key_id,
+                gateway_model_id=call.gateway_model_id,
+            ):
+                key = (table_order.index(table), tuple(keys.items()), utc_date_for(as_utc(call.created_at)))
+                counts[key] = counts.get(key, 0) + 1
+
+        # Follow the same table lock order as single-attempt finalization.
+        for (table_index, keys, usage_date), count in sorted(counts.items()):
+            bump_daily_usage(
+                db, table_order[table_index], dict(keys), usage_date, STATUS_TIMEOUT,
+                None, None, None, latency_ms, attempt_count=count,
+            )
+        return len(calls)
 
 
 # ---------------------------------------------------------------------------
